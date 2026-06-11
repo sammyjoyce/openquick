@@ -1,0 +1,19 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Classify template metadata as YAML in language statistics.
+.github/template.yml linguist-language=YAML
+
+# Ensure consistent line endings
+*.c text eol=lf
+*.h text eol=lf
+*.zig text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.gif binary

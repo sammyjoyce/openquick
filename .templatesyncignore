@@ -1,0 +1,12 @@
+.git/
+.github/workflows/template-sync.yml
+README.md
+CHANGELOG.md
+src/
+test/
+examples/
+docs/
+*.lock
+package-lock.json
+Cargo.lock
+go.sum

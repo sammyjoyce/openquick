@@ -1,0 +1,348 @@
+{
+  "opencli": "0.1",
+  "info": {
+    "title": "Curspan",
+    "description": "A ready-to-use C23 starter for command-line tools and ncurses terminal UIs.",
+    "version": "0.1.0",
+    "contact": {
+      "name": "Your Name",
+      "url": "https://github.com/yourusername/yourproject"
+    },
+    "license": {
+      "name": "MIT License",
+      "identifier": "MIT"
+    }
+  },
+  "conventions": {
+    "groupOptions": false,
+    "optionArgumentSeparator": " "
+  },
+  "command": {
+    "name": "myapp",
+    "description": "A ready-to-use C23 starter for command-line tools and ncurses terminal UIs.",
+    "arguments": [
+      {
+        "name": "command",
+        "required": true,
+        "arity": {
+          "minimum": 1,
+          "maximum": 1
+        },
+        "description": "The command to execute"
+      }
+    ],
+    "options": [
+      {
+        "name": "help",
+        "required": false,
+        "aliases": ["h"],
+        "arguments": [],
+        "description": "Show help message and exit"
+      },
+      {
+        "name": "version",
+        "required": false,
+        "aliases": [],
+        "arguments": [],
+        "description": "Show version information and exit"
+      },
+      {
+        "name": "debug",
+        "required": false,
+        "aliases": ["d"],
+        "arguments": [],
+        "description": "Enable debug output (DEBUG level logs)"
+      },
+      {
+        "name": "quiet",
+        "required": false,
+        "aliases": ["q"],
+        "arguments": [],
+        "description": "Suppress non-essential output"
+      },
+      {
+        "name": "verbose",
+        "required": false,
+        "aliases": ["v"],
+        "arguments": [],
+        "description": "Enable verbose output"
+      },
+      {
+        "name": "json",
+        "required": false,
+        "aliases": [],
+        "arguments": [],
+        "description": "Force a versioned JSON response (default when stdout is not a TTY)"
+      },
+      {
+        "name": "plain",
+        "required": false,
+        "aliases": [],
+        "arguments": [],
+        "description": "Force plain text without colors, even when stdout is not a TTY"
+      },
+      {
+        "name": "no-color",
+        "required": false,
+        "aliases": [],
+        "arguments": [],
+        "description": "Disable colored output"
+      },
+      {
+        "name": "config",
+        "required": false,
+        "aliases": ["c"],
+        "arguments": [
+          {
+            "name": "path",
+            "required": true,
+            "arity": {
+              "minimum": 1,
+              "maximum": 1
+            },
+            "description": "Path to configuration file"
+          }
+        ],
+        "description": "Specify configuration file path"
+      }
+    ],
+    "commands": [
+      {
+        "name": "hello",
+        "description": "Print a greeting message.",
+        "options": [],
+        "arguments": [
+          {
+            "name": "name",
+            "required": false,
+            "arity": {
+              "minimum": 0,
+              "maximum": 1
+            },
+            "description": "Name to greet (default: World)"
+          }
+        ],
+        "examples": [
+          "myapp hello",
+          "myapp hello Alice"
+        ]
+      },
+      {
+        "name": "echo",
+        "description": "Echo the provided text.",
+        "options": [],
+        "arguments": [
+          {
+            "name": "text",
+            "required": false,
+            "arity": {
+              "minimum": 0,
+              "maximum": null
+            },
+            "description": "Text to echo"
+          }
+        ],
+        "examples": [
+          "myapp echo Hello World",
+          "myapp echo"
+        ]
+      },
+      {
+        "name": "info",
+        "description": "Display application metadata.",
+        "options": [],
+        "arguments": [],
+        "examples": [
+          "myapp info",
+          "myapp --json info"
+        ]
+      },
+      {
+        "name": "doctor",
+        "description": "Run starter diagnostics (add --deep for the TUI smoke test).",
+        "options": [
+          {
+            "name": "deep",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Also exercise the optional TUI runtime when a TTY is available"
+          }
+        ],
+        "arguments": [],
+        "examples": [
+          "myapp doctor",
+          "myapp --json doctor"
+        ]
+      },
+      {
+        "name": "menu",
+        "description": "Launch the interactive TUI main menu.",
+        "options": [],
+        "arguments": [],
+        "examples": [
+          "myapp menu"
+        ],
+        "metadata": {
+          "requires": "ncurses",
+          "interactive": true
+        }
+      },
+      {
+        "name": "opencli",
+        "description": "Print the OpenCLI contract as JSON.",
+        "options": [],
+        "arguments": [],
+        "examples": [
+          "myapp opencli"
+        ]
+      }
+    ],
+    "exitCodes": [
+      {
+        "code": 0,
+        "description": "Success"
+      },
+      {
+        "code": 1,
+        "description": "Invalid argument"
+      },
+      {
+        "code": 2,
+        "description": "Invalid or unknown command"
+      },
+      {
+        "code": 3,
+        "description": "Configuration file error"
+      },
+      {
+        "code": 4,
+        "description": "Configuration file parse error"
+      },
+      {
+        "code": 5,
+        "description": "Configuration file has invalid values"
+      },
+      {
+        "code": 6,
+        "description": "Missing required argument"
+      },
+      {
+        "code": 7,
+        "description": "Unknown option"
+      },
+      {
+        "code": 10,
+        "description": "Memory allocation error"
+      },
+      {
+        "code": 11,
+        "description": "I/O error"
+      },
+      {
+        "code": 12,
+        "description": "Permission denied"
+      },
+      {
+        "code": 13,
+        "description": "Internal error"
+      },
+      {
+        "code": 14,
+        "description": "Thread/mutex error"
+      },
+      {
+        "code": 15,
+        "description": "Resource exhaustion"
+      },
+      {
+        "code": 16,
+        "description": "Signal handling error"
+      },
+      {
+        "code": 17,
+        "description": "File or resource not found"
+      },
+      {
+        "code": 20,
+        "description": "Invalid data format"
+      },
+      {
+        "code": 21,
+        "description": "Parse error"
+      },
+      {
+        "code": 22,
+        "description": "Validation failed"
+      },
+      {
+        "code": 23,
+        "description": "Numeric overflow"
+      },
+      {
+        "code": 24,
+        "description": "Numeric underflow"
+      },
+      {
+        "code": 25,
+        "description": "Value out of range"
+      },
+      {
+        "code": 130,
+        "description": "Interrupted"
+      },
+      {
+        "code": 143,
+        "description": "Terminated"
+      }
+    ],
+    "examples": [
+      "myapp hello",
+      "myapp hello Alice",
+      "myapp echo Hello World",
+      "myapp echo",
+      "myapp info",
+      "myapp --json info",
+      "myapp doctor",
+      "myapp --json doctor",
+      "myapp menu",
+      "myapp opencli",
+      "myapp --help",
+      "myapp --version"
+    ],
+    "interactive": false,
+    "metadata": [
+      {
+        "name": "environment",
+        "value": {
+          "APP_LOG_LEVEL": "Set logging verbosity: ERROR, WARNING, INFO, DEBUG (default: ERROR)",
+          "APP_CONFIG_PATH": "Override the default config file lookup path",
+          "NO_COLOR": "Disable colored output when set",
+          "FORCE_COLOR": "Force colored output on; set 0 (or false) to force off",
+          "CLICOLOR_FORCE": "Set to a non-zero value to force colored output on",
+          "CLICOLOR": "Set 0 to disable colored output",
+          "APP_CLI_THEME": "Terminal UI theme for styled CLI and generated TUI: auto, dark, or light",
+          "APP_CLI_COLOR": "Terminal UI color profile: auto, never, 16, 256, truecolor",
+          "APP_CLI_OSC11": "Set 0 to disable terminal background detection",
+          "APP_CLI_ACCENT": "Override terminal UI accent (#rrggbb or palette index)"
+        }
+      },
+      {
+        "name": "configuration",
+        "value": {
+          "location": "~/.config/myapp/config.json",
+          "format": "Flat JSON object with boolean debug, quiet, verbose, no_color, json_output, and plain_output keys",
+          "precedence": "CLI args > Environment > Config file > Defaults"
+        }
+      },
+      {
+        "name": "build",
+        "value": {
+          "system": "Zig build system",
+          "compiler": "Zig cc (Clang/LLVM)",
+          "standard": "C23"
+        }
+      }
+    ]
+  }
+}

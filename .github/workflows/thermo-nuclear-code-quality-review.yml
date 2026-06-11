@@ -1,0 +1,176 @@
+# Thermo Nuclear Code Quality Review — ported from sammyjoyce/har.
+# Requires the .flue agent files, .agents/skills, .github/scripts, and the flue
+# deps in package.json (@flue/runtime, valibot, @flue/cli).
+# Model traffic is routed through the gateway (gateway.sammy.sh) with a dummy key.
+name: Thermo Nuclear Code Quality Review
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, converted_to_draft, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number to review"
+        required: true
+        type: string
+
+concurrency:
+  group: thermo-nuclear-code-quality-review-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  thermo-nuclear-review:
+    # Auto-run on same-repo, non-dependabot PRs, including drafts. Forks and
+    # Dependabot PRs do not receive the model-provider secrets needed here.
+    # Always run on manual dispatch.
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.fork == false &&
+       github.actor != 'dependabot[bot]')
+    runs-on: namespace-profile-andsam;tailscale.spec=corp
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+
+    steps:
+      - name: Determine PR number
+        id: pr-number
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          PR_EVENT_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "number=$INPUT_PR_NUMBER" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            echo "number=$PR_EVENT_NUMBER" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "::error::Unexpected event '${EVENT_NAME}'; this workflow only runs on pull_request and workflow_dispatch."
+          exit 1
+
+      - name: Resolve PR context
+        if: steps.pr-number.outputs.skip != 'true'
+        id: pr-context
+        uses: actions/github-script@v9.0.0
+        env:
+          PR_NUMBER: ${{ steps.pr-number.outputs.number }}
+        with:
+          script: |
+            const pull_number = Number(process.env.PR_NUMBER)
+            const { data: pullRequest } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number,
+            })
+
+            if (!pullRequest.head.repo) {
+              core.setFailed('Thermo Nuclear Code Quality Review cannot run because the PR head repository is unavailable.')
+              return
+            }
+
+            core.setOutput('head_repository', pullRequest.head.repo.full_name)
+            core.setOutput('head_ref', pullRequest.head.sha)
+            core.setOutput('base_repository', pullRequest.base.repo.full_name)
+            core.setOutput('base_ref', pullRequest.base.ref)
+
+      - name: Checkout trusted reviewer code
+        if: steps.pr-number.outputs.skip != 'true'
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ steps.pr-context.outputs.base_repository }}
+          ref: ${{ steps.pr-context.outputs.base_ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        if: steps.pr-number.outputs.skip != 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Install Flue runtime (self-contained, no manifest changes)
+        if: steps.pr-number.outputs.skip != 'true'
+        # Installed with --no-save / --no-package-lock so this review never
+        # touches the host repo's package.json or lockfile (keeps its own CI green).
+        run: npm install --no-save --no-package-lock @flue/runtime@^0.8.1 valibot@^1.4.1 @flue/cli@^0.8.1
+
+      - name: Run Thermo Nuclear Code Quality Review
+        if: steps.pr-number.outputs.skip != 'true'
+        id: thermo-nuclear-review
+        env:
+          ANTHROPIC_BASE_URL: https://gateway.sammy.sh
+          ANTHROPIC_AUTH_TOKEN: sk-dummy
+          OPENAI_BASE_URL: https://gateway.sammy.sh/v1
+          OPENAI_API_KEY: sk-dummy
+          OPENCODE_API_KEY: sk-dummy
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.pr-number.outputs.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          RESULT_PATH="${THERMO_NUCLEAR_RESULT_PATH:-/tmp/thermo-nuclear-result.json}"
+          rm -f "$RESULT_PATH"
+          FLUE_ID_ARGS=()
+          if npx flue run --help 2>&1 | grep -q -- "--id <id>"; then
+            FLUE_ID_ARGS=(--id "thermo-nuclear-${PR_NUMBER}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}")
+          fi
+          set +e
+          npx flue run thermo-nuclear-code-quality-review --target node \
+            "${FLUE_ID_ARGS[@]}" \
+            --payload "{\"prNumber\": ${PR_NUMBER}, \"repository\": \"${REPOSITORY}\"}" \
+            > /tmp/flue-output.txt 2>&1
+          FLUE_EXIT=$?
+          set -e
+
+          echo "::group::flue-output"
+          cat /tmp/flue-output.txt
+          echo "::endgroup::"
+
+          if [ $FLUE_EXIT -ne 0 ]; then
+            echo "::error::flue run exited with ${FLUE_EXIT}; see the flue-output group."
+            exit "$FLUE_EXIT"
+          fi
+
+          if [ -s "$RESULT_PATH" ]; then
+            echo "Result JSON written directly"
+          elif python3 .github/scripts/extract-flue-json.py /tmp/flue-output.txt "$RESULT_PATH" --profile thermo-nuclear; then
+            echo "Result JSON recovered from flue output"
+          else
+            EXTRACT_EXIT=$?
+            echo "::error::No writeable, parseable result artifact; failing."
+            exit "$EXTRACT_EXIT"
+          fi
+
+          {
+            echo "result<<FLUE_RESULT_DELIM"
+            cat "$RESULT_PATH"
+            printf '\n'
+            echo "FLUE_RESULT_DELIM"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post gatekeeper verdict and suggested changes
+        if: steps.pr-number.outputs.skip != 'true'
+        uses: actions/github-script@v9.0.0
+        env:
+          THERMO_RESULT: ${{ steps.thermo-nuclear-review.outputs.result }}
+          PR_NUMBER: ${{ steps.pr-number.outputs.number }}
+        with:
+          script: |
+            const { pathToFileURL } = await import('node:url')
+            const scriptPath = `${process.env.GITHUB_WORKSPACE}/.github/scripts/post-thermo-nuclear-review.mjs`
+            const { postThermoNuclearReview } = await import(pathToFileURL(scriptPath).href)
+            await postThermoNuclearReview({
+              github,
+              context,
+              core,
+              thermoResult: process.env.THERMO_RESULT,
+              prNumber: process.env.PR_NUMBER,
+            })

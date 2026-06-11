@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ncurses"
+  short_description: "Authoritative ncurses terminal guidance"
+  default_prompt: "Use $ncurses to debug this curses terminal behavior."

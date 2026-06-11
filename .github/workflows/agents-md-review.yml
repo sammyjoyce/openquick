@@ -1,0 +1,128 @@
+# AGENTS.md Reviewer — flags PRs whose materiality warrants an AI-instruction
+# update, and penalizes rot in the existing AGENTS.md/CLAUDE.md.
+# Self-contained: stdlib Python only, no repo manifest changes. Model traffic
+# routes through the gateway (gateway.sammy.sh) with a dummy key.
+name: AGENTS.md Review
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number to review"
+        required: true
+        type: string
+
+concurrency:
+  group: agents-md-review-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  agents-md-review:
+    # Same-repo, non-dependabot PRs only (forks lack the gateway secrets/runner).
+    # Always run on manual dispatch.
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.fork == false &&
+       github.actor != 'dependabot[bot]')
+    runs-on: namespace-profile-andsam;tailscale.spec=corp
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+
+    steps:
+      - name: Resolve PR number
+        id: pr-number
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          PR_EVENT_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "number=$INPUT_PR_NUMBER" >> "$GITHUB_OUTPUT"
+          else
+            echo "number=$PR_EVENT_NUMBER" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve PR context
+        id: pr-context
+        uses: actions/github-script@v9.0.0
+        env:
+          PR_NUMBER: ${{ steps.pr-number.outputs.number }}
+        with:
+          script: |
+            const pull_number = Number(process.env.PR_NUMBER)
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number,
+            })
+            if (!pr.head.repo) {
+              core.setFailed('AGENTS.md Review cannot run: PR head repository is unavailable.')
+              return
+            }
+            core.setOutput('head_repository', pr.head.repo.full_name)
+            core.setOutput('head_ref', pr.head.sha)
+
+      - name: Checkout PR head (proposed state)
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ steps.pr-context.outputs.head_repository }}
+          ref: ${{ steps.pr-context.outputs.head_ref }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run AGENTS.md materiality review
+        id: review
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AGENTS_REVIEW_REPOSITORY: ${{ github.repository }}
+          AGENTS_REVIEW_PR_NUMBER: ${{ steps.pr-number.outputs.number }}
+          AGENTS_REVIEW_MODEL: gpt-5.5
+          AGENTS_REVIEW_API_KEY: sk-dummy
+          AGENTS_REVIEW_ENDPOINT: https://gateway.sammy.sh/v1/responses
+          # Set to "true" to fail the check on a high-materiality change that
+          # leaves AGENTS.md untouched (default: advisory comment only).
+          AGENTS_REVIEW_ENFORCE: "false"
+        run: python3 .github/scripts/agents-md-review.py --output /tmp/agents-md-review.md
+
+      - name: Post AGENTS.md review comment
+        if: always() && steps.review.outcome != 'skipped'
+        uses: actions/github-script@v9.0.0
+        env:
+          PR_NUMBER: ${{ steps.pr-number.outputs.number }}
+        with:
+          script: |
+            const fs = require('node:fs')
+            const path = '/tmp/agents-md-review.md'
+            if (!fs.existsSync(path)) {
+              core.info('No review output produced; skipping comment.')
+              return
+            }
+            const body = fs.readFileSync(path, 'utf8').trim()
+            if (!body) {
+              core.info('Empty review output; skipping comment.')
+              return
+            }
+            const marker = '<!-- agents-md-review -->'
+            const issue_number = Number(process.env.PR_NUMBER)
+            const { owner, repo } = context.repo
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number, per_page: 100,
+            })
+            const existing = comments.find((c) => c.body && c.body.includes(marker))
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body })
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body })
+            }

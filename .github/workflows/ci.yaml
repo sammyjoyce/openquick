@@ -1,0 +1,607 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v*'
+
+  pull_request:
+    branches: [main]
+
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+env:
+  ZIG_VERSION: 0.16.0
+  VCPKG_REF: ce613c41372b23b1f51333815feb3edd87ef8a8b # 2025.04.09
+  SYFT_VERSION: 1.20.0
+  SYFT_LINUX_AMD64_SHA256: 689e12c5cbf67521ce61b9c126068f9eaabe1223e77971b2fede50033ff6b5cc
+
+# Runner selection defaults to GitHub-hosted labels so repositories created
+# from this template can run CI immediately. Set repository or organization
+# variables CI_LINUX_RUNNER, CI_MACOS_RUNNER, and CI_WINDOWS_RUNNER to opt into
+# Namespace or other self-hosted runners.
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: Linux
+            runner: ${{ vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+            artifact_name: myapp-linux
+          - os: macOS
+            runner: ${{ vars.CI_MACOS_RUNNER || 'macos-latest' }}
+            artifact_name: myapp-macos
+          - os: Windows
+            runner: ${{ vars.CI_WINDOWS_RUNNER || 'windows-latest' }}
+            artifact_name: myapp-windows
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Get Zig version
+        id: zig-version
+        run: |
+          echo "ZIG_VERSION=$(zig version)" >> "$GITHUB_ENV"
+        shell: bash
+
+      - name: Cache Zig build
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          # ~/.cache/zig holds the compiler/std artifacts; the repo-local
+          # .zig-cache/o holds the per-translation-unit C object files. Caching
+          # only the global dir made every run recompile all C TUs from scratch
+          # even on a cache hit. Zig content-hashes each object by (file, flags,
+          # target), so restoring a stale .zig-cache is always safe — unchanged
+          # TUs are reused and changed ones are recompiled. The restore-keys
+          # prefix fallback recovers the cache across the frequent build.zig
+          # edits a generated project makes.
+          path: |
+            ~/.cache/zig
+            .zig-cache
+          key: ${{ runner.os }}-zig-${{ env.ZIG_VERSION }}-${{ hashFiles('build.zig', 'build.zig.zon') }}
+          restore-keys: |
+            ${{ runner.os }}-zig-${{ env.ZIG_VERSION }}-
+            ${{ runner.os }}-zig-
+
+      - name: Extract binary name
+        id: extract_binary_name
+        run: |
+          # Extract the name field from build.zig.zon, handling both quoted and unquoted formats
+          BINARY_NAME=$(awk '/\.name = / {gsub(/.*\.name = /, ""); gsub(/[,.]/, ""); gsub(/"/, ""); print}' build.zig.zon)
+          echo "BINARY_NAME=$BINARY_NAME" >> "$GITHUB_ENV"
+          echo "binary_name=$BINARY_NAME" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      - name: Install dependencies
+        run: |
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            sudo apt-get update
+            sudo apt-get install -y pkg-config libncurses-dev
+          elif [ "${{ runner.os }}" = "macOS" ]; then
+            brew install pkg-config ncurses
+            # TUI is built by default, so every `zig build` step below needs the
+            # keg-only ncurses prefix (it is not on the default search paths).
+            echo "CURSES_ARGS=-Dcurses-prefix=$(brew --prefix ncurses)" >> "$GITHUB_ENV"
+          fi
+        shell: bash
+
+      - name: Install pdcurses (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          # Install vcpkg
+          git clone https://github.com/Microsoft/vcpkg.git
+          cd vcpkg
+          git checkout --detach "$VCPKG_REF"
+          ./bootstrap-vcpkg.bat
+          ./vcpkg integrate install
+
+          # Install pdcurses
+          ./vcpkg install pdcurses:x64-windows
+          # Also set library paths for Windows
+          {
+            echo "VCPKG_ROOT=$(pwd)"
+            echo "LIB=$LIB;$(pwd)/installed/x64-windows/lib"
+            echo "INCLUDE=$INCLUDE;$(pwd)/installed/x64-windows/include"
+            # TUI is built by default; point every `zig build` step at the
+            # vcpkg prefix so PDCurses is found (there is no system PDCurses).
+            echo "CURSES_ARGS=-Dcurses-prefix=$(pwd)/installed/x64-windows"
+          } >> "$GITHUB_ENV"
+          cd ..
+        shell: bash
+
+      - name: Run `install` step
+        run: |
+          CURSES_ARGS_ARRAY=()
+          if [ -n "${CURSES_ARGS:-}" ]; then
+            CURSES_ARGS_ARRAY=("$CURSES_ARGS")
+          fi
+          zig build install "${CURSES_ARGS_ARRAY[@]}"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            # The default TUI binary links pdcurses.dll. Place it next to the
+            # binary so the EXE's own directory (first in the Windows DLL search
+            # order) satisfies the dependency for every step that runs it,
+            # including binaries spawned by the contract test runner.
+            cp "$VCPKG_ROOT"/installed/x64-windows/bin/*.dll zig-out/bin/
+          fi
+        timeout-minutes: 10
+        shell: bash
+
+      - name: Run `check` step
+        run: |
+          CURSES_ARGS_ARRAY=()
+          if [ -n "${CURSES_ARGS:-}" ]; then
+            CURSES_ARGS_ARRAY=("$CURSES_ARGS")
+          fi
+          zig build -Dstrict=true check "${CURSES_ARGS_ARRAY[@]}"
+        timeout-minutes: 10
+        shell: bash
+
+      - name: Validate OpenCLI JSON
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            BINARY_EXT=".exe"
+          else
+            BINARY_EXT=""
+          fi
+          python3 -m json.tool opencli.json >/dev/null
+          "./zig-out/bin/$BINARY_NAME$BINARY_EXT" opencli | python3 -m json.tool >/dev/null
+        shell: bash
+
+      - name: Check installed binary exists
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            BINARY_EXT=".exe"
+          else
+            BINARY_EXT=""
+          fi
+
+          # Debug: List contents of zig-out/bin
+          echo "Contents of zig-out/bin:"
+          ls -la zig-out/bin/ || echo "zig-out/bin directory not found"
+
+          # Check if binary exists
+          if [ ! -f "./zig-out/bin/$BINARY_NAME$BINARY_EXT" ]; then
+            echo "Error: Binary ./zig-out/bin/$BINARY_NAME$BINARY_EXT not found!"
+            exit 1
+          fi
+
+          # On Windows, check for DLL dependencies
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            echo "Checking binary dependencies:"
+            # Try to run with full path to see actual error
+            "./zig-out/bin/$BINARY_NAME$BINARY_EXT" --help 2>&1 || echo "Exit code: $?"
+
+            # Add pdcurses DLL to PATH
+            export PATH="$PATH:$VCPKG_ROOT/installed/x64-windows/bin"
+            echo "Updated PATH with vcpkg bin directory"
+          fi
+        shell: bash
+
+      - name: Build with TUI support
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            BINARY_EXT=".exe"
+            export PATH="$PATH:$VCPKG_ROOT/installed/x64-windows/bin"
+            zig build -Denable-tui=true -Dcurses-prefix="$VCPKG_ROOT/installed/x64-windows"
+          elif [ "${{ runner.os }}" = "macOS" ]; then
+            BINARY_EXT=""
+            zig build -Denable-tui=true -Dcurses-prefix="$(brew --prefix ncurses)"
+          else
+            BINARY_EXT=""
+            zig build -Denable-tui=true
+          fi
+
+          "./zig-out/bin/$BINARY_NAME$BINARY_EXT" --json info | grep '"tui":true'
+        timeout-minutes: 15
+        shell: bash
+
+      - name: Build release binary
+        run: |
+          CURSES_ARGS_ARRAY=()
+          if [ -n "${CURSES_ARGS:-}" ]; then
+            CURSES_ARGS_ARRAY=("$CURSES_ARGS")
+          fi
+          zig build -Doptimize=ReleaseSafe -Dstrict=true -Dharden=true "${CURSES_ARGS_ARRAY[@]}"
+        timeout-minutes: 15
+        shell: bash
+
+      - name: Minimal-footprint guard
+        # The no-TUI, no-CLI-style build must stay libc-only and small. Catches
+        # regressions that accidentally pull a curses TU into the minimal build
+        # (e.g. an over-broad shared library). Linux/ELF only.
+        if: runner.os == 'Linux'
+        run: |
+          zig build -Doptimize=ReleaseSafe -Denable-tui=false -Denable-cli-style=false -Dstrip=true
+          bin="zig-out/bin/$BINARY_NAME"
+          if readelf -d "$bin" 2>/dev/null | grep -qiE 'ncurses|curses|tinfo'; then
+            echo "FAIL: minimal build links a curses library"
+            readelf -d "$bin" | grep -i needed
+            exit 1
+          fi
+          size=$(stat -c%s "$bin")
+          limit=98304
+          if [ "$size" -gt "$limit" ]; then
+            echo "FAIL: minimal binary ${size} B exceeds ${limit} B"
+            exit 1
+          fi
+          echo "OK: minimal libc-only build is ${size} B (limit ${limit} B), no curses NEEDED"
+        timeout-minutes: 10
+        shell: bash
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
+        with:
+          name: ${{ matrix.artifact_name }}-${{ github.run_number }}
+          path: |
+            zig-out/bin/${{ steps.extract_binary_name.outputs.binary_name }}
+            zig-out/bin/${{ steps.extract_binary_name.outputs.binary_name }}.exe
+          retention-days: 7
+
+  # Optional required-PTY gate for maintainers. This uses pkgs.libghostty-vt
+  # from the repository flake, not the old direct Ghostty flake build. If you
+  # make it branch-protected, update flake.lock intentionally so nixpkgs package
+  # lineage and Ghostty VT API drift are reviewed.
+  ghostty-vt-nix:
+    name: PTY/TUI terminal tests with Nix
+    if: ${{ vars.CI_ENABLE_NIX_GHOSTTY == 'true' }}
+    runs-on: ${{ vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@b97f05dcb019ddea06450a50ef6203d2fdc19fee # v31
+
+      - name: Run required Ghostty VT terminal tests
+        run: |
+          nix --accept-flake-config develop --command \
+            zig build -Denable-tui=true -Dterminal-backend=ghostty terminal-test
+        timeout-minutes: 20
+        shell: bash
+
+  lint:
+    name: Lint and Format
+    runs-on: ${{ vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 'lts/*'
+
+      - name: Install static analysis tools
+        run: |
+          sudo apt-get update
+          # Pin the clang major version so formatting/linting is reproducible
+          # and does not drift as the distro's default clang advances.
+          sudo apt-get install -y clang-format-18 clang-tidy-18 cppcheck
+        shell: bash
+
+      - name: Check formatting
+        run: zig fmt --check src/ test/
+        shell: bash
+
+      - name: Check text hygiene
+        run: |
+          status=0
+          while IFS= read -r -d '' file; do
+            # Skip symlinks: they may point at directories and have no text body.
+            if [ -L "$file" ]; then
+              continue
+            fi
+            if ! grep -Iq . "$file"; then
+              continue
+            fi
+            if grep -Hn '[[:blank:]]$' "$file"; then
+              status=1
+            fi
+            if [ -s "$file" ] && [ "$(tail -c 1 "$file")" != "" ]; then
+              echo "$file: missing final newline"
+              status=1
+            fi
+          done < <(git ls-files -z ':!:zig-pkg/**')
+          exit "$status"
+        shell: bash
+
+      - name: Check large files
+        run: |
+          max_bytes=1048576
+          status=0
+          while IFS= read -r -d '' file; do
+            # Skip symlinks: `wc -c < symlink-to-dir` fails with "Is a directory",
+            # and a symlink's tracked blob is just its tiny target path anyway.
+            if [ -L "$file" ]; then
+              continue
+            fi
+            size="$(wc -c < "$file")"
+            if [ "$size" -gt "$max_bytes" ]; then
+              echo "$file: $size bytes exceeds $max_bytes byte limit"
+              status=1
+            fi
+          done < <(git ls-files -z ':!:zig-pkg/**')
+          exit "$status"
+        shell: bash
+
+      - name: Check YAML syntax
+        run: |
+          git ls-files -z '*.yml' '*.yaml' ':!:zig-pkg/**' \
+            | xargs -0 npx --yes yaml-lint@1.7.0
+        shell: bash
+
+      - name: Check conventional commit subject
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          pattern='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([[:alnum:]_.\/-]+\))?!?: .+'
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            subject="$PR_TITLE"
+            label="pull request title"
+          else
+            subject="$(git log -1 --pretty=%s)"
+            label="commit subject"
+          fi
+
+          if ! printf '%s\n' "$subject" | grep -Eq "$pattern"; then
+            echo "$label does not follow Conventional Commits: $subject"
+            exit 1
+          fi
+        shell: bash
+
+      - name: Run clang-format check
+        run: |
+          find src test \( -name "*.c" -o -name "*.h" \) -print0 | xargs -0 clang-format-18 --dry-run --Werror
+        shell: bash
+
+      - name: Run clang-tidy analysis
+        run: |
+          zig build -Doptimize=ReleaseSafe -Dstrict=true -Dharden=true
+
+          # Source app metadata from build.zig.zon so the -D flags stay in
+          # sync with the build instead of drifting.
+          APP_NAME=$(awk '/\.name = / {gsub(/.*\.name = /, ""); gsub(/[,.]/, ""); gsub(/"/, ""); print}' build.zig.zon)
+          APP_VERSION=$(awk '/\.version = / {gsub(/.*\.version = /, ""); gsub(/[",]/, ""); print}' build.zig.zon)
+
+          cc_include_flags=()
+          while IFS= read -r include_dir; do
+            [ -n "$include_dir" ] && cc_include_flags+=("-isystem" "$include_dir")
+          done < <(
+            cc -E -x c - -v </dev/null 2>&1 \
+              | awk '
+                  /#include <...> search starts here:/ { capture = 1; next }
+                  /End of search list./ { capture = 0 }
+                  capture {
+                    sub(/^[[:space:]]+/, "")
+                    sub(/[[:space:]]+\\(framework directory\\)$/, "")
+                    print
+                  }
+                '
+          )
+          while IFS= read -r -d '' file; do
+            clang-tidy-18 --quiet \
+              --checks='clang-analyzer-*,-clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,-clang-analyzer-security.ArrayBound,-clang-analyzer-valist.Uninitialized' \
+              "$file" -- \
+              -std=c23 \
+              -Wall \
+              -Wextra \
+              -D_GNU_SOURCE \
+              "-DAPP_VERSION=\"${APP_VERSION}\"" \
+              "-DAPP_NAME=\"${APP_NAME}\"" \
+              "-DAPP_GIT_COMMIT=\"unknown\"" \
+              "-DAPP_BUILD_DATE=\"reproducible\"" \
+              -Isrc \
+              "${cc_include_flags[@]}"
+          done < <(find src -name "*.c" -print0)
+        shell: bash
+
+      - name: Run cppcheck analysis
+        run: |
+          cppcheck --enable=all --inconclusive --std=c23 --platform=unix64 \
+            --suppress=unusedFunction \
+            --suppress=staticFunction \
+            --suppress=missingIncludeSystem \
+            --suppress=normalCheckLevelMaxBranches \
+            src/
+        shell: bash
+
+  validate-template:
+    name: Validate Template
+    runs-on: ${{ vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    # Skip validation for the template repository itself (name-independent;
+    # generated repos have is_template == false)
+    if: ${{ !github.event.repository.is_template }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Check for template placeholders
+        run: |
+          # Check for common template placeholders (excluding C23 attributes like [[nodiscard]])
+          PLACEHOLDERS_FOUND=$(find . -type f -not -path "./.git/*" -not -path "./zig-cache/*" -not -path "./zig-out/*" -not -path "./.github/workflows/*" \( -name "*.md" -o -name "*.yml" -o -name "*.yaml" -o -name "*.json" -o -name "*.txt" -o -name "*.zig" \) -exec grep -l "{{[^}]*}}\|<REPO_NAME>\|<REPO_OWNER>\|<PROJECT_NAME>" {} \; | wc -l)
+
+          if [ "$PLACEHOLDERS_FOUND" -gt 0 ]; then
+            echo "❌ Template placeholders found in the following files:"
+            find . -type f -not -path "./.git/*" -not -path "./zig-cache/*" -not -path "./zig-out/*" -not -path "./.github/workflows/*" \( -name "*.md" -o -name "*.yml" -o -name "*.yaml" -o -name "*.json" -o -name "*.txt" -o -name "*.zig" \) -exec grep -l "{{[^}]*}}\|<REPO_NAME>\|<REPO_OWNER>\|<PROJECT_NAME>" {} \;
+            echo "Please replace all template placeholders before committing."
+            exit 1
+          else
+            echo "✅ No template placeholders found"
+          fi
+        shell: bash
+
+      - name: Check for template artifacts
+        run: |
+          # Check for common template artifacts that should be cleaned up
+          TEMPLATE_DIRS=".template"
+          TEMPLATE_FILES=".templatesyncignore USING_THIS_TEMPLATE.md"
+
+          ARTIFACTS_FOUND=0
+
+          # Check for template directories
+          for dir in $TEMPLATE_DIRS; do
+            if [ -d "$dir" ]; then
+              echo "❌ Template directory found: $dir"
+              ARTIFACTS_FOUND=$((ARTIFACTS_FOUND + 1))
+            fi
+          done
+
+          # Check for template files
+          for file in $TEMPLATE_FILES; do
+            while IFS= read -r f; do
+              echo "❌ Template file found: $f"
+              ARTIFACTS_FOUND=$((ARTIFACTS_FOUND + 1))
+            done < <(find . -type f -name "$file" -not -path "./.git/*")
+          done
+
+          if [ "$ARTIFACTS_FOUND" -gt 0 ]; then
+            echo "Please remove all template artifacts before committing."
+            exit 1
+          else
+            echo "✅ No template artifacts found"
+          fi
+        shell: bash
+
+  renovate-config:
+    name: Validate Renovate Config
+    runs-on: ${{ vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Validate renovate.json
+        uses: suzuki-shunsuke/github-action-renovate-config-validator@6f6712f9a086abef927fae44e052ca09bbe4a258 # v1.0.0
+
+  markdown-lint:
+    name: Markdown Lint
+    runs-on: ${{ vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 'lts/*'
+
+      - name: Run markdownlint
+        run: npx --yes markdownlint-cli@0.45.0 "**/*.md" --ignore ".template/**" --ignore ".github/**" --ignore "zig-out/**" --ignore ".zig-cache/**" --ignore "zig-pkg/**"
+        shell: bash
+
+  secrets-scan:
+    name: Secrets Scan
+    runs-on: ${{ vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  sbom:
+    name: Generate SBOM
+    runs-on: ${{ vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Install syft
+        run: |
+          archive="syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          curl -sSfL "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/${archive}" -o "$archive"
+          printf '%s  %s\n' "$SYFT_LINUX_AMD64_SHA256" "$archive" | sha256sum -c -
+          tar -xzf "$archive" syft
+          sudo install -m 0755 syft /usr/local/bin/syft
+          syft version
+        shell: bash
+
+      - name: Build project
+        run: |
+          zig build -Doptimize=ReleaseSafe -Dstrict=true -Dharden=true
+        shell: bash
+
+      - name: Generate SBOM
+        run: |
+          syft . --output spdx-json@2.3 > sbom.spdx.json
+        shell: bash
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sbom
+          path: sbom.spdx.json
+
+  release:
+    name: Create Release
+    needs: [test, lint, renovate-config, markdown-lint, secrets-scan, sbom]
+    runs-on: ${{ vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4.1.7
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@80dccdfcca550bfea3bec6643ce0294b259a33d9 # v2.0.4
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false

@@ -1,0 +1,17 @@
+.{
+    .name = .myapp,
+    .version = "0.1.0",
+    .fingerprint = 0x8798022a387365d7,
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "test",
+        "opencli.json",
+        "docs",
+        "examples",
+        "LICENSE",
+        "README.md",
+    },
+}

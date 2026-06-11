@@ -1,0 +1,90 @@
+{
+  "name": "C/Zig Development",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+
+  // Features to add to the dev container
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": true,
+      "configureZshAsDefaultShell": true,
+      "installOhMyZsh": true,
+      "upgradePackages": true,
+      "username": "vscode",
+      "userUid": "1000",
+      "userGid": "1000"
+    },
+    "ghcr.io/devcontainers/features/git:1": {
+      "version": "latest",
+      "ppa": true
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers/features/zig:1": {
+      "version": "0.16.0"
+    }
+  },
+
+  // Configure tool-specific properties
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "zsh",
+        "editor.formatOnSave": true,
+        "editor.rulers": [80, 120],
+        "files.trimTrailingWhitespace": true,
+        "files.insertFinalNewline": true,
+        "C_Cpp.default.cStandard": "c23",
+        "C_Cpp.default.cppStandard": "c++17",
+        "C_Cpp.clang_format_style": "file",
+        "C_Cpp.formatting": "clangFormat"
+      },
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-vscode.cpptools-extension-pack",
+        "ms-vscode.cmake-tools",
+        "ziglang.vscode-zig",
+        "vadimcn.vscode-lldb",
+        "webfreak.debug",
+        "streetsidesoftware.code-spell-checker",
+        "yzhang.markdown-all-in-one",
+        "davidanson.vscode-markdownlint",
+        "github.vscode-pull-request-github",
+        "eamodio.gitlens",
+        "mhutchie.git-graph",
+        "donjayamanne.githistory",
+        "usernamehw.errorlens",
+        "gruntfuggly.todo-tree"
+      ]
+    }
+  },
+
+  // Port forwarding
+  "forwardPorts": [],
+
+  // Use 'postCreateCommand' to run commands after the container is created
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+
+  // Use 'postStartCommand' to run commands after the container is started
+  "postStartCommand": "git config --global --add safe.directory ${containerWorkspaceFolder}",
+
+  // Environment variables
+  "containerEnv": {
+    "SHELL": "/bin/zsh"
+  },
+
+  // Mounts
+  "mounts": [
+    "source=${localWorkspaceFolder}/.devcontainer/scripts,target=/scripts,type=bind,consistency=cached"
+  ],
+
+  // Run as non-root user
+  "remoteUser": "vscode",
+
+  // Additional features
+  "updateContentCommand": "sudo apt-get update && sudo apt-get install -y build-essential clang clang-format clang-tidy cppcheck lldb gdb cmake ninja-build valgrind codelldb lldb-mi pkg-config libncurses-dev just shellcheck",
+
+  // Workspace settings
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached"
+}

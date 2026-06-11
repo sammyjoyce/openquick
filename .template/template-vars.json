@@ -1,0 +1,135 @@
+{
+  "variables": {
+    "PROJECT_NAME": {
+      "placeholders": ["Curspan"],
+      "description": "Human-readable project name shown in documentation, metadata, and headings.",
+      "sources": ["repository_name"],
+      "validation": "^[A-Za-z][A-Za-z0-9 _-]*$"
+    },
+    "PROJECT_NAME_SNAKE": {
+      "placeholders": [],
+      "description": "Project name in snake_case. Applied only to the build.zig.zon package identifier via the scoped special replacement below (.myapp -> .<snake>). Intentionally carries no generic placeholder: the snake form appears nowhere else in the tree, so a bare token like 'my_cli_app' would never match real content and would only risk rewriting unrelated literals.",
+      "sources": ["repository_name"],
+      "transform": "snake_case",
+      "validation": "^[a-z][a-z0-9_]*$"
+    },
+    "PROJECT_NAME_KEBAB": {
+      "placeholders": ["myapp", "yourproject"],
+      "description": "Project name in kebab-case for CLI commands, binaries, and URLs.",
+      "sources": ["repository_name"],
+      "transform": "kebab_case",
+      "validation": "^[a-z][a-z0-9-]*$"
+    },
+    "PROJECT_DESCRIPTION": {
+      "placeholders": [
+        "A ready-to-use C23 starter for command-line tools and ncurses terminal UIs."
+      ],
+      "description": "Short project description used in README content and package metadata.",
+      "sources": ["repository_description"],
+      "fallback": "A ready-to-use C23 TUI + CLI starter.",
+      "required": false
+    },
+    "AUTHOR_NAME": {
+      "placeholders": ["Your Name", "Sam Joyce"],
+      "description": "Full name of the primary project author.",
+      "sources": ["git_user_name", "repository_owner"],
+      "validation": "^[A-Za-z0-9_ .'-]+$"
+    },
+    "AUTHOR_EMAIL": {
+      "placeholders": ["you@example.com"],
+      "description": "Email address for the project author or maintainer.",
+      "sources": ["git_user_email"],
+      "required": false,
+      "validation": "^[^@[:space:]]+@[^@[:space:]]+[.][^@[:space:]]+$"
+    },
+    "GITHUB_USERNAME": {
+      "placeholders": ["yourusername", "sammyjoyce"],
+      "description": "GitHub username or organization that owns the repository.",
+      "sources": ["repository_owner"],
+      "validation": "^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$"
+    },
+    "PROJECT_URL": {
+      "placeholders": ["https://github.com/yourusername/yourproject"],
+      "description": "Canonical repository URL for generated documentation and metadata.",
+      "sources": ["repository_url"],
+      "fallback": "https://github.com/yourusername/yourproject",
+      "validation": "^https?://[^[:space:]]+$"
+    },
+    "CURRENT_YEAR": {
+      "placeholders": [],
+      "description": "Current calendar year, applied only to the LICENSE copyright line via the scoped special replacement below. Intentionally carries no generic placeholder: a bare year token like '2025' would also rewrite unrelated literals such as pinned action/tool dates in CI workflows.",
+      "sources": ["current_year"],
+      "validation": "^[0-9]{4}$"
+    },
+    "PROJECT_LICENSE": {
+      "placeholders": ["MIT"],
+      "description": "License identifier used in documentation and metadata.",
+      "sources": ["license"],
+      "fallback": "MIT",
+      "validation": "^[A-Z][A-Z0-9-]*$"
+    }
+  },
+  "file_patterns": [
+    "*.md",
+    "*.c",
+    "*.h",
+    "*.zig",
+    "*.json",
+    "*.yaml",
+    "*.yml",
+    "*.txt",
+    "LICENSE*",
+    "Makefile",
+    "CMakeLists.txt",
+    "justfile",
+    "Justfile"
+  ],
+  "exclude_patterns": [
+    ".git/*",
+    ".github/workflows/template-cleanup.yml",
+    ".template/*",
+    "zig-out/*",
+    ".zig-cache/*",
+    "zig-pkg/*",
+    ".direnv/*",
+    "build/*",
+    "node_modules/*",
+    "vendor/*",
+    ".code/*",
+    "*.bak"
+  ],
+  "special_replacements": {
+    "LICENSE": {
+      "Copyright (c) 2026": "Copyright (c) ${CURRENT_YEAR}"
+    },
+    "build.zig": {
+      "include/curspan/": "include/${PROJECT_NAME_KEBAB}/"
+    },
+    "build.zig.zon": {
+      ".myapp": ".${PROJECT_NAME_SNAKE}"
+    },
+    "docs/CONTRACTS.md": {
+      "include/curspan/": "include/${PROJECT_NAME_KEBAB}/"
+    },
+    "flake.nix": {
+      "name = \"curspan\";": "name = \"${PROJECT_NAME_KEBAB}\";"
+    },
+    "opencli.json": {
+      "Curspan": "${PROJECT_NAME}",
+      "A ready-to-use C23 starter for command-line tools and ncurses terminal UIs.": "${PROJECT_DESCRIPTION}",
+      "Your Name": "${AUTHOR_NAME}",
+      "https://github.com/yourusername/yourproject": "${PROJECT_URL}",
+      "MIT License": "${PROJECT_LICENSE} License",
+      "MIT": "${PROJECT_LICENSE}",
+      "myapp hello": "${PROJECT_NAME_KEBAB} hello",
+      "myapp hello Alice": "${PROJECT_NAME_KEBAB} hello Alice",
+      "myapp echo Hello World": "${PROJECT_NAME_KEBAB} echo Hello World",
+      "myapp echo": "${PROJECT_NAME_KEBAB} echo",
+      "myapp info": "${PROJECT_NAME_KEBAB} info",
+      "myapp menu": "${PROJECT_NAME_KEBAB} menu",
+      "myapp --help": "${PROJECT_NAME_KEBAB} --help",
+      "myapp --version": "${PROJECT_NAME_KEBAB} --version",
+      "~/.config/myapp/config.json": "~/.config/${PROJECT_NAME_KEBAB}/config.json"
+    }
+  }
+}

@@ -1,0 +1,149 @@
+name: Bug Report
+description: Create a report to help us improve
+title: "[BUG]: "
+labels: ["bug", "triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report! Please provide as much detail as possible to help us understand and fix the issue.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the Bug
+      description: A clear and concise description of what the bug is.
+      placeholder: Tell us what happened
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior
+      placeholder: |
+        1. Run command '...'
+        2. With arguments '...'
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: A clear and concise description of what you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: error-output
+    attributes:
+      label: Error Output
+      description: Please paste any error messages or logs here
+      render: shell
+      placeholder: |
+        $ your-command --with-args
+        Error: Something went wrong...
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      description: What operating system are you using?
+      options:
+        - macOS 14+ (Sonoma or later)
+        - macOS 13 (Ventura)
+        - macOS 12 (Monterey)
+        - Ubuntu 24.04
+        - Ubuntu 22.04
+        - Ubuntu 20.04
+        - Debian 12
+        - Debian 11
+        - Fedora 39+
+        - Arch Linux
+        - Windows 11
+        - Windows 10
+        - Other (please specify in additional context)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: architecture
+    attributes:
+      label: Architecture
+      description: What architecture are you running on?
+      options:
+        - x86_64 (Intel/AMD 64-bit)
+        - aarch64 (ARM 64-bit)
+        - x86 (32-bit)
+        - Other (please specify in additional context)
+    validations:
+      required: true
+
+  - type: input
+    id: app-version
+    attributes:
+      label: Application Version
+      description: What version of the application are you running?
+      placeholder: e.g., 1.0.0, main branch, commit SHA
+    validations:
+      required: true
+
+  - type: input
+    id: zig-version
+    attributes:
+      label: Zig Version (if building from source)
+      description: What version of Zig are you using?
+      placeholder: e.g., 0.16.0
+
+  - type: textarea
+    id: configuration
+    attributes:
+      label: Configuration
+      description: |
+        If the bug involves configuration, please share:
+        - Content of config file (if any)
+        - Environment variables set
+        - Command line arguments used
+      render: shell
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Add any other context about the problem here.
+
+  - type: textarea
+    id: possible-solution
+    attributes:
+      label: Possible Solution
+      description: If you have an idea of how to fix the bug, please describe it here.
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Code of Conduct
+      description: By submitting this issue, you agree to follow our [Code of Conduct](../CODE_OF_CONDUCT.md)
+      options:
+        - label: I agree to follow this project's Code of Conduct
+          required: true
+
+  - type: checkboxes
+    id: search
+    attributes:
+      label: Existing Issues
+      description: Please search to see if an issue already exists for the bug you encountered.
+      options:
+        - label: I have searched the existing issues
+          required: true

@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitHub Template Repositories"
+  short_description: "Create and audit GitHub template repos"
+  default_prompt: "Use $github-template-repositories to create or audit a GitHub template repository."

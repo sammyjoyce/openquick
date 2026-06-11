@@ -1,0 +1,42 @@
+# Zig build artifacts
+zig-out/
+.zig-cache/
+zig-cache/
+zig-pkg/
+
+# Direnv cache
+.direnv/
+
+# Local agent state
+.pi/
+TASK.md
+.claude/worktrees/
+
+# OS files
+.DS_Store
+._*
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Build artifacts
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+a.out
+
+# Test artifacts
+*.pid
+*.log
+test_output/
+
+# Configuration
+config.json
+!examples/config.json

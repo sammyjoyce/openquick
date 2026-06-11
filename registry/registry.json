@@ -1,0 +1,168 @@
+{
+  "$schema": "https://curspan.dev/registry.schema.json",
+  "name": "curspan",
+  "version": "0.1.0",
+  "homepage": "https://github.com/sammyjoyce/curspan",
+  "components": [
+    {
+      "name": "color-math",
+      "title": "Color math",
+      "category": "foundation",
+      "surfaces": ["cli", "tui"],
+      "description": "RGB type, luminance, and truecolor -> xterm256/ansi16 downsampling. The value substrate under the theme.",
+      "files": ["src/style/color_math.h", "src/style/color_math.c"],
+      "dependencies": [],
+      "since": "0.1.0"
+    },
+    {
+      "name": "design-tokens",
+      "title": "Design tokens",
+      "category": "foundation",
+      "surfaces": ["cli", "tui"],
+      "description": "The raw sRGB palette (the amber-on-near-black identity). The single source of truth for color values.",
+      "files": ["src/style/design_tokens.h", "src/style/design_tokens.c"],
+      "dependencies": ["color-math"],
+      "since": "0.1.0"
+    },
+    {
+      "name": "text-layout",
+      "title": "Text layout",
+      "category": "foundation",
+      "surfaces": ["cli", "tui"],
+      "description": "UTF-8 width, column-bounded truncation, and word-wrap with hanging indent. Curses-free and allocation-free.",
+      "files": ["src/ui/text_layout.h", "src/ui/text_layout.c"],
+      "dependencies": [],
+      "since": "0.1.0"
+    },
+    {
+      "name": "theme",
+      "title": "Theme",
+      "category": "foundation",
+      "surfaces": ["cli", "tui"],
+      "description": "Semantic roles + the public cs_theme API: named themes, per-role overrides, mode resolution, and the shared color resolver.",
+      "files": [
+        "src/style/ui_theme.h",
+        "src/style/ui_theme.c",
+        "src/style/cs_theme.h",
+        "src/style/cs_theme.c"
+      ],
+      "dependencies": ["color-math", "design-tokens"],
+      "since": "0.1.0"
+    },
+    {
+      "name": "glyphs",
+      "title": "Glyphs",
+      "category": "foundation",
+      "surfaces": ["cli", "tui"],
+      "description": "Capability-aware box/marker glyphs (UTF-8 with ASCII fallbacks). Header-only.",
+      "files": ["src/components/cs_glyphs.h"],
+      "dependencies": [],
+      "since": "0.1.0"
+    },
+    {
+      "name": "surface",
+      "title": "Render surface",
+      "category": "foundation",
+      "surfaces": ["cli", "tui"],
+      "description": "The neutral cs_surface every component draws to, with a stream (SGR) backend and a curses backend behind an ops vtable. Requires the Curspan cli-style and/or tui runtime for the backends it enables.",
+      "files": [
+        "src/surface/surface.h",
+        "src/surface/surface_internal.h",
+        "src/surface/surface.c",
+        "src/surface/surface_curses.c"
+      ],
+      "dependencies": ["theme"],
+      "since": "0.1.0"
+    },
+    {
+      "name": "rule",
+      "title": "Rule",
+      "category": "component",
+      "surfaces": ["cli", "tui"],
+      "description": "A horizontal divider, optionally with a centered label.",
+      "files": ["src/components/cs_rule.h", "src/components/cs_rule.c"],
+      "dependencies": ["surface", "theme", "text-layout", "glyphs"],
+      "since": "0.1.0"
+    },
+    {
+      "name": "heading",
+      "title": "Heading",
+      "category": "component",
+      "surfaces": ["cli", "tui"],
+      "description": "A styled section heading, optionally underlined with a rule.",
+      "files": ["src/components/cs_heading.h", "src/components/cs_heading.c"],
+      "dependencies": ["surface", "theme", "text-layout", "rule"],
+      "since": "0.1.0"
+    },
+    {
+      "name": "badge",
+      "title": "Badge",
+      "category": "component",
+      "surfaces": ["cli", "tui"],
+      "description": "A small inline status label, colored by variant.",
+      "files": ["src/components/cs_badge.h", "src/components/cs_badge.c"],
+      "dependencies": ["surface", "theme", "glyphs"],
+      "since": "0.1.0"
+    },
+    {
+      "name": "note",
+      "title": "Note / callout",
+      "category": "component",
+      "surfaces": ["cli", "tui"],
+      "description": "A callout block (info/success/warning/error) with a colored gutter and wrapped body.",
+      "files": ["src/components/cs_note.h", "src/components/cs_note.c"],
+      "dependencies": ["surface", "theme", "text-layout", "glyphs"],
+      "since": "0.1.0"
+    },
+    {
+      "name": "keyvalue",
+      "title": "Key/value list",
+      "category": "component",
+      "surfaces": ["cli", "tui"],
+      "description": "An aligned list of key -> value rows.",
+      "files": ["src/components/cs_keyvalue.h", "src/components/cs_keyvalue.c"],
+      "dependencies": ["surface", "theme", "text-layout"],
+      "since": "0.1.0"
+    },
+    {
+      "name": "list",
+      "title": "List",
+      "category": "component",
+      "surfaces": ["cli", "tui"],
+      "description": "A bulleted or numbered list with word-wrap and hanging indent.",
+      "files": ["src/components/cs_list.h", "src/components/cs_list.c"],
+      "dependencies": ["surface", "theme", "text-layout", "glyphs"],
+      "since": "0.1.0"
+    },
+    {
+      "name": "table",
+      "title": "Table",
+      "category": "component",
+      "surfaces": ["cli", "tui"],
+      "description": "A columnar table with alignment and width budgeting.",
+      "files": ["src/components/cs_table.h", "src/components/cs_table.c"],
+      "dependencies": ["surface", "theme", "text-layout", "glyphs"],
+      "since": "0.1.0"
+    },
+    {
+      "name": "progress",
+      "title": "Progress bar",
+      "category": "component",
+      "surfaces": ["cli", "tui"],
+      "description": "A one-shot, surface-agnostic progress bar.",
+      "files": ["src/components/cs_progress.h", "src/components/cs_progress.c"],
+      "dependencies": ["surface", "theme", "text-layout", "glyphs"],
+      "since": "0.1.0"
+    },
+    {
+      "name": "spinner",
+      "title": "Spinner",
+      "category": "component",
+      "surfaces": ["cli", "tui"],
+      "description": "A frame-based activity indicator (braille or ASCII line).",
+      "files": ["src/components/cs_spinner.h", "src/components/cs_spinner.c"],
+      "dependencies": ["surface", "theme"],
+      "since": "0.1.0"
+    }
+  ]
+}

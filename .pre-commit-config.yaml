@@ -1,0 +1,49 @@
+# Optional local pre-commit hooks for Zig projects.
+#
+# CI does not run pre-commit as a separate gate. The enforced path is the
+# repository workflow: zig build check, text hygiene, clang-format checks, and
+# markdownlint. Install these hooks only as a local convenience for earlier
+# feedback before pushing.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^.template/|^.github/
+      - id: end-of-file-fixer
+        exclude: ^.template/|^.github/|^.devcontainer/
+      - id: check-yaml
+      - id: check-added-large-files
+
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    # Keep in lockstep with the CI Lint job (clang-format-18); a different
+    # major version reformats differently and fights the CI check.
+    rev: v18.1.8
+    hooks:
+      - id: clang-format
+        types_or: [c, c++]
+        args: [--dry-run]  # Don't modify files, just check formatting
+
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.35.0
+    hooks:
+      - id: markdownlint
+        name: Markdown lint
+        entry: markdownlint
+        language: node
+        types: [markdown]
+        args: [--fix]
+        exclude: ^.template/|^.github/
+
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v2.3.0
+    hooks:
+      - id: conventional-pre-commit
+        name: Commit message lint
+        entry: conventional-pre-commit
+        language: python
+        stages: [commit-msg]
+        args: []
+
+# Optional: run `pre-commit install` to set up local hooks.
+# For commit message linting, also run `pre-commit install --hook-type commit-msg`.

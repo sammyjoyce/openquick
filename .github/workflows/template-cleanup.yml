@@ -1,0 +1,83 @@
+# This workflow is responsible for cleaning up the template files after a new
+# repository has been created from the template. It is designed to be run
+# manually from the GitHub Actions tab.
+name: "Template Cleanup"
+
+on:
+  # Allows this workflow to be run manually from the Actions tab
+  workflow_dispatch:
+    inputs:
+      project_name:
+        description: "The name of the new project (e.g., my-awesome-cli)"
+        required: true
+      project_description:
+        description: "A short description of the project."
+        required: true
+      project_url:
+        description: "The full URL of the project repository."
+        required: true
+      project_author:
+        description: "The name of the author."
+        required: true
+      author_email:
+        description: "The email of the author."
+        required: true
+      github_username:
+        description: "The GitHub username or organization."
+        required: true
+      project_license:
+        description: "The license for the project (e.g., MIT)."
+        required: true
+        default: "MIT"
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    name: "Cleanup Template Files"
+    # Defaults to GitHub-hosted runners so freshly generated repositories can
+    # run cleanup before they configure any self-hosted capacity.
+    runs-on: ${{ vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: "Install Dependencies"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+          cargo install sd --locked --version 1.0.0
+
+      - name: "Set up Zig"
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: 0.16.0
+
+      - name: "Run Replacer Script"
+        env:
+          # Pass the workflow inputs as environment variables to the replacer script.
+          PROJECT_NAME: ${{ github.event.inputs.project_name }}
+          PROJECT_DESCRIPTION: ${{ github.event.inputs.project_description }}
+          PROJECT_URL: ${{ github.event.inputs.project_url }}
+          AUTHOR_NAME: ${{ github.event.inputs.project_author }}
+          AUTHOR_EMAIL: ${{ github.event.inputs.author_email }}
+          GITHUB_USERNAME: ${{ github.event.inputs.github_username }}
+          PROJECT_LICENSE: ${{ github.event.inputs.project_license }}
+        run: |
+          bash ./.template/setup.sh --non-interactive --cleanup
+
+      - name: "Commit and Push Changes"
+        uses: stefanzweifel/git-auto-commit-action@b863ae1933cb653a53c021fe36dbb774e1fb9403 # v5
+        with:
+          commit_message: "chore: cleanup template files"
+          branch: main
+          file_pattern: "README.md CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE SECURITY.md build.zig build.zig.zon flake.nix opencli.json renovate.json .github .devcontainer .template .templatesyncignore docs examples src test .clang-format .editorconfig .envrc .gitattributes .gitignore .markdownlint.json .pre-commit-config.yaml"
+
+      - name: "Verify cleanup committed every generated change"
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --short
+            exit 1
+          fi
+        shell: bash
