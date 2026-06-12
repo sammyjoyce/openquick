@@ -7,6 +7,7 @@ Developer and user documentation for OpenQuick.
 | Guide | Read it when you want to… |
 | --- | --- |
 | [Design architecture](design/ARCHITECTURE.md) | Understand the authoritative CLI/server/SDK split and v0 boundaries |
+| [UnJS SDK assessment](design/UNJS_ASSESSMENT.md) | Review UnJS package and unpkg suitability for the browser SDK |
 | [Workflow design](design/WORKFLOW.md) | Understand install, init, deploy, open, list, and doctor behavior |
 | [User guide: quick init](user/quick-init.md) | Scaffold a static OpenQuick site |
 | [User guide: quick deploy](user/quick-deploy.md) | Deploy with rsync over SSH and quickd activation |
