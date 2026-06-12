@@ -1,12 +1,12 @@
 {
   "opencli": "0.1",
   "info": {
-    "title": "Curspan",
-    "description": "A ready-to-use C23 starter for command-line tools and ncurses terminal UIs.",
+    "title": "OpenQuick",
+    "description": "Deploy a folder to a private OpenQuick URL via rsync and quickd.",
     "version": "0.1.0",
     "contact": {
-      "name": "Your Name",
-      "url": "https://github.com/yourusername/yourproject"
+      "name": "Sam Joyce",
+      "url": "https://github.com/sammyjoyce/openquick"
     },
     "license": {
       "name": "MIT License",
@@ -18,8 +18,8 @@
     "optionArgumentSeparator": " "
   },
   "command": {
-    "name": "myapp",
-    "description": "A ready-to-use C23 starter for command-line tools and ncurses terminal UIs.",
+    "name": "quick",
+    "description": "Deploy a folder to a private OpenQuick URL via rsync and quickd.",
     "arguments": [
       {
         "name": "command",
@@ -108,43 +108,452 @@
     ],
     "commands": [
       {
-        "name": "hello",
-        "description": "Print a greeting message.",
-        "options": [],
-        "arguments": [
+        "name": "init",
+        "description": "Scaffold a static OpenQuick site.",
+        "options": [
+          {
+            "name": "template",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "template",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "Scaffold template"
+              }
+            ],
+            "description": "Scaffold template: blank or realtime"
+          },
           {
             "name": "name",
             "required": false,
-            "arity": {
-              "minimum": 0,
-              "maximum": 1
-            },
-            "description": "Name to greet (default: World)"
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "name",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "Site name"
+              }
+            ],
+            "description": "Site name to write into quick.json"
+          },
+          {
+            "name": "profile",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "profile",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "Deployment profile"
+              }
+            ],
+            "description": "Deployment profile to record in quick.json"
           }
         ],
-        "examples": [
-          "myapp hello",
-          "myapp hello Alice"
-        ]
-      },
-      {
-        "name": "echo",
-        "description": "Echo the provided text.",
-        "options": [],
         "arguments": [
           {
-            "name": "text",
+            "name": "path",
             "required": false,
             "arity": {
               "minimum": 0,
               "maximum": null
             },
-            "description": "Text to echo"
+            "description": "Path and command-specific option values"
           }
         ],
         "examples": [
-          "myapp echo Hello World",
-          "myapp echo"
+          "quick init lunch-vote",
+          "quick init --template realtime --name lunch-vote --profile lab"
+        ]
+      },
+      {
+        "name": "deploy",
+        "description": "Build, rsync, and activate a site through quickd.",
+        "options": [
+          {
+            "name": "site",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "site",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "Site slug"
+              }
+            ],
+            "description": "Override the site slug"
+          },
+          {
+            "name": "subdomain",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "subdomain",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "URL subdomain"
+              }
+            ],
+            "description": "Override the URL subdomain"
+          },
+          {
+            "name": "profile",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "profile",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "Deployment profile"
+              }
+            ],
+            "description": "Deployment profile"
+          },
+          {
+            "name": "dry-run",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Print the resolved plan without remote operations"
+          },
+          {
+            "name": "no-build",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Skip the quick.json build command"
+          },
+          {
+            "name": "no-delete",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Do not mirror deletions into staging"
+          },
+          {
+            "name": "open",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Open the deployed URL after activation"
+          },
+          {
+            "name": "bootstrap",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Allow bootstrap flow when quickd is missing"
+          },
+          {
+            "name": "allow-unpublished",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Allow deploy when IAP/domain publication is incomplete"
+          },
+          {
+            "name": "checksum",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Pass --checksum to rsync"
+          }
+        ],
+        "arguments": [
+          {
+            "name": "path",
+            "required": false,
+            "arity": {
+              "minimum": 0,
+              "maximum": null
+            },
+            "description": "Path and command-specific option values"
+          }
+        ],
+        "examples": [
+          "quick deploy",
+          "quick deploy --dry-run",
+          "quick deploy ./dist --site demo --profile lab"
+        ]
+      },
+      {
+        "name": "serve",
+        "description": "Run local dev quickd or print/install host setup steps.",
+        "options": [
+          {
+            "name": "dev",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Run quickd in local dev mode"
+          },
+          {
+            "name": "port",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "port",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "TCP port"
+              }
+            ],
+            "description": "Local dev port"
+          },
+          {
+            "name": "identity",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "email",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "Synthetic identity email"
+              }
+            ],
+            "description": "Synthetic dev identity email"
+          },
+          {
+            "name": "profile",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "profile",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "Deployment profile"
+              }
+            ],
+            "description": "Profile name for install/dev"
+          },
+          {
+            "name": "host",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "host",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "SSH host"
+              }
+            ],
+            "description": "SSH host for install"
+          },
+          {
+            "name": "remote-root",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "path",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "Filesystem path"
+              }
+            ],
+            "description": "Remote root directory"
+          },
+          {
+            "name": "domain",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "domain",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "Public base domain"
+              }
+            ],
+            "description": "Public base domain"
+          },
+          {
+            "name": "iap",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "iap",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "IAP adapter"
+              }
+            ],
+            "description": "IAP adapter: tailscale, cloudflare, or none"
+          },
+          {
+            "name": "execute",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Run installer probes over SSH"
+          },
+          {
+            "name": "allow-public-unsafe",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Allow iap=none for non-loopback installs"
+          }
+        ],
+        "arguments": [
+          {
+            "name": "mode",
+            "required": false,
+            "arity": {
+              "minimum": 0,
+              "maximum": null
+            },
+            "description": "--dev or install with command-specific option values"
+          }
+        ],
+        "examples": [
+          "quick serve --dev --port 9366",
+          "quick serve install --profile lab --host quick@box --remote-root /srv/quick --domain quick.example.com --iap tailscale"
+        ]
+      },
+      {
+        "name": "open",
+        "description": "Open or print the resolved site URL.",
+        "options": [
+          {
+            "name": "profile",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "profile",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "Deployment profile"
+              }
+            ],
+            "description": "Profile used for URL resolution"
+          },
+          {
+            "name": "copy",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Copy the URL when clipboard support is available"
+          },
+          {
+            "name": "plain",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Print the URL instead of opening a browser"
+          }
+        ],
+        "arguments": [
+          {
+            "name": "site",
+            "required": false,
+            "arity": {
+              "minimum": 0,
+              "maximum": null
+            },
+            "description": "Site name and command-specific option values"
+          }
+        ],
+        "examples": [
+          "quick open",
+          "quick open lunch-vote --plain"
+        ]
+      },
+      {
+        "name": "list",
+        "description": "List local and remote OpenQuick deployments.",
+        "options": [
+          {
+            "name": "profile",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "profile",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "Deployment profile"
+              }
+            ],
+            "description": "Profile to query"
+          },
+          {
+            "name": "remote",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Query quickd over SSH"
+          },
+          {
+            "name": "json",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Print JSON output"
+          }
+        ],
+        "arguments": [],
+        "examples": [
+          "quick list",
+          "quick list --profile lab --json"
         ]
       },
       {
@@ -153,26 +562,84 @@
         "options": [],
         "arguments": [],
         "examples": [
-          "myapp info",
-          "myapp --json info"
+          "quick info",
+          "quick --json info"
         ]
       },
       {
         "name": "doctor",
-        "description": "Run starter diagnostics (add --deep for the TUI smoke test).",
+        "description": "Run local, remote, and edge OpenQuick diagnostics.",
         "options": [
+          {
+            "name": "profile",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "profile",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "Deployment profile"
+              }
+            ],
+            "description": "Profile to check"
+          },
+          {
+            "name": "remote",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Include quickd host checks"
+          },
+          {
+            "name": "site",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "site",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "Site slug"
+              }
+            ],
+            "description": "Site to check"
+          },
           {
             "name": "deep",
             "required": false,
             "aliases": [],
             "arguments": [],
-            "description": "Also exercise the optional TUI runtime when a TTY is available"
+            "description": "Run deeper end-to-end checks when supported"
+          },
+          {
+            "name": "json",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Print JSON output"
           }
         ],
-        "arguments": [],
+        "arguments": [
+          {
+            "name": "site",
+            "required": false,
+            "arity": {
+              "minimum": 0,
+              "maximum": null
+            },
+            "description": "Site name and command-specific option values"
+          }
+        ],
         "examples": [
-          "myapp doctor",
-          "myapp --json doctor"
+          "quick doctor",
+          "quick doctor --json"
         ]
       },
       {
@@ -181,7 +648,7 @@
         "options": [],
         "arguments": [],
         "examples": [
-          "myapp menu"
+          "quick menu"
         ],
         "metadata": {
           "requires": "ncurses",
@@ -194,7 +661,7 @@
         "options": [],
         "arguments": [],
         "examples": [
-          "myapp opencli"
+          "quick opencli"
         ]
       }
     ],
@@ -297,41 +764,53 @@
       }
     ],
     "examples": [
-      "myapp hello",
-      "myapp hello Alice",
-      "myapp echo Hello World",
-      "myapp echo",
-      "myapp info",
-      "myapp --json info",
-      "myapp doctor",
-      "myapp --json doctor",
-      "myapp menu",
-      "myapp opencli",
-      "myapp --help",
-      "myapp --version"
+      "quick init lunch-vote",
+      "quick init --template realtime --name lunch-vote --profile lab",
+      "quick deploy",
+      "quick deploy --dry-run",
+      "quick deploy ./dist --site demo --profile lab",
+      "quick serve --dev --port 9366",
+      "quick serve install --profile lab --host quick@box --remote-root /srv/quick --domain quick.example.com --iap tailscale",
+      "quick open",
+      "quick open lunch-vote --plain",
+      "quick list",
+      "quick list --profile lab --json",
+      "quick info",
+      "quick --json info",
+      "quick doctor",
+      "quick doctor --json",
+      "quick menu",
+      "quick opencli",
+      "quick --help",
+      "quick --version"
     ],
     "interactive": false,
     "metadata": [
       {
         "name": "environment",
         "value": {
-          "APP_LOG_LEVEL": "Set logging verbosity: ERROR, WARNING, INFO, DEBUG (default: ERROR)",
-          "APP_CONFIG_PATH": "Override the default config file lookup path",
+          "QUICK_LOG_LEVEL": "Set logging verbosity: ERROR, WARNING, INFO, DEBUG (default: ERROR)",
+          "QUICK_CONFIG_PATH": "Override the default config file lookup path",
+          "QUICK_PROFILE": "Default deployment profile",
+          "QUICK_SITE": "Override the resolved site slug",
+          "QUICK_REMOTE": "Override the profile SSH host",
+          "QUICK_BASE_DOMAIN": "Override deterministic https://<site>.<domain> URLs",
+          "QUICK_QUICKD": "Path to quickd for quick serve --dev",
           "NO_COLOR": "Disable colored output when set",
           "FORCE_COLOR": "Force colored output on; set 0 (or false) to force off",
           "CLICOLOR_FORCE": "Set to a non-zero value to force colored output on",
           "CLICOLOR": "Set 0 to disable colored output",
-          "APP_CLI_THEME": "Terminal UI theme for styled CLI and generated TUI: auto, dark, or light",
-          "APP_CLI_COLOR": "Terminal UI color profile: auto, never, 16, 256, truecolor",
-          "APP_CLI_OSC11": "Set 0 to disable terminal background detection",
-          "APP_CLI_ACCENT": "Override terminal UI accent (#rrggbb or palette index)"
+          "QUICK_CLI_THEME": "Terminal UI theme for styled CLI and generated TUI: auto, dark, or light",
+          "QUICK_CLI_COLOR": "Terminal UI color profile: auto, never, 16, 256, truecolor",
+          "QUICK_CLI_OSC11": "Set 0 to disable terminal background detection",
+          "QUICK_CLI_ACCENT": "Override terminal UI accent (#rrggbb or palette index)"
         }
       },
       {
         "name": "configuration",
         "value": {
-          "location": "~/.config/myapp/config.json",
-          "format": "Flat JSON object with boolean debug, quiet, verbose, no_color, json_output, and plain_output keys",
+          "location": "~/.config/openquick/config.json",
+          "format": "OpenQuick user profile JSON with default_profile and profiles",
           "precedence": "CLI args > Environment > Config file > Defaults"
         }
       },

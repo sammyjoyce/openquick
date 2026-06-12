@@ -53,18 +53,18 @@ typedef struct {
 
 // Application name
 #ifndef APP_NAME
-#define APP_NAME "myapp"
+#define APP_NAME "quick"
 #endif
 
 // Human-readable application title and description
 #ifndef APP_TITLE
-#define APP_TITLE "Curspan"
+#define APP_TITLE "OpenQuick"
 #endif
 
 #ifndef APP_DESCRIPTION
 // clang-format off
 #define APP_DESCRIPTION \
-  "A ready-to-use C23 starter for command-line tools and ncurses terminal UIs."
+  "Deploy a folder to a private OpenQuick URL via rsync and quickd."
 // clang-format on
 #endif
 

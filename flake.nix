@@ -1,5 +1,5 @@
 {
-  description = "C23 CLI template development environment";
+  description = "OpenQuick C23 CLI development environment";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -60,7 +60,7 @@
             pkgs.nodejs
             pkgs.markdownlint-cli
 
-            # Template setup/cleanup scripts.
+            # Project setup/cleanup scripts.
             pkgs.jq
             pkgs.sd
             pkgs.gum
@@ -78,7 +78,7 @@
         in
         {
           default = pkgs.mkShell {
-            name = "curspan";
+            name = "openquick";
 
             packages = projectTooling;
 

@@ -8,12 +8,13 @@ By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ```bash
 # Fork, clone, branch
-git clone https://github.com/yourusername/yourproject
-cd yourproject
+git clone https://github.com/sammyjoyce/openquick
+cd openquick
 git checkout -b your-change
 
 # Build and test
-zig build check                                           # fmt-check + tests (the CI gate)
+just test-all                                             # CLI + quickd + SDK tests
+zig build check                                           # C CLI fmt-check + tests
 zig build -Denable-tui=true terminal-test                 # if you touched the TUI
 zig build -Denable-tui=true -Dterminal-backend=ghostty terminal-test  # require PTY/TUI coverage
 
@@ -23,11 +24,11 @@ git commit -m "feat(scope): one-line summary"
 git push origin your-change
 ```
 
-Open a PR against `main`. CI runs `zig build check` on Linux, macOS, and Windows, plus `clang-tidy` and `cppcheck`, without requiring Nix by default.
+Open a PR against `main`. CI runs the Zig CLI checks on Linux, macOS, and Windows, plus quickd Go build/tests, SDK build/tests, `clang-tidy`, and `cppcheck`, without requiring Nix by default.
 
 ## Reporting issues
 
-Before opening one, search [existing issues](https://github.com/yourusername/yourproject/issues). Use the templates when they apply, and include:
+Before opening one, search [existing issues](https://github.com/sammyjoyce/openquick/issues). Use the templates when they apply, and include:
 
 - your operating system and version,
 - `zig version`,
@@ -37,7 +38,7 @@ Before opening one, search [existing issues](https://github.com/yourusername/you
 
 ## Suggesting features
 
-Open an issue describing the use case and how it fits the template's scope. Keep an eye on [docs/CONTRACTS.md](docs/CONTRACTS.md); the supported seams document what's intentionally in or out.
+Open an issue describing the use case and how it fits OpenQuick's scope. Keep an eye on [docs/design/ARCHITECTURE.md](docs/design/ARCHITECTURE.md) and [docs/CONTRACTS.md](docs/CONTRACTS.md); the supported seams document what's intentionally in or out.
 
 ## Setting up
 
@@ -74,13 +75,15 @@ The repository also ships a default devcontainer (open in VS Code, choose **Reop
 For every `-D` option and step (and why Zig is the build system), see [docs/ZIG_PRIMER.md](docs/ZIG_PRIMER.md). The day-to-day commands:
 
 ```bash
-zig build                                # debug build
-zig build -Doptimize=ReleaseSafe         # optimized
-zig build run -- hello Alice             # build + run with arguments
-zig build test                           # unit tests + CLI contract tests
+just build-all                          # SDK, quickd, then quick CLI
+just test-all                           # Zig tests + Go tests + SDK tests
+zig build                                # debug CLI build
+zig build -Doptimize=ReleaseSafe         # optimized CLI build
+zig build run -- doctor --json           # build + run with arguments
+zig build test                           # C unit tests + CLI contract tests
 zig build terminal-test                  # unit + CLI tests; PTY/TUI skipped unless TUI + backend are available
 zig build -Denable-tui=true terminal-test # TUI build; PTY scenarios run if libghostty-vt is found
-zig build check                          # fmt-check + tests (the CI gate)
+zig build check                          # C fmt-check + tests
 zig build fmt                            # apply formatting
 zig build clean                          # remove zig-out + .zig-cache
 ```
@@ -93,7 +96,7 @@ Append the path to `base_sources` in `build.zig` (TUI-only files belong in `tui_
 
 ### Adding a command, or a TUI screen
 
-[examples/adding-a-command.md](examples/adding-a-command.md) is the full five-step flow (handler, command table, `opencli.json`, contract test, build). For interactive UIs, [examples/custom-tui.md](examples/custom-tui.md).
+OpenQuick workflow commands live under `src/cli/commands_*.c` and are registered in `src/cli/commands.c`; update `opencli.json` and contract tests with behavior changes. For interactive UI internals, see [examples/custom-tui.md](examples/custom-tui.md).
 
 ## Pull requests
 
@@ -172,7 +175,7 @@ app_error process_input(const char *input, size_t len) {
 ## Getting help
 
 - [docs/](docs/): architecture, contracts, testing, Zig primer
-- [Existing issues](https://github.com/yourusername/yourproject/issues)
+- [Existing issues](https://github.com/sammyjoyce/openquick/issues)
 
 ## License
 

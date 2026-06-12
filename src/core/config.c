@@ -41,7 +41,7 @@ struct app_config {
 static const app_flag_spec_t g_app_flag_table[APP_FLAG_COUNT] = {
     {.id = APP_FLAG_DEBUG,
      .json_key = "debug",
-     .env_var = "APP_LOG_LEVEL",
+     .env_var = "QUICK_LOG_LEVEL",
      .env_match = "DEBUG",
      .cli_short = "-d",
      .cli_long = "--debug",
@@ -211,7 +211,7 @@ static char *find_config_file(void) {
   static char config_path[PATH_MAX];
 
   // Check environment variable first
-  const char *config_env = getenv("APP_CONFIG_PATH");
+  const char *config_env = getenv("QUICK_CONFIG_PATH");
   if (config_env && config_env[0] != '\0') {
     return strdup(config_env);
   }
@@ -220,8 +220,8 @@ static char *find_config_file(void) {
 #ifdef _WIN32
   const char *home = getenv("USERPROFILE");
   if (home) {
-    snprintf(config_path, PATH_MAX, "%s\\AppData\\Local\\%s\\config.json", home,
-             APP_NAME);
+    snprintf(config_path, PATH_MAX,
+             "%s\\AppData\\Local\\openquick\\config.json", home);
     if (access(config_path, R_OK) == 0) {
       return strdup(config_path);
     }
@@ -229,8 +229,7 @@ static char *find_config_file(void) {
 #else
   const char *home = getenv("HOME");
   if (home) {
-    snprintf(config_path, PATH_MAX, "%s/.config/%s/config.json", home,
-             APP_NAME);
+    snprintf(config_path, PATH_MAX, "%s/.config/openquick/config.json", home);
     if (access(config_path, R_OK) == 0) {
       return strdup(config_path);
     }
@@ -239,9 +238,10 @@ static char *find_config_file(void) {
 
   // Try system config directory
 #ifdef _WIN32
-  snprintf(config_path, PATH_MAX, "C:\\ProgramData\\%s\\config.json", APP_NAME);
+  snprintf(config_path, PATH_MAX,
+           "C:\\ProgramData\\openquick\\config.json");
 #else
-  snprintf(config_path, PATH_MAX, "/etc/%s/config.json", APP_NAME);
+  snprintf(config_path, PATH_MAX, "/etc/openquick/config.json");
 #endif
   if (access(config_path, R_OK) == 0) {
     return strdup(config_path);

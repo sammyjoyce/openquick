@@ -1,5 +1,5 @@
 /*
- * components.h — the Curspan component catalog in one include.
+ * components.h — the OpenQuick component catalog in one include.
  *
  * Pull in the whole catalog, or include individual cs_<name>.h headers for a
  * leaner build. Every component renders through a cs_surface and styles itself

@@ -1,8 +1,8 @@
 /*
- * curspan.h — the Curspan framework umbrella header.
+ * curspan.h — internal OpenQuick component umbrella header.
  *
- * Curspan is a high-level framework for building command-line tools and
- * terminal UIs in C23. One include gives you the public surface:
+ * OpenQuick keeps the C23 terminal rendering components vendored. One include
+ * gives the CLI/TUI presentation layer access to:
  *
  *   - theming   : design tokens -> semantic roles -> named, overridable themes
  *                 (cs_theme.h)
@@ -11,9 +11,8 @@
  *   - components: a catalog of themeable widgets that render on either surface
  *                 (components.h)
  *
- * Components are "open code": you own the source. The `curspan` CLI copies a
- * component and its dependency closure into your project from registry.json,
- * the same way ShadCN distributes UI components. See docs/COMPONENTS.md and
+ * Components are vendored source. The local component registry tracks files and
+ * dependency closures for validation. See docs/COMPONENTS.md and
  * docs/THEMING.md.
  *
  * This header is safe to include in any build configuration; the TUI-only and
@@ -26,7 +25,7 @@
 #include "style/cs_theme.h"
 #include "surface/surface.h"
 
-// Compile-time framework version, for feature detection across updates.
+// Compile-time component surface version, for feature detection across updates.
 #define CURSPAN_VERSION_MAJOR 0
 #define CURSPAN_VERSION_MINOR 1
 #define CURSPAN_VERSION_PATCH 0

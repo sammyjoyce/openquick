@@ -185,9 +185,22 @@ app_error app_parse_args(int argc, char *argv[], app_config_t *config) {
       return err;
     }
 
-    // Add remaining arguments as command arguments. A bare -- is preserved so
-    // validation can treat subsequent flag-shaped tokens as positionals.
+    // Add remaining arguments as command arguments. Global boolean output flags
+    // are also accepted after the command (for example `quick doctor --json`),
+    // until a bare -- delimiter asks to treat later tokens as positionals.
+    bool end_of_options = false;
     for (int i = args.command_index + 1; i < argc; i++) {
+      if (!end_of_options && strcmp(argv[i], "--") == 0) {
+        end_of_options = true;
+        err = app_config_add_command_arg(config, argv[i]);
+        if (err != APP_SUCCESS) {
+          return err;
+        }
+        continue;
+      }
+      if (!end_of_options && app_args_try_bool_flag(argv[i], config)) {
+        continue;
+      }
       err = app_config_add_command_arg(config, argv[i]);
       if (err != APP_SUCCESS) {
         return err;

@@ -1,0 +1,11 @@
+# OpenQuick Cloudflare Tunnel example.
+# Create the tunnel and credentials with cloudflared, then replace placeholders.
+tunnel: <tunnel-uuid-or-name>
+credentials-file: /etc/cloudflared/<tunnel-uuid-or-name>.json
+
+ingress:
+  - hostname: "*.quick.example.com"
+    service: http://127.0.0.1:9366
+  - hostname: quick.example.com
+    service: http://127.0.0.1:9366
+  - service: http_status:404

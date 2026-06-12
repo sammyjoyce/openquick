@@ -21,10 +21,10 @@ env:
   SYFT_VERSION: 1.20.0
   SYFT_LINUX_AMD64_SHA256: 689e12c5cbf67521ce61b9c126068f9eaabe1223e77971b2fede50033ff6b5cc
 
-# Runner selection defaults to GitHub-hosted labels so repositories created
-# from this template can run CI immediately. Set repository or organization
-# variables CI_LINUX_RUNNER, CI_MACOS_RUNNER, and CI_WINDOWS_RUNNER to opt into
-# Namespace or other self-hosted runners.
+# Runner selection defaults to GitHub-hosted labels so this repository can run
+# CI immediately. Set repository or organization variables CI_LINUX_RUNNER,
+# CI_MACOS_RUNNER, and CI_WINDOWS_RUNNER to opt into Namespace or other
+# self-hosted runners.
 
 permissions:
   contents: read
@@ -38,13 +38,13 @@ jobs:
         include:
           - os: Linux
             runner: ${{ vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
-            artifact_name: myapp-linux
+            artifact_name: openquick-linux
           - os: macOS
             runner: ${{ vars.CI_MACOS_RUNNER || 'macos-latest' }}
-            artifact_name: myapp-macos
+            artifact_name: openquick-macos
           - os: Windows
             runner: ${{ vars.CI_WINDOWS_RUNNER || 'windows-latest' }}
-            artifact_name: myapp-windows
+            artifact_name: openquick-windows
 
     runs-on: ${{ matrix.runner }}
 
@@ -58,6 +58,15 @@ jobs:
         uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         with:
           version: ${{ env.ZIG_VERSION }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: server/go.sum
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
 
       - name: Get Zig version
         id: zig-version
@@ -155,6 +164,28 @@ jobs:
           fi
           zig build -Dstrict=true check "${CURSES_ARGS_ARRAY[@]}"
         timeout-minutes: 10
+        shell: bash
+
+      - name: Build SDK
+        run: |
+          cd sdk/js
+          bun run build
+          cp dist/quick.js ../../server/internal/api/sdk/quick.js
+        shell: bash
+
+      - name: Test SDK
+        run: cd sdk/js && bun test
+        shell: bash
+
+      - name: Build and test quickd
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p zig-out/bin
+          cd server
+          go build -o ../zig-out/bin/quickd ./cmd/quickd
+          go build ./...
+          go test ./...
+        timeout-minutes: 15
         shell: bash
 
       - name: Validate OpenCLI JSON
@@ -435,61 +466,60 @@ jobs:
             src/
         shell: bash
 
-  validate-template:
-    name: Validate Template
+  repository-hygiene:
+    name: Repository Hygiene
     runs-on: ${{ vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
-    # Skip validation for the template repository itself (name-independent;
-    # generated repos have is_template == false)
+    # Skip validation when GitHub marks the repository itself as a reusable seed.
     if: ${{ !github.event.repository.is_template }}
 
     steps:
       - name: Check out repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Check for template placeholders
+      - name: Check for scaffold placeholders
         run: |
-          # Check for common template placeholders (excluding C23 attributes like [[nodiscard]])
+          # Check for common scaffold placeholders (excluding C23 attributes like [[nodiscard]])
           PLACEHOLDERS_FOUND=$(find . -type f -not -path "./.git/*" -not -path "./zig-cache/*" -not -path "./zig-out/*" -not -path "./.github/workflows/*" \( -name "*.md" -o -name "*.yml" -o -name "*.yaml" -o -name "*.json" -o -name "*.txt" -o -name "*.zig" \) -exec grep -l "{{[^}]*}}\|<REPO_NAME>\|<REPO_OWNER>\|<PROJECT_NAME>" {} \; | wc -l)
 
           if [ "$PLACEHOLDERS_FOUND" -gt 0 ]; then
-            echo "❌ Template placeholders found in the following files:"
+            echo "❌ Scaffold placeholders found in the following files:"
             find . -type f -not -path "./.git/*" -not -path "./zig-cache/*" -not -path "./zig-out/*" -not -path "./.github/workflows/*" \( -name "*.md" -o -name "*.yml" -o -name "*.yaml" -o -name "*.json" -o -name "*.txt" -o -name "*.zig" \) -exec grep -l "{{[^}]*}}\|<REPO_NAME>\|<REPO_OWNER>\|<PROJECT_NAME>" {} \;
-            echo "Please replace all template placeholders before committing."
+            echo "Please replace all scaffold placeholders before committing."
             exit 1
           else
-            echo "✅ No template placeholders found"
+            echo "✅ No scaffold placeholders found"
           fi
         shell: bash
 
-      - name: Check for template artifacts
+      - name: Check for scaffold artifacts
         run: |
-          # Check for common template artifacts that should be cleaned up
-          TEMPLATE_DIRS=".template"
-          TEMPLATE_FILES=".templatesyncignore USING_THIS_TEMPLATE.md"
+          # Check for common scaffold artifacts that should be cleaned up
+          SCAFFOLD_DIRS=".template"
+          SCAFFOLD_FILES=".templatesyncignore USING_THIS_TEMPLATE.md"
 
           ARTIFACTS_FOUND=0
 
-          # Check for template directories
-          for dir in $TEMPLATE_DIRS; do
+          # Check for scaffold directories
+          for dir in $SCAFFOLD_DIRS; do
             if [ -d "$dir" ]; then
-              echo "❌ Template directory found: $dir"
+              echo "❌ Scaffold directory found: $dir"
               ARTIFACTS_FOUND=$((ARTIFACTS_FOUND + 1))
             fi
           done
 
-          # Check for template files
-          for file in $TEMPLATE_FILES; do
+          # Check for scaffold files
+          for file in $SCAFFOLD_FILES; do
             while IFS= read -r f; do
-              echo "❌ Template file found: $f"
+              echo "❌ Scaffold file found: $f"
               ARTIFACTS_FOUND=$((ARTIFACTS_FOUND + 1))
             done < <(find . -type f -name "$file" -not -path "./.git/*")
           done
 
           if [ "$ARTIFACTS_FOUND" -gt 0 ]; then
-            echo "Please remove all template artifacts before committing."
+            echo "Please remove all scaffold artifacts before committing."
             exit 1
           else
-            echo "✅ No template artifacts found"
+            echo "✅ No scaffold artifacts found"
           fi
         shell: bash
 

@@ -9,6 +9,7 @@
 #else
 #include <ncurses.h>
 #endif
+#include <signal.h>
 #include <stdbool.h>
 #include <stddef.h>
 
@@ -52,6 +53,7 @@ APP_NODISCARD app_error tui_init(void);
 void tui_cleanup(void);
 bool tui_is_initialized(void);
 bool tui_interrupted(void);
+const volatile sig_atomic_t *tui_interrupt_flag(void);
 APP_NODISCARD app_error tui_take_interrupt_error(void);
 
 // Color management

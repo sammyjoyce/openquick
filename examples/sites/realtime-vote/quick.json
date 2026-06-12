@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openquick.dev/schemas/site.v1.json",
+  "name": "realtime-vote",
+  "source": ".",
+  "output": ".",
+  "build": null,
+  "subdomain": "realtime-vote",
+  "sdk": {
+    "enabled": true,
+    "import": "/_quick/sdk.js"
+  }
+}

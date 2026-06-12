@@ -1,0 +1,10 @@
+# OpenQuick wildcard edge example.
+# Replace quick.example.com and the DNS provider placeholder before use.
+*.quick.example.com, quick.example.com {
+	# Requires the matching Caddy DNS module, for example caddy-dns/cloudflare.
+	tls {
+		dns <provider> <api-token-or-env-placeholder>
+	}
+
+	reverse_proxy 127.0.0.1:9366
+}

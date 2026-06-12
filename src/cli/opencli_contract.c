@@ -18,35 +18,41 @@ static const char *const extra_examples[] = {
 };
 
 static const app_opencli_metadata_field_t environment_fields[] = {
-    {.name = "APP_LOG_LEVEL",
+    {.name = "QUICK_LOG_LEVEL",
      .description =
          "Set logging verbosity: ERROR, WARNING, INFO, DEBUG (default: ERROR)"},
-    {.name = "APP_CONFIG_PATH",
+    {.name = "QUICK_CONFIG_PATH",
      .description = "Override the default config file lookup path"},
+    {.name = "QUICK_PROFILE", .description = "Default deployment profile"},
+    {.name = "QUICK_SITE", .description = "Override the resolved site slug"},
+    {.name = "QUICK_REMOTE", .description = "Override the profile SSH host"},
+    {.name = "QUICK_BASE_DOMAIN",
+     .description = "Override deterministic https://<site>.<domain> URLs"},
+    {.name = "QUICK_QUICKD",
+     .description = "Path to quickd for quick serve --dev"},
     {.name = "NO_COLOR", .description = "Disable colored output when set"},
     {.name = "FORCE_COLOR",
      .description = "Force colored output on; set 0 (or false) to force off"},
     {.name = "CLICOLOR_FORCE",
      .description = "Set to a non-zero value to force colored output on"},
     {.name = "CLICOLOR", .description = "Set 0 to disable colored output"},
-    {.name = "APP_CLI_THEME",
+    {.name = "QUICK_CLI_THEME",
      .description = "Terminal UI theme for styled CLI and generated TUI: auto, "
                     "dark, or light"},
-    {.name = "APP_CLI_COLOR",
+    {.name = "QUICK_CLI_COLOR",
      .description =
          "Terminal UI color profile: auto, never, 16, 256, truecolor"},
-    {.name = "APP_CLI_OSC11",
+    {.name = "QUICK_CLI_OSC11",
      .description = "Set 0 to disable terminal background detection"},
-    {.name = "APP_CLI_ACCENT",
+    {.name = "QUICK_CLI_ACCENT",
      .description = "Override terminal UI accent (#rrggbb or palette index)"},
 };
 
 static const app_opencli_metadata_field_t configuration_fields[] = {
-    {.name = "location", .description = "~/.config/" APP_NAME "/config.json"},
+    {.name = "location", .description = "~/.config/openquick/config.json"},
     {.name = "format",
      .description =
-         "Flat JSON object with boolean debug, quiet, verbose, no_color, "
-         "json_output, and plain_output keys"},
+         "OpenQuick user profile JSON with default_profile and profiles"},
     {.name = "precedence",
      .description = "CLI args > Environment > Config file > Defaults"},
 };
@@ -79,8 +85,8 @@ static const app_opencli_contract_t g_opencli_contract = {
             .version = APP_VERSION,
             .contact =
                 {
-                    .name = "Your Name",
-                    .url = "https://github.com/yourusername/yourproject",
+                    .name = "Sam Joyce",
+                    .url = "https://github.com/sammyjoyce/openquick",
                 },
             .license =
                 {

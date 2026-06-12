@@ -269,7 +269,7 @@ void app_ui_theme_apply_env_overrides(app_ui_color_scheme_t *scheme) {
   if (!scheme) {
     return;
   }
-  const char *accent = getenv("APP_CLI_ACCENT");
+  const char *accent = getenv("QUICK_CLI_ACCENT");
   if (!accent || !accent[0]) {
     return;
   }

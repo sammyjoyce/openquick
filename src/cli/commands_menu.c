@@ -14,7 +14,7 @@
 #include "commands.h"
 
 app_error app_run_tui(const app_config_t *config) {
-  // Single TUI launch precondition shared by `myapp menu` and the bare-TTY
+  // Single TUI launch precondition shared by `quick menu` and the bare-TTY
   // launch in main(): the interactive TUI cannot coexist with machine JSON
   // output. Reject it once, identically, on both entry points (this was
   // duplicated with divergent wording in main.c and app_cmd_menu).

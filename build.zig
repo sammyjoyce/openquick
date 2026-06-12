@@ -243,9 +243,9 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const version_str = b.option([]const u8, "version", "Application version string") orelse "0.1.0";
-    const app_name = b.option([]const u8, "app-name", "Application and binary name") orelse "myapp";
-    const app_title = b.option([]const u8, "app-title", "Human-readable application title") orelse "Curspan";
-    const app_description = b.option([]const u8, "app-description", "Application description") orelse "A ready-to-use C23 starter for command-line tools and ncurses terminal UIs.";
+    const app_name = b.option([]const u8, "app-name", "Application and binary name") orelse "quick";
+    const app_title = b.option([]const u8, "app-title", "Human-readable application title") orelse "OpenQuick";
+    const app_description = b.option([]const u8, "app-description", "Application description") orelse "Deploy a folder to a private OpenQuick URL via rsync and quickd.";
     const binary_name = app_name;
 
     // Attempt to inject current git commit hash, fall back to "unknown".
@@ -329,7 +329,13 @@ pub fn build(b: *std.Build) void {
         "src/core/config.c",
         "src/core/config_json.c",
         "src/core/json_scan.c",
+        "src/core/json_util.c",
         "src/core/request_json.c",
+        "src/core/site_config.c",
+        "src/core/profile_config.c",
+        "src/core/deploy_plan.c",
+        "src/core/process.c",
+        "src/core/ops.c",
         "src/utils/logging.c",
         "src/utils/memory.c",
         "src/utils/colors.c",
@@ -347,7 +353,12 @@ pub fn build(b: *std.Build) void {
         "src/cli/help.c",
         "src/cli/args.c",
         "src/cli/commands.c",
-        "src/cli/commands_basic.c",
+        "src/cli/commands_openquick.c",
+        "src/cli/commands_init.c",
+        "src/cli/commands_deploy.c",
+        "src/cli/commands_serve.c",
+        "src/cli/commands_open.c",
+        "src/cli/commands_list.c",
         "src/cli/commands_info.c",
         "src/cli/commands_doctor.c",
         "src/cli/commands_menu.c",
@@ -511,10 +522,19 @@ pub fn build(b: *std.Build) void {
         const tui_sources = [_][]const u8{
             "src/tui/tui.c",
             "src/tui/tui_app.c",
+            "src/tui/tui_app_state.c",
             "src/tui/tui_menu.c",
             "src/tui/tui_menu_adapter.c",
             "src/tui/tui_menu_model.c",
+            "src/tui/tui_panel.c",
+            "src/tui/tui_product_model.c",
             "src/tui/tui_progress.c",
+            "src/tui/tui_screen_config.c",
+            "src/tui/tui_screen_deploy.c",
+            "src/tui/tui_screen_doctor.c",
+            "src/tui/tui_screen_init.c",
+            "src/tui/tui_screen_serve.c",
+            "src/tui/tui_screen_sites.c",
             // The cs_surface curses backend. Isolated from surface.c so a
             // CLI-only build never links ncurses through the surface layer.
             "src/surface/surface_curses.c",
@@ -597,11 +617,11 @@ pub fn build(b: *std.Build) void {
 
     const install_tui_menu_lib = b.addInstallArtifact(tui_menu_lib, .{});
     const install_tui_headers = [_]*std.Build.Step.InstallFile{
-        b.addInstallFile(b.path("src/core/error.h"), "include/curspan/core/error.h"),
-        b.addInstallFile(b.path("src/core/types.h"), "include/curspan/core/types.h"),
-        b.addInstallFile(b.path("src/tui/tui.h"), "include/curspan/tui/tui.h"),
-        b.addInstallFile(b.path("src/tui/tui_menu.h"), "include/curspan/tui/tui_menu.h"),
-        b.addInstallFile(b.path("src/tui/tui_progress.h"), "include/curspan/tui/tui_progress.h"),
+        b.addInstallFile(b.path("src/core/error.h"), "include/openquick/core/error.h"),
+        b.addInstallFile(b.path("src/core/types.h"), "include/openquick/core/types.h"),
+        b.addInstallFile(b.path("src/tui/tui.h"), "include/openquick/tui/tui.h"),
+        b.addInstallFile(b.path("src/tui/tui_menu.h"), "include/openquick/tui/tui_menu.h"),
+        b.addInstallFile(b.path("src/tui/tui_progress.h"), "include/openquick/tui/tui_progress.h"),
     };
 
     // pkg-config manifest so a consumer can `pkg-config --cflags --libs
@@ -616,7 +636,7 @@ pub fn build(b: *std.Build) void {
         \\libdir=${{prefix}}/lib
         \\
         \\Name: tui-menu
-        \\Description: Reusable ncurses menu primitive from the C23 CLI template
+        \\Description: Reusable ncurses menu primitive used by OpenQuick
         \\Version: {s}
         \\Cflags: -I${{includedir}}
         \\Libs: -L${{libdir}} -ltui-menu
@@ -694,12 +714,14 @@ pub fn build(b: *std.Build) void {
             "test/unit_cli_style_tests.c",
             "test/unit_cli_osc11_tests.c",
             "test/unit_shared_primitives_tests.c",
+            "test/unit_openquick_tests.c",
             // The unconditional core TUs (error/app_info/diagnostics/config/
             // config_json/json_scan/request_json/input/terminal/option_meta/
             // colors/memory/logging) are linked from the app-core static library
             // below instead of compiled here a second time.
             "src/tui/tui_menu_adapter.c",
             "src/tui/tui_menu_model.c",
+            "src/tui/tui_product_model.c",
             // The CLI->action projection. Its only external dependency is
             // app_commands(), which the shared-primitives test stubs with a
             // controlled table so the hidden-skip/example-carry logic is tested
@@ -813,7 +835,7 @@ pub fn build(b: *std.Build) void {
         terminal_test_step.dependOn(&skip_cmd.step);
     }
 
-    // The Curspan component CLI: the framework's ShadCN-style `add` mechanism.
+    // The OpenQuick component CLI: the framework's ShadCN-style `add` mechanism.
     // A pure-Zig tool (no libc, no project sources) that reads the registry and
     // copies a component plus its dependency closure into a consumer's tree.
     // Built for the host so it runs as a dev tool regardless of -Dtarget.
@@ -826,7 +848,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     const install_curspan = b.addInstallArtifact(curspan_exe, .{});
-    const curspan_step = b.step("curspan", "Build + install the Curspan component CLI (registry list/info/add/check)");
+    const curspan_step = b.step("curspan", "Build + install the OpenQuick component CLI (registry list/info/add/check)");
     curspan_step.dependOn(&install_curspan.step);
 
     // `zig build curspan-run -- add table --dest path` runs the tool from the
@@ -835,7 +857,7 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| {
         curspan_run.addArgs(args);
     }
-    const curspan_run_step = b.step("curspan-run", "Run the Curspan CLI, e.g. zig build curspan-run -- add table");
+    const curspan_run_step = b.step("curspan-run", "Run the OpenQuick component CLI, e.g. zig build curspan-run -- add table");
     curspan_run_step.dependOn(&curspan_run.step);
 
     // Registry integrity check, wired into the test suite: every file a

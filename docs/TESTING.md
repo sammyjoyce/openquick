@@ -1,11 +1,11 @@
 # Testing CLI and TUI Behavior
 
-The template ships three test layers so a generated project can cover ordinary command behavior and interactive terminal UI flows from day one.
+OpenQuick ships three CLI/TUI test layers, plus Go and SDK tests for the host daemon and browser SDK.
 
 | Layer | How it runs | What it asserts | Lives in |
 | --- | --- | --- | --- |
 | Unit tests | In-process, linked against the real sources | Logic inside `config`, `error`, `tui_menu_model`, and other modules | `test/unit_*.c` |
-| CLI contract tests | The built binary as a subprocess | Exit codes, JSON fields, durable output, `myapp opencli` matching `opencli.json` | `test/cli_contract_*.c` |
+| CLI contract tests | The built binary as a subprocess | Exit codes, JSON fields, durable output, `quick opencli` matching `opencli.json` | `test/cli_contract_*.c` |
 | PTY/TUI scenarios | The binary in a real PTY via libghostty-vt | Rendered screen snapshots, input and resize handling | `test/terminal_vt_*.c` |
 
 The first two run everywhere with no extra dependencies. The third needs libghostty-vt and is optional.
@@ -18,6 +18,7 @@ zig build test            # unit tests + CLI contract tests
 zig build terminal-test   # unit + CLI tests; PTY/TUI skipped unless TUI + backend are available
 zig build check           # fmt-check + tests
 zig build -Dstrict=true check  # stricter local/CI gate: extra warnings as errors
+just test-all                  # CLI + quickd + SDK tests
 ```
 
 PTY/TUI scenarios only run when the TUI is built and a terminal backend is present:
@@ -85,23 +86,25 @@ Prefer stable contracts over incidental prose:
 
 - Assert exit status.
 - Assert JSON fields for automation-facing commands.
-- Keep `myapp opencli` byte-for-byte aligned with `opencli.json`.
+- Keep `quick opencli` byte-for-byte aligned with `opencli.json`.
 - Match durable words, not whole paragraphs.
 - Use `NO_COLOR=1` or `--plain` when color is not under test.
 
 ## Writing TUI scenario tests
 
-The Ghostty VT backend has fixed C scenarios for the demo menu, including a
-deterministic input/resize smoke test. Add project-specific scenarios in
-`test/terminal_vt_scenarios.c` when you need cell-accurate screen snapshots or resize
-coverage.
+The Ghostty VT backend has fixed C scenarios for the product dashboard and core
+flows (main menu, help/about, search, mnemonics, Sites, New site, Doctor,
+Settings, Deploy, and Serve), including deterministic input/resize smoke tests.
+Add project-specific scenarios in `test/terminal_vt_scenarios.c` when you need
+cell-accurate screen snapshots or resize coverage.
 
 Prefer small step tables (`expect`, `send`, `resize`, `wait`) over long branch ladders, so a new screen does not require a second harness.
 
 ## What CI runs
 
 CI runs `zig build -Dstrict=true check` on Linux, macOS, and Windows without Nix, so the unit and CLI
-contract suites are enforced on every platform. CI also builds the TUI with platform
+contract suites are enforced on every platform. CI also builds the SDK, runs SDK tests,
+and builds/tests quickd on non-Windows runners. It also builds the TUI with platform
 package managers and runs a `--json info` smoke check.
 
 Maintainers who want required Ghostty VT coverage can set `CI_ENABLE_NIX_GHOSTTY=true`
@@ -124,4 +127,4 @@ Consider an adapter around an external tool when you need something it does not 
 | Detached sessions a human or agent can watch live | Phantom, Termscope |
 | Property-based exploration of many input sequences | an external fuzzer over the PTY |
 
-These are heavier than most template users need on day one, which is why they are not wired in by default.
+These are heavier than the default OpenQuick gate needs, which is why they are not wired in by default.

@@ -69,8 +69,8 @@ static bool test_color_parse_matches_cli_contract(void) {
 }
 
 static bool test_accent_override_updates_shared_roles(void) {
-  char *previous = ui_env_dup("APP_CLI_ACCENT");
-  bool ok = setenv("APP_CLI_ACCENT", "#102030", 1) == 0;
+  char *previous = ui_env_dup("QUICK_CLI_ACCENT");
+  bool ok = setenv("QUICK_CLI_ACCENT", "#102030", 1) == 0;
   app_ui_color_scheme_t scheme = *app_ui_theme_default_scheme();
   app_ui_theme_apply_env_overrides(&scheme);
 
@@ -85,7 +85,7 @@ static bool test_accent_override_updates_shared_roles(void) {
        accent.kind == APP_UI_COLOR_RGB && accent.rgb.r == 0x10 &&
        selection.kind == APP_UI_COLOR_RGB && selection.rgb.b == 0x30;
 
-  ui_env_restore("APP_CLI_ACCENT", previous);
+  ui_env_restore("QUICK_CLI_ACCENT", previous);
   return ok;
 }
 
@@ -129,7 +129,7 @@ void run_ui_theme_unit_tests(unit_stats_t *stats) {
   unit_record(stats, test_color_parse_matches_cli_contract(),
               "ui color parser supports hex and ANSI indexes");
   unit_record(stats, test_accent_override_updates_shared_roles(),
-              "APP_CLI_ACCENT recolors shared accent roles");
+              "QUICK_CLI_ACCENT recolors shared accent roles");
   unit_record(stats, test_light_title_preserves_cli_literal(),
               "ui theme light title preserves existing CLI literal");
   unit_record(stats, test_indexed_color_survives_truecolor(),

@@ -1,9 +1,8 @@
 /*
- * Generic CLI Application Template
+ * OpenQuick CLI entry point.
  *
- * A modern C23 TUI + CLI starter using Zig as the build system and C
- * toolchain. main() handles bootstrap (logging, config, arg parsing) and
- * defers command behaviour to the table in src/cli/commands.c.
+ * main() handles bootstrap (logging, config, arg parsing) and defers command
+ * behaviour to the table in src/cli/commands.c.
  */
 
 #include <locale.h>
@@ -168,8 +167,8 @@ static app_error app_dispatch_configured_command(app_config_t *config,
 
   // Scan for command-local --help/-h, but only before the first standalone
   // "--" delimiter. Tokens after "--" are positionals (matching
-  // app_command_validate_invocation), so "myapp echo -- --help" must echo
-  // "--help" rather than print help.
+  // app_command_validate_invocation), so "quick open -- --help" treats
+  // "--help" as a positional site token rather than printing help.
   for (int i = 0; i < cmd_argc; i++) {
     if (!cmd_argv[i]) {
       continue;
@@ -215,7 +214,7 @@ static app_error app_run_headless_json(app_config_t *config, int64_t start_ms) {
   // dispatch errors on stderr as JSON; without this an error reached before the
   // request parses (interactive-stdin guard, blank stdin, malformed JSON) would
   // print human text whenever stdout is a TTY but stdin is piped (e.g.
-  // `echo bad | myapp`), since app_config_apply_output_defaults only enables
+  // `echo bad | quick`), since app_config_apply_output_defaults only enables
   // JSON when stdout is not a terminal. The re-apply after parsing additionally
   // stops a request body from downgrading the transport.
   (void)app_config_set_plain_output(config, false);
@@ -223,7 +222,7 @@ static app_error app_run_headless_json(app_config_t *config, int64_t start_ms) {
 
   // Reading from a TTY would block forever waiting for input the user has no
   // cue to provide. This path is reached on a bare invocation whenever stdout
-  // is not a terminal (e.g. `myapp > out.txt` selects machine output) even
+  // is not a terminal (e.g. `quick > out.txt` selects machine output) even
   // though stdin is still the keyboard. Fail fast instead of hanging.
   if (app_terminal_stream_is_tty(APP_TERMINAL_STDIN)) {
     app_output("Headless mode expects a JSON request object on stdin", config,

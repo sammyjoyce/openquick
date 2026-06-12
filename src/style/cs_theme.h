@@ -1,7 +1,7 @@
 /*
- * cs_theme — Curspan's public theming API.
+ * cs_theme — OpenQuick's internal theming API.
  *
- * Curspan's design system is three layers (see docs/THEMING.md):
+ * OpenQuick's design system is three layers (see docs/THEMING.md):
  *   1. design tokens   — raw sRGB palette values (design_tokens.h)
  *   2. semantic roles  — named, adaptive {dark,light} colors (ui_theme.h)
  *   3. themes          — a named, overridable bundle of roles + a mode
@@ -24,7 +24,7 @@
 
 #include "ui_theme.h"
 
-// A role is a semantic slot in the theme. Curspan exposes the shared UI roles
+// A role is a semantic slot in the theme. OpenQuick exposes the shared UI roles
 // under render-neutral, component-centric aliases so component code reads as
 // cs_surface_set_role(s, CS_ROLE_PRIMARY) rather than naming help-text tokens.
 typedef app_ui_role_id cs_role_t;

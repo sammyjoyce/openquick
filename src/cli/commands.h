@@ -43,6 +43,8 @@ typedef enum {
 typedef struct {
   app_command_option_id_t id;
   const char *name;
+  const app_command_arg_t *arguments;
+  size_t argument_count;
   const char *description;
 } app_command_option_t;
 
@@ -126,7 +128,7 @@ APP_NODISCARD app_error app_command_validate_invocation(
     const app_command_t *command, int argc, char *const argv[],
     const app_config_t *config, const char *program_name);
 
-// Shared TUI entry point used by both `myapp menu` and bare TTY launches.
+// Shared TUI entry point used by both `quick menu` and bare TTY launches.
 APP_NODISCARD app_error app_run_tui(const app_config_t *config);
 
 static inline const char *app_yes_no(bool value) {

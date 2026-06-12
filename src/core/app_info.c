@@ -5,7 +5,7 @@
 #include "app_info.h"
 
 #ifndef APP_NAME
-#define APP_NAME "myapp"
+#define APP_NAME "quick"
 #endif
 #ifndef APP_VERSION
 #define APP_VERSION "0.1.0"

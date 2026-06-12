@@ -3,7 +3,7 @@
  *
  *   cs_keyvalue_render(&(cs_keyvalue_t){
  *       .pairs = (cs_keyvalue_pair_t[]){
- *           {"Application", "myapp"},
+ *           {"Application", "quick"},
  *           {"Version",     "0.1.0"},
  *       },
  *       .count = 2,

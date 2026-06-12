@@ -157,7 +157,7 @@ static bool test_pty_roundtrip_light(void) {
 // a completed probe; contextual skips must not freeze the cache. The cache is a
 // function-local static, so these checks share one ordered sequence: every skip
 // assertion runs BEFORE the single committing probe, and the final assertions
-// confirm the frozen cache. Determinism comes from the APP_CLI_TEST_BG hook,
+// confirm the frozen cache. Determinism comes from the QUICK_CLI_TEST_BG hook,
 // which stands in for the /dev/tty round-trip after every skip gate, so no
 // controlling terminal is required.
 
@@ -189,18 +189,18 @@ static app_config_t *make_no_color_config(void) {
 }
 
 static bool run_detection_policy_contract(void) {
-  char *saved_osc = copy_env("APP_CLI_OSC11");
+  char *saved_osc = copy_env("QUICK_CLI_OSC11");
   char *saved_ci = copy_env("CI");
-  char *saved_bg = copy_env("APP_CLI_TEST_BG");
+  char *saved_bg = copy_env("QUICK_CLI_TEST_BG");
   char *saved_nc = copy_env("NO_COLOR");
-  char *saved_color = copy_env("APP_CLI_COLOR");
+  char *saved_color = copy_env("QUICK_CLI_COLOR");
   char *saved_term = copy_env("TERM");
 
   // Clean slate for the env gates we drive explicitly.
-  unsetenv("APP_CLI_OSC11");
+  unsetenv("QUICK_CLI_OSC11");
   unsetenv("CI");
   unsetenv("NO_COLOR");
-  unsetenv("APP_CLI_COLOR");
+  unsetenv("QUICK_CLI_COLOR");
   setenv("TERM", "xterm-256color", 1);
 
   app_config_t *enabled = NULL;
@@ -210,20 +210,20 @@ static bool run_detection_policy_contract(void) {
   // Throughout the skip phase, a successful "probe" is *available* via the test
   // hook; if any skip wrongly committed the cache, a later call would return
   // this LIGHT instead of re-evaluating.
-  setenv("APP_CLI_TEST_BG", "light", 1);
+  setenv("QUICK_CLI_TEST_BG", "light", 1);
 
   // (a) Hard-disabled config (NO_COLOR) => UNKNOWN, must not freeze the cache.
   ok = ok &&
        app_cli_term_detect_background(NULL, disabled) == APP_CLI_BG_UNKNOWN;
 
-  // (b) Env precedence: APP_CLI_OSC11=0 overrides an otherwise-enabled config
+  // (b) Env precedence: QUICK_CLI_OSC11=0 overrides an otherwise-enabled config
   //     and the available probe => UNKNOWN, still no commit.
-  setenv("APP_CLI_OSC11", "0", 1);
+  setenv("QUICK_CLI_OSC11", "0", 1);
   ok =
       ok && app_cli_term_detect_background(NULL, enabled) == APP_CLI_BG_UNKNOWN;
 
-  // (c) Env precedence: CI set (without APP_CLI_OSC11=1) => skip => UNKNOWN.
-  unsetenv("APP_CLI_OSC11");
+  // (c) Env precedence: CI set (without QUICK_CLI_OSC11=1) => skip => UNKNOWN.
+  unsetenv("QUICK_CLI_OSC11");
   setenv("CI", "1", 1);
   ok =
       ok && app_cli_term_detect_background(NULL, enabled) == APP_CLI_BG_UNKNOWN;
@@ -237,19 +237,19 @@ static bool run_detection_policy_contract(void) {
 
   // (e) The probe committed: subsequent calls are served from the cache even
   //     under conditions that would otherwise skip (NO_COLOR /
-  //     APP_CLI_OSC11=0).
-  setenv("APP_CLI_TEST_BG", "dark", 1);  // would change result if re-probed
+  //     QUICK_CLI_OSC11=0).
+  setenv("QUICK_CLI_TEST_BG", "dark", 1);  // would change result if re-probed
   ok = ok && app_cli_term_detect_background(NULL, enabled) == APP_CLI_BG_LIGHT;
   ok = ok && app_cli_term_detect_background(NULL, disabled) == APP_CLI_BG_LIGHT;
 
   app_config_destroy(enabled);
   app_config_destroy(disabled);
 
-  restore_env("APP_CLI_OSC11", saved_osc);
+  restore_env("QUICK_CLI_OSC11", saved_osc);
   restore_env("CI", saved_ci);
-  restore_env("APP_CLI_TEST_BG", saved_bg);
+  restore_env("QUICK_CLI_TEST_BG", saved_bg);
   restore_env("NO_COLOR", saved_nc);
-  restore_env("APP_CLI_COLOR", saved_color);
+  restore_env("QUICK_CLI_COLOR", saved_color);
   restore_env("TERM", saved_term);
   return ok;
 }

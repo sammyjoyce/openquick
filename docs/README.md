@@ -1,27 +1,33 @@
 # Documentation
 
-Developer documentation for the Curspan framework and the reference app built on
-it. Start here, then jump to the guide that matches your task.
+Developer and user documentation for OpenQuick.
 
-## Framework
-
-| Guide | Read it when you want to… |
-| --- | --- |
-| [Components](COMPONENTS.md) | Render the component catalog through the surface, or add a component to your project |
-| [Theming](THEMING.md) | Use design tokens, semantic roles, named themes, overrides, and color degradation |
-
-## Building on it
+## Product and workflow
 
 | Guide | Read it when you want to… |
 | --- | --- |
-| [Architecture Overview](ARCHITECTURE.md) | Understand the framework layer, how the modules fit together, and where to add code |
-| [Public Contracts](CONTRACTS.md) | Know which framework, CLI, and TUI seams are stable to build on |
-| [Zig Primer for C Developers](ZIG_PRIMER.md) | Drive the Zig build system with no prior Zig experience |
-| [Testing CLI and TUI Behavior](TESTING.md) | Write and run the CLI contract and PTY/TUI scenario tests |
-| [Contributors](CONTRIBUTORS.md) | See maintainers, acknowledgements, and how to contribute |
+| [Design architecture](design/ARCHITECTURE.md) | Understand the authoritative CLI/server/SDK split and v0 boundaries |
+| [Workflow design](design/WORKFLOW.md) | Understand install, init, deploy, open, list, and doctor behavior |
+| [User guide: quick init](user/quick-init.md) | Scaffold a static OpenQuick site |
+| [User guide: quick deploy](user/quick-deploy.md) | Deploy with rsync over SSH and quickd activation |
+| [User guide: SDK](user/sdk.md) | Use `/_quick/sdk.js` from hosted sites |
+| [User guide: TUI](user/tui.md) | Use the interactive OpenQuick dashboard |
+| [Cloudflare IAP](user/iap-cloudflare.md) | Configure Cloudflare Access in front of quickd |
+| [Tailscale IAP](user/iap-tailscale.md) | Configure Tailscale Serve/localapi/tsnet modes |
+
+## Developer internals
+
+| Guide | Read it when you want to… |
+| --- | --- |
+| [Architecture overview](ARCHITECTURE.md) | Navigate the current repo layout and build surfaces |
+| [Public contracts](CONTRACTS.md) | Know which CLI and internal UI seams are stable |
+| [Components](COMPONENTS.md) | Work on the vendored `cs_` rendering components used by CLI output |
+| [Theming](THEMING.md) | Work on terminal color roles and degradation |
+| [Zig primer](ZIG_PRIMER.md) | Drive the Zig build system with no prior Zig experience |
+| [Testing](TESTING.md) | Run the CLI contract and PTY/TUI scenario tests |
 
 ## Elsewhere in the repo
 
 - [README](../README.md) - project overview and quick start
 - [CONTRIBUTING](../CONTRIBUTING.md) - workflow, branch, and commit conventions
-- [examples/](../examples/) - task-focused how-tos: compose components, add a command, scripting
+- [examples/sites/](../examples/sites/) - static site examples

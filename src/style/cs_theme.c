@@ -12,9 +12,9 @@
 #endif
 
 cs_mode_t cs_theme_mode_resolve(void) {
-  const char *theme = getenv("APP_CLI_TEST_THEME");
+  const char *theme = getenv("QUICK_CLI_TEST_THEME");
   if (!theme || !theme[0]) {
-    theme = getenv("APP_CLI_THEME");
+    theme = getenv("QUICK_CLI_THEME");
   }
   if (theme && strcmp(theme, "light") == 0) {
     return CS_MODE_LIGHT;
@@ -127,7 +127,7 @@ static bool cs_theme_build_scheme(const char *name,
   return false;
 }
 
-// Apply the shared env overrides (APP_CLI_ACCENT) to a built scheme.
+// Apply the shared env overrides (QUICK_CLI_ACCENT) to a built scheme.
 static void cs_theme_apply_env(app_ui_color_scheme_t *scheme) {
   app_ui_theme_apply_env_overrides(scheme);
 }

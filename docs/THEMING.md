@@ -1,9 +1,8 @@
 # Theming
 
-Curspan's design system is the framework's core. Every component styles itself
-through **semantic roles**, never hard-coded colors, so re-theming an app — or
-adapting it to a 16-color terminal — is a one-line change, not a sweep through
-render code. This is the terminal-UI analogue of a ShadCN CSS-variable theme.
+OpenQuick's terminal presentation uses semantic roles instead of hard-coded
+colors. Re-theming CLI/TUI output — or adapting it to a 16-color terminal — is a
+small role-table change, not a sweep through render code.
 
 - [Three layers](#three-layers)
 - [Roles](#roles)
@@ -23,7 +22,7 @@ design tokens          semantic roles              themes
 ```
 
 1. **Design tokens** (`src/style/design_tokens.c`) — the raw sRGB palette. The
-   single source of truth for color *values*. Curspan's default identity is
+   single source of truth for color *values*. OpenQuick's default identity is
    amber-on-near-black (an ayu/gruvbox feel).
 2. **Semantic roles** (`src/style/ui_theme.c`) — each role (e.g. `TITLE`,
    `BORDER`, `SUCCESS`) is an adaptive color with a `{dark, light}` pair, derived
@@ -73,7 +72,8 @@ NULL)` and `cs_surface_curses_new(window, NULL)` use the default. To pick or
 inspect one:
 
 ```c
-#include "curspan.h"
+#include "surface/surface.h"
+#include "style/cs_theme.h"
 
 cs_theme_t theme = cs_theme_default();          // "amber", env overrides applied
 cs_theme_by_name("mono", &theme);               // false if the name is unknown
@@ -159,7 +159,7 @@ truecolor profile.)
 
 ## Environment contract
 
-Curspan honors the same color/theme environment variables as the styled CLI;
+OpenQuick honors the same color/theme environment variables as the styled CLI;
 they are part of the supported [contract](CONTRACTS.md).
 
 | Variable | Effect |

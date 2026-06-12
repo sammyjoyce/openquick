@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to this template are documented here.
+All notable OpenQuick changes are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
@@ -10,7 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - TUI support is compiled in by default; pass `-Denable-tui=false` to build a
   headless-only binary.
-- Bare `myapp` on a TTY now opens the interactive TUI menu, while command
+- Bare `quick` on a TTY now opens the interactive TUI menu, while command
   invocations continue to use the CLI command table.
 - Command output defaults to versioned JSON when stdout is not a terminal;
   pass `--plain` to preserve human text under pipes or redirection.
@@ -24,7 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   flags now disable or force TUI color, where it previously consulted only the
   terminal's capability. Both surfaces resolve color through one `app_use_colors`
   helper.
-- `myapp menu` and the bare-TTY launch now reject conflicting JSON output with a
+- `quick menu` and the bare-TTY launch now reject conflicting JSON output with a
   single shared message and exit code, instead of two slightly different
   wordings on the two entry points.
 
@@ -61,13 +61,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- Initial template: C23 sources under `src/`, Zig 0.16 build system, opt-in ncurses/PDCurses TUI behind `-Denable-tui=true`.
-- Live OpenCLI contract. `myapp opencli` prints the spec, and `zig build test` fails if it drifts from `opencli.json`.
+- Initial C23 CLI foundation under `src/`, Zig 0.16 build system, opt-in ncurses/PDCurses TUI behind `-Denable-tui=true`.
+- Live OpenCLI contract. `quick opencli` prints the spec, and `zig build test` fails if it drifts from `opencli.json`.
 - Reusable `tui-menu-lib` static library target with installed headers.
 - Three test layers: in-process unit tests (`zig build unit-test`), CLI contract tests, and Ghostty-VT-backed PTY/TUI scenarios.
 - GitHub Actions CI on Linux, macOS, and Windows, plus `clang-tidy`, `cppcheck`, Gitleaks, OpenSSF Scorecard, SBOM generation, and pinned action versions.
-- Template cleanup workflow and setup scripts for customizing a generated project.
 - Nix dev shell, devcontainer, pre-commit configuration (clang-format, markdownlint, conventional-commit), and Dependabot.
 
-[Unreleased]: https://github.com/yourusername/yourproject/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/yourusername/yourproject/releases/tag/v0.1.0
+[Unreleased]: https://github.com/sammyjoyce/openquick/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/sammyjoyce/openquick/releases/tag/v0.1.0

@@ -72,7 +72,7 @@ typedef struct {
   const char *title;
   const char *subtitle; /* optional breadcrumb shown on the meta line under
                            the title when the selected item has no
-                           description (e.g. "myapp · v0.1.0") */
+                           description (e.g. "quick · v0.1.0") */
   const tui_menu_item_t *items;
   int item_count;
   int default_index; /* -1 picks first enabled */

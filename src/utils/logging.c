@@ -21,7 +21,7 @@
 #include "../core/types.h"
 
 // Global log level defaults to ERROR to minimize output in production
-// environments. Developers can increase verbosity via APP_LOG_LEVEL when
+// environments. Developers can increase verbosity via QUICK_LOG_LEVEL when
 // debugging issues. We track initialization state to ensure environment
 // variables are read exactly once, preventing inconsistent behavior if the
 // environment changes during execution.
@@ -41,8 +41,8 @@ void app_log_init(void) {
 void app_log_update_level(void) {
   // Read log level from environment to allow runtime configuration without
   // recompilation. Use string comparison rather than numeric levels for clear
-  // configuration (APP_LOG_LEVEL=DEBUG is clearer than APP_LOG_LEVEL=3).
-  const char *level = getenv("APP_LOG_LEVEL");
+  // configuration (QUICK_LOG_LEVEL=DEBUG is clearer than QUICK_LOG_LEVEL=3).
+  const char *level = getenv("QUICK_LOG_LEVEL");
   if (level == nullptr) {
     g_log_level = LOG_LEVEL_ERROR;
   } else if (strcmp(level, "WARNING") == 0) {

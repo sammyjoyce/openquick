@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OpenQuick realtime vote</title>
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+      body { margin: 0; min-height: 100vh; background: #111827; color: #f9fafb; }
+      main { max-width: 48rem; margin: 0 auto; padding: 2rem; }
+      button { margin: 0.25rem; padding: 0.75rem 1rem; border: 0; border-radius: 0.75rem; background: #2563eb; color: white; cursor: pointer; }
+      button:hover { background: #1d4ed8; }
+      .card { margin: 1rem 0; padding: 1rem; border: 1px solid #374151; border-radius: 1rem; background: #1f2937; }
+      .bar { height: 1rem; border-radius: 999px; background: #10b981; min-width: 0.5rem; }
+      .cursor { position: fixed; z-index: 5; transform: translate(-50%, -50%); pointer-events: none; padding: 0.2rem 0.45rem; border-radius: 999px; background: #f97316; color: #111827; font-size: 0.75rem; }
+      .muted { color: #9ca3af; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Realtime lunch vote</h1>
+      <p id="identity" class="muted">Loading identity…</p>
+
+      <section class="card">
+        <h2>Cast a vote</h2>
+        <button data-choice="ramen">Ramen</button>
+        <button data-choice="tacos">Tacos</button>
+        <button data-choice="salad">Salad</button>
+      </section>
+
+      <section class="card">
+        <h2>Results</h2>
+        <div id="results"></div>
+      </section>
+
+      <section class="card">
+        <h2>Cursor demo</h2>
+        <p class="muted">Move your pointer over the page. Other connected browsers receive cursor events through <code>quick.realtime.channel()</code>.</p>
+      </section>
+    </main>
+
+    <script type="module">
+      import { quick } from '/_quick/sdk.js';
+
+      const identityEl = document.querySelector('#identity');
+      const resultsEl = document.querySelector('#results');
+      const choices = ['ramen', 'tacos', 'salad'];
+      const counts = Object.fromEntries(choices.map((choice) => [choice, 0]));
+      const votes = quick.db.collection('votes');
+
+      function voterName(me) {
+        return me.email || me.login || me.name || me.subject || 'anonymous';
+      }
+
+      function applyVote(doc) {
+        if (doc && choices.includes(doc.choice)) {
+          counts[doc.choice] += 1;
+          renderResults();
+        }
+      }
+
+      function renderResults() {
+        const total = Math.max(1, Object.values(counts).reduce((sum, value) => sum + value, 0));
+        resultsEl.innerHTML = choices.map((choice) => {
+          const count = counts[choice];
+          const width = Math.max(4, Math.round((count / total) * 100));
+          return `<p><strong>${choice}</strong> — ${count}</p><div class="bar" style="width:${width}%"></div>`;
+        }).join('');
+      }
+
+      renderResults();
+
+      const me = await quick.identity.current();
+      identityEl.textContent = `Signed in as ${voterName(me)} via ${me.provider}`;
+
+      for (const button of document.querySelectorAll('button[data-choice]')) {
+        button.addEventListener('click', async () => {
+          const choice = button.dataset.choice;
+          const doc = await votes.create({ choice, by: voterName(me), created_at: new Date().toISOString() });
+          applyVote(doc);
+        });
+      }
+
+      try {
+        for (const doc of await votes.list()) {
+          applyVote(doc);
+        }
+        await votes.subscribe({
+          onCreate: applyVote,
+          onUpdate: renderResults,
+          onDelete: (id) => console.log('vote deleted', id),
+        });
+      } catch (error) {
+        console.warn('OpenQuick DB/realtime unavailable in this host mode:', error);
+      }
+
+      const cursors = quick.realtime.channel('realtime-vote:cursors');
+      const cursorEls = new Map();
+      cursors.on('cursor', (msg) => {
+        const { by, x, y } = msg || {};
+        if (!by || by === voterName(me)) return;
+        let el = cursorEls.get(by);
+        if (!el) {
+          el = document.createElement('div');
+          el.className = 'cursor';
+          el.textContent = by;
+          document.body.append(el);
+          cursorEls.set(by, el);
+        }
+        el.style.left = `${x}px`;
+        el.style.top = `${y}px`;
+      });
+
+      let lastCursorSent = 0;
+      window.addEventListener('pointermove', (event) => {
+        const now = Date.now();
+        if (now - lastCursorSent < 100) return;
+        lastCursorSent = now;
+        cursors.send('cursor', { by: voterName(me), x: event.clientX, y: event.clientY });
+      });
+    </script>
+  </body>
+</html>

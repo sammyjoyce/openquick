@@ -1,167 +1,132 @@
-# Example: Adding a New Command
+# Example: Adding an OpenQuick Command
 
-This example adds a `greet` command that greets one or more people. The same five steps work for any command, because dispatch, help, and the OpenCLI contract are all driven by one command table.
+OpenQuick commands are registered in one table (`src/cli/commands.c`). That table drives dispatch, help, and `quick opencli`, so a new command needs a handler, metadata, build wiring, a regenerated contract, and tests.
+
+This example adds a real product-shaped command: `quick status [site]`, which resolves the current OpenQuick target and prints the URL/profile without contacting the host.
 
 ## 1. Add the command handler
 
-Create a command translation unit, for example `src/cli/commands_greet.c`. Every handler has the same signature: it takes the resolved config and the command's arguments, and returns an `app_error`.
+Create `src/cli/commands_status.c`:
 
 ```c
-app_error app_cmd_greet(const app_config_t *config, int argc,
-                        char *const argv[]) {
-    if (argc == 0) {
-        fprintf(stderr, "Error: greet command requires at least one name\n");
-        return APP_ERROR_MISSING_ARG;
-    }
+#include "../core/deploy_plan.h"
+#include "../core/profile_config.h"
+#include "../io/output.h"
+#include "commands.h"
+#include "commands_openquick.h"
 
-    app_output("Greetings to:", config, false);
-    for (int i = 0; i < argc; i++) {
-        app_output_format(config, false, "  - %s", argv[i]);
-    }
-    app_output("", config, false);
-    app_output("Have a great day!", config, false);
-    return APP_SUCCESS;
+app_error app_cmd_status(const app_config_t *config, int argc,
+                         char *const argv[]) {
+  const char *value_opts[] = {"--profile"};
+  const char *site = quick_cmd_first_positional(argc, argv, value_opts,
+                                                APP_COUNTOF(value_opts));
+
+  quick_profile_config_t profiles;
+  app_error err = quick_cmd_load_profiles(&profiles);
+  if (err != APP_SUCCESS) return err;
+
+  quick_plan_overrides_t overrides = {
+      .site = site,
+      .profile = quick_cmd_value(argc, argv, "--profile"),
+  };
+  quick_deploy_plan_t plan;
+  quick_deploy_plan_init(&plan);
+  err = quick_deploy_plan_resolve(&overrides, &profiles, &plan);
+  quick_profile_config_destroy(&profiles);
+  if (err != APP_SUCCESS) return err;
+
+  if (app_config_is_json_output(config)) {
+    bool comma = false;
+    app_json_begin_object(stdout);
+    app_json_write_string_field(stdout, "format_version", "1.0", &comma);
+    app_json_write_string_field(stdout, "site", plan.site, &comma);
+    app_json_write_string_field(stdout, "profile", plan.profile, &comma);
+    app_json_write_string_field(stdout, "url", plan.url, &comma);
+    app_json_end_object(stdout);
+    app_json_end_line(stdout);
+  } else {
+    app_output_format(config, false, "site    %s", plan.site);
+    app_output_format(config, false, "profile %s", plan.profile);
+    app_output_format(config, false, "url     %s", plan.url);
+  }
+
+  quick_deploy_plan_destroy(&plan);
+  return APP_SUCCESS;
 }
 ```
 
-Use `app_output` for plain strings and `app_output_format` for printf-style output (see
-`src/cli/commands_basic.c` for the real `hello` and `echo` handlers). Both honour
-`--json`, `--quiet`, and color flags; `fprintf(stderr, …)` is fine for the error path.
-
-Add the new file to the `base_sources` array in `build.zig` so it is compiled (see [ZIG_PRIMER.md](../docs/ZIG_PRIMER.md#adding-a-c-file)).
+Add the file to `base_sources` in `build.zig`.
 
 ## 2. Register command metadata
 
-Add the forward declaration, argument table, examples, and a command row to
-`g_app_commands` in `src/cli/commands.c`. This one table feeds dispatch, help
-text, and `myapp opencli`. `APP_COUNTOF` (from `src/cli/commands.h`, already
-included there) yields the element count.
+In `src/cli/commands.c`, add the forward declaration, options, arguments/examples, and a row in `g_app_commands`:
 
 ```c
-app_error app_cmd_greet(const app_config_t *config, int argc,
-                        char *const argv[]);
+app_error app_cmd_status(const app_config_t *config, int argc,
+                         char *const argv[]);
 
-static const app_command_arg_t greet_args[] = {
-    {.name = "names",
-     .required = true,
-     .arity_minimum = 1,
+static const app_command_option_t status_options[] = {
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "profile",
+     .description = "Profile used for target resolution"},
+};
+
+static const app_command_arg_t status_args[] = {
+    {.name = "site",
+     .required = false,
+     .arity_minimum = 0,
      .arity_maximum = APP_ARG_ARITY_UNBOUNDED,
-     .description = "Names of people to greet"},
+     .description = "Optional site name and option values"},
 };
 
-static const char *const greet_examples[] = {
-    "myapp greet Alice",
-    "myapp greet Alice Bob Charlie",
+static const char *const status_examples[] = {
+    "quick status",
+    "quick status lunch-vote --profile lab",
 };
 
-static const app_command_t g_app_commands[] = {
-    /* existing commands... */
-    {.name = "greet",
-     .summary = "Greet multiple people.",
-     .handler = app_cmd_greet,
-     .arguments = greet_args,
-     .argument_count = APP_COUNTOF(greet_args),
-     .examples = greet_examples,
-     .example_count = APP_COUNTOF(greet_examples),
-     .requires_terminal = false},
-};
+/* inside g_app_commands */
+{.name = "status",
+ .summary = "Print the resolved OpenQuick target.",
+ .handler = app_cmd_status,
+ .options = status_options,
+ .option_count = APP_COUNTOF(status_options),
+ .arguments = status_args,
+ .argument_count = APP_COUNTOF(status_args),
+ .examples = status_examples,
+ .example_count = APP_COUNTOF(status_examples),
+ .requires_terminal = false},
 ```
 
-## 3. Update opencli.json
-
-The contract is checked in, and `zig build test` fails if it drifts from the binary. Regenerate it from the live command:
+## 3. Regenerate `opencli.json`
 
 ```bash
 zig build run -- opencli > opencli.json
 ```
 
-Your command should now appear in the root command's `commands` array:
+The command should appear under `.command.commands[]` with its options, arguments, and examples.
 
-```json
-{
-  "name": "greet",
-  "description": "Greet multiple people.",
-  "options": [],
-  "arguments": [
-    {
-      "name": "names",
-      "required": true,
-      "arity": {
-        "minimum": 1,
-        "maximum": null
-      },
-      "description": "Names of people to greet"
-    }
-  ],
-  "examples": [
-    "myapp greet Alice",
-    "myapp greet Alice Bob Charlie"
-  ]
-}
-```
+## 4. Add contract tests
 
-(`APP_ARG_ARITY_UNBOUNDED` serializes as JSON `null`.)
-
-## 4. Add tests
-
-Add a case to `test/cli_contract_cases.c` that covers the happy path and the error path:
+Add subprocess coverage in `test/cli_contract_cases.c`:
 
 ```c
-static bool test_greet_command(test_context_t *ctx) {
-  bool ok = true;
-
-  {
-    const char *args[] = {"greet", "Alice"};
-    command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), NULL, 0);
-    ok = cc_expect_exit(&result, 0) &&
-         cc_expect_stdout_contains(&result, "Alice") && ok;
-    cc_command_result_free(&result);
-  }
-
-  {
-    const char *args[] = {"greet", "Alice", "Bob"};
-    command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), NULL, 0);
-    ok = cc_expect_exit(&result, 0) &&
-         cc_expect_stdout_contains(&result, "Alice") &&
-         cc_expect_stdout_contains(&result, "Bob") && ok;
-    cc_command_result_free(&result);
-  }
-
-  {
-    const char *args[] = {"greet"};
-    command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), NULL, 0);
-    ok = cc_expect_not_exit(&result, 0) &&
-         cc_expect_stderr_contains(&result, "requires at least one name") && ok;
-    cc_command_result_free(&result);
-  }
-
+static bool test_status_command(test_context_t *ctx) {
+  const char *args[] = {"--json", "status", "lunch-vote"};
+  const env_var_t env[] = {{"QUICK_BASE_DOMAIN", "quick.example.com"}};
+  command_result_t result =
+      cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
+  const bool ok = cc_expect_exit(&result, 0) &&
+                  cc_expect_stdout_contains(&result, "\"format_version\":\"1.0\"") &&
+                  cc_expect_stdout_contains(&result, "https://lunch-vote.quick.example.com");
+  cc_command_result_free(&result);
   return ok;
 }
 ```
 
-Register it in the `tests` array:
+Register it in `cli_contract_cases[]`, then run `zig build test`.
 
-```c
-{"greet command handles names", test_greet_command},
-```
+## Notes
 
-See [TESTING.md](../docs/TESTING.md) for the difference between contract tests and unit tests.
-
-## 5. Build and test
-
-```bash
-zig build                                  # build
-zig build test                             # run the suite (fails if opencli.json drifted)
-./zig-out/bin/myapp greet Alice Bob Charlie
-```
-
-## What you get
-
-The command now:
-
-- accepts multiple arguments and validates that at least one is present
-- appears in `--help` and in `myapp opencli`
-- returns a meaningful exit code on error (`APP_ERROR_MISSING_ARG`)
-- is covered by a contract test
-
-Repeat the same pattern for any command. Commands that open the TUI set `.requires_terminal = true`. See [custom-tui.md](custom-tui.md).
+- Keep command handlers small and delegate target/config work to `src/core/` helpers.
+- Use `execvp`/argv arrays for child processes; do not interpolate site names or paths into shell snippets.
+- Every machine-readable command output should include `"format_version":"1.0"`.

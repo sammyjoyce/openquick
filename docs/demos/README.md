@@ -8,14 +8,15 @@ Animated demonstrations of the CLI. The `.gif` files are not checked in. Build t
 
 <!-- ![Basic usage](basic-usage.gif) -->
 
-Help, version, and the `hello` / `echo` commands.
+Help, version, scaffold, dry-run deploy planning, and URL resolution.
 
 ```bash
-myapp --help
-myapp --version
-myapp hello
-myapp hello "Demo User"
-myapp echo "This is a test message"
+quick --help
+quick --version
+quick init /tmp/openquick-demo-site --name demo-site
+cd /tmp/openquick-demo-site
+quick deploy --dry-run
+quick open --plain
 ```
 
 ### Human and JSON output
@@ -25,8 +26,8 @@ myapp echo "This is a test message"
 The same command in human-readable and `--json` form.
 
 ```bash
-myapp info
-myapp --json info
+quick info
+quick --json info
 ```
 
 ### Diagnostics
@@ -36,8 +37,8 @@ myapp --json info
 `doctor` reports environment status. The current implementation is informational and always exits `0`; use `--json` and parse the checks if you need a hard gate.
 
 ```bash
-myapp doctor
-myapp --json doctor
+quick doctor
+quick --json doctor
 ```
 
 ### OpenCLI contract
@@ -47,7 +48,7 @@ myapp --json doctor
 The machine-readable CLI contract the binary prints on demand.
 
 ```bash
-myapp opencli
+quick opencli
 ```
 
 ### Error handling
@@ -57,18 +58,18 @@ myapp opencli
 An unknown command (exit 2) and an unknown option (exit 7).
 
 ```bash
-myapp frobnicate
-myapp --unknown-option
+quick frobnicate
+quick --unknown-option
 ```
 
-## Recording the interactive menu
+## Recording the interactive TUI
 
-The TUI menu needs a real terminal and live input, so record it by hand rather than through the script:
+The product dashboard needs a real terminal and live input, so record it by hand rather than through the script:
 
 ```bash
-zig build run                                    # try it first; opens the TUI on a TTY
+zig build run                                    # try it first; bare quick opens the dashboard on a TTY
 asciinema rec docs/demos/recordings/menu.cast     # then record a session
-# drive the menu, press q to quit, then Ctrl-D to stop recording
+# drive Sites/Deploy/New site/Doctor/Serve/Settings, choose Exit (or q then y), then Ctrl-D
 agg docs/demos/recordings/menu.cast docs/demos/menu.gif
 ```
 

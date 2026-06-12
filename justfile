@@ -1,13 +1,28 @@
-# Justfile for Curspan
+# Justfile for OpenQuick
 # Quick reference: https://just.systems/man/en/
 
 set positional-arguments
 
 # --- Build ---
 
-# Build the default CLI
+# Build the quick CLI
 build:
     zig build
+
+# Build quickd into the repo-level zig-out/bin for CLI dev-mode lookup
+build-server:
+    mkdir -p zig-out/bin
+    cd server && go build -o ../zig-out/bin/quickd ./cmd/quickd
+
+# Build the JS SDK and embed it into quickd
+build-sdk:
+    cd sdk/js && bun run build && cp dist/quick.js ../../server/internal/api/sdk/quick.js
+
+# Build all components in embed order: SDK, quickd, then quick CLI
+build-all:
+    just build-sdk
+    just build-server
+    just build
 
 # Build with TUI support
 build-tui:
@@ -50,6 +65,12 @@ run-tui *args:
 # Run tests
 @test:
     zig build test
+
+# Run all component tests
+@test-all:
+    zig build test
+    cd server && go test ./...
+    cd sdk/js && bun test
 
 # Run end-to-end terminal scenario tests (uses current build default)
 terminal-test:

@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OpenQuick uploads</title>
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+      body { margin: 0; min-height: 100vh; background: #0f172a; color: #e2e8f0; }
+      main { max-width: 44rem; margin: 0 auto; padding: 2rem; }
+      .card { margin: 1rem 0; padding: 1rem; border: 1px solid #334155; border-radius: 1rem; background: #1e293b; }
+      button, input::file-selector-button { padding: 0.6rem 0.8rem; border: 0; border-radius: 0.65rem; background: #2563eb; color: white; cursor: pointer; }
+      li { margin: 0.75rem 0; }
+      a { color: #93c5fd; }
+      .muted { color: #94a3b8; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Uploads</h1>
+      <p class="muted">Files are sent to <code>/_quick/uploads</code> through the OpenQuick SDK.</p>
+
+      <section class="card">
+        <label>
+          Choose a file
+          <input id="file" type="file" />
+        </label>
+        <p id="status" class="muted">No upload yet.</p>
+      </section>
+
+      <section class="card">
+        <h2>This browser's uploaded files</h2>
+        <ul id="uploads"></ul>
+      </section>
+    </main>
+
+    <script type="module">
+      import { quick } from '/_quick/sdk.js';
+
+      const fileInput = document.querySelector('#file');
+      const statusEl = document.querySelector('#status');
+      const uploadsEl = document.querySelector('#uploads');
+      const storageKey = 'openquick-example-uploads';
+      const uploads = JSON.parse(localStorage.getItem(storageKey) || '[]');
+
+      function save() {
+        localStorage.setItem(storageKey, JSON.stringify(uploads));
+      }
+
+      function render() {
+        uploadsEl.innerHTML = '';
+        if (uploads.length === 0) {
+          uploadsEl.innerHTML = '<li class="muted">Uploads you add from this browser will appear here.</li>';
+          return;
+        }
+
+        for (const upload of uploads) {
+          const li = document.createElement('li');
+          const link = document.createElement('a');
+          link.href = upload.url;
+          link.textContent = upload.name || upload.id;
+          link.target = '_blank';
+          link.rel = 'noreferrer';
+
+          const refresh = document.createElement('button');
+          refresh.textContent = 'Refresh metadata';
+          refresh.addEventListener('click', async () => {
+            const latest = await quick.uploads.get(upload.id);
+            Object.assign(upload, latest);
+            save();
+            render();
+          });
+
+          const remove = document.createElement('button');
+          remove.textContent = 'Remove';
+          remove.addEventListener('click', async () => {
+            await quick.uploads.remove(upload.id);
+            uploads.splice(uploads.indexOf(upload), 1);
+            save();
+            render();
+          });
+
+          li.append(link, ` (${upload.size || 'unknown'} bytes) `, refresh, ' ', remove);
+          uploadsEl.append(li);
+        }
+      }
+
+      fileInput.addEventListener('change', async () => {
+        const file = fileInput.files?.[0];
+        if (!file) return;
+        statusEl.textContent = `Uploading ${file.name}…`;
+        try {
+          const upload = await quick.uploads.put(file, { name: file.name });
+          uploads.unshift(upload);
+          save();
+          render();
+          statusEl.textContent = `Uploaded ${upload.name || upload.id}.`;
+        } catch (error) {
+          console.error(error);
+          statusEl.textContent = `Upload failed: ${error instanceof Error ? error.message : String(error)}`;
+        } finally {
+          fileInput.value = '';
+        }
+      });
+
+      render();
+    </script>
+  </body>
+</html>

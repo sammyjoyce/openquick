@@ -26,13 +26,13 @@ commands and the `build.zig` structure you will actually touch.
 
 ```bash
 zig build                         # build + install the binary to zig-out/bin/
-zig build run -- hello Alice      # build, then run with arguments after --
+zig build run -- doctor --json    # build, then run with arguments after --
 zig build test                    # CLI contract tests + in-process unit tests
 zig build -Doptimize=ReleaseSafe  # optimized build
 zig build run                     # on a TTY, open the default TUI menu
 ```
 
-A `justfile` wraps the common ones if you prefer: `just build`, `just check`, `just test-fast`, `just clean`. Run `just help` to list them.
+A `justfile` wraps the common ones if you prefer: `just build`, `just build-all`, `just test-all`, `just check`, and `just clean`. Run `just help` to list them.
 
 ## How this build.zig is organized
 
@@ -47,7 +47,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const app_name = b.option([]const u8, "app-name", "Application and binary name") orelse "myapp";
+    const app_name = b.option([]const u8, "app-name", "Application and binary name") orelse "quick";
     const enable_tui = b.option(bool, "enable-tui", "Enable the ncurses/PDCurses TUI") orelse true;
 
     const exe = b.addExecutable(.{
@@ -111,7 +111,7 @@ Pass these as `-D<name>=<value>` on any `zig build` command.
 | `-Denable-tui=` | `true` / `false` (default `true`) | Compile the ncurses TUI and link curses |
 | `-Denable-cli-style=` | `true` / `false` (default `true`) | Compile the styled CLI help/error/version layer (uses terminfo when available, ANSI otherwise) |
 | `-Dcli-terminfo=` | `auto` (default) / `required` / `disabled` | Terminfo backend policy for the CLI styling layer |
-| `-Dapp-name=` | string (default `myapp`) | Application and binary name |
+| `-Dapp-name=` | string (default `quick`) | Application and binary name |
 | `-Dversion=` | string (default `0.1.0`) | Version baked into the binary |
 | `-Dstrict=` | `true` / `false` (default `false`) | Add extra warnings and treat warnings as errors |
 | `-Dharden=` | `true` / `false` (default `false`) | Add supported compiler hardening flags such as stack protector and fortify |
@@ -246,7 +246,7 @@ CLI/headless-only cross build with no curses dependency.
 A Makefile rule like this:
 
 ```makefile
-myapp: main.c args.c
+quick: main.c args.c
 	gcc -std=c23 -Wall -O2 -o $@ $^ -lncursesw
 ```
 
@@ -254,7 +254,7 @@ becomes, in `build.zig`:
 
 ```zig
 const exe = b.addExecutable(.{
-    .name = "myapp",
+    .name = "quick",
     .root_module = b.createModule(.{
         .root_source_file = null,
         .target = target,
@@ -304,7 +304,7 @@ const git_commit = blk: {
 // added to the compile flags as: -DAPP_GIT_COMMIT="<hash>"
 ```
 
-`myapp info` then reports that hash. Use the same pattern for any value you want baked into the binary at build time.
+`quick info` then reports that hash. Use the same pattern for any value you want baked into the binary at build time.
 
 ## Resources
 

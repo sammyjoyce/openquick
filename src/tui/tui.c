@@ -318,6 +318,10 @@ bool tui_interrupted(void) {
   return tui_interrupted_signal != 0;
 }
 
+const volatile sig_atomic_t *tui_interrupt_flag(void) {
+  return &tui_interrupted_signal;
+}
+
 app_error tui_take_interrupt_error(void) {
   const int signum = (int)tui_interrupted_signal;
   tui_interrupted_signal = 0;
@@ -346,12 +350,12 @@ enum {
 };
 
 static bool tui_color_env_disabled(void) {
-  const char *color = getenv("APP_CLI_COLOR");
+  const char *color = getenv("QUICK_CLI_COLOR");
   return color && strcmp(color, "never") == 0;
 }
 
 static app_cli_color_profile_id tui_requested_color_profile(void) {
-  const char *color = getenv("APP_CLI_COLOR");
+  const char *color = getenv("QUICK_CLI_COLOR");
   if (!color || color[0] == '\0' || strcmp(color, "auto") == 0 ||
       strcmp(color, "never") == 0) {
     return APP_CLI_COLOR_PROFILE_NONE;
@@ -369,7 +373,7 @@ static app_cli_color_profile_id tui_requested_color_profile(void) {
 }
 
 static bool tui_accent_override_is_indexed(void) {
-  const char *accent = getenv("APP_CLI_ACCENT");
+  const char *accent = getenv("QUICK_CLI_ACCENT");
   if (!accent || !accent[0]) {
     return false;
   }

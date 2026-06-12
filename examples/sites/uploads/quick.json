@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openquick.dev/schemas/site.v1.json",
+  "name": "uploads",
+  "source": ".",
+  "output": ".",
+  "build": null,
+  "subdomain": "uploads",
+  "sdk": {
+    "enabled": true,
+    "import": "/_quick/sdk.js"
+  }
+}

@@ -1,5 +1,5 @@
 /*
- * Unit tests for the Curspan component catalog.
+ * Unit tests for the Openquick component catalog.
  *
  * Most components are rendered to a non-TTY tmpfile() stream surface, which
  * means styling is disabled and the output is plain (escape-free). The
@@ -199,7 +199,7 @@ static bool test_keyvalue_plain(void) {
     return false;
   }
   cs_keyvalue_pair_t pairs[] = {
-      {"Application", "myapp"},
+      {"Application", "openquick"},
       {"Version", "0.1.0"},
   };
   cs_keyvalue_render(&(cs_keyvalue_t){.pairs = pairs, .count = 2}, s);
@@ -207,7 +207,7 @@ static bool test_keyvalue_plain(void) {
   capture(s, stream, buf, sizeof(buf));
   // Keys pad to the widest ("Application" = 11). "Application" then takes only
   // the 2-space separator; "Version" (7) gets 4 pad + 2 separator = 6 spaces.
-  return strstr(buf, "Application  myapp") &&
+  return strstr(buf, "Application  openquick") &&
          strstr(buf, "Version      0.1.0") && no_escapes(buf);
 }
 
@@ -381,8 +381,8 @@ static bool test_mono_theme_colored_on_truecolor(void) {
 
 static bool test_explicit_text_role_overrides_non_text_default(void) {
 #ifdef APP_ENABLE_CLI_STYLE
-  test_env_save_t env[] = {{"APP_CLI_TEST_PROFILE", NULL}, {"NO_COLOR", NULL},
-                           {"APP_CLI_COLOR", NULL},        {"TERM", NULL},
+  test_env_save_t env[] = {{"QUICK_CLI_TEST_PROFILE", NULL}, {"NO_COLOR", NULL},
+                           {"QUICK_CLI_COLOR", NULL},        {"TERM", NULL},
                            {"FORCE_COLOR", NULL},          {"CLICOLOR", NULL},
                            {"CLICOLOR_FORCE", NULL}};
   bool ok = true;
@@ -400,12 +400,12 @@ static bool test_explicit_text_role_overrides_non_text_default(void) {
   }
 
   unsetenv("NO_COLOR");
-  unsetenv("APP_CLI_COLOR");
+  unsetenv("QUICK_CLI_COLOR");
   unsetenv("FORCE_COLOR");
   unsetenv("CLICOLOR");
   unsetenv("CLICOLOR_FORCE");
   setenv("TERM", "xterm-256color", 1);
-  setenv("APP_CLI_TEST_PROFILE", "truecolor", 1);
+  setenv("QUICK_CLI_TEST_PROFILE", "truecolor", 1);
 
   cs_theme_t theme = cs_theme_default();
   ok = ok && cs_theme_set_role_spec(&theme, CS_ROLE_TEXT, "#010203") &&

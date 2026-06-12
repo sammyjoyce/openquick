@@ -13,9 +13,15 @@
 #include "option_meta.h"
 
 // Forward declarations for handlers defined in their own translation units.
-app_error app_cmd_hello(const app_config_t *config, int argc,
+app_error app_cmd_init(const app_config_t *config, int argc,
+                       char *const argv[]);
+app_error app_cmd_deploy(const app_config_t *config, int argc,
+                         char *const argv[]);
+app_error app_cmd_serve(const app_config_t *config, int argc,
                         char *const argv[]);
-app_error app_cmd_echo(const app_config_t *config, int argc,
+app_error app_cmd_open(const app_config_t *config, int argc,
+                       char *const argv[]);
+app_error app_cmd_list(const app_config_t *config, int argc,
                        char *const argv[]);
 app_error app_cmd_info(const app_config_t *config, int argc,
                        char *const argv[]);
@@ -26,25 +32,28 @@ app_error app_cmd_menu(const app_config_t *config, int argc,
 app_error app_cmd_opencli(const app_config_t *config, int argc,
                           char *const argv[]);
 
-static const app_command_arg_t hello_args[] = {
-    {.name = "name",
-     .required = false,
-     .arity_minimum = 0,
-     .arity_maximum = 1,
-     .description = "Name to greet (default: World)"},
-};
-
-static const char *const hello_examples[] = {
-    APP_NAME " hello",
-    APP_NAME " hello Alice",
-};
-
-static const app_command_arg_t echo_args[] = {
-    {.name = "text",
+static const app_command_arg_t optional_path_args[] = {
+    {.name = "path",
      .required = false,
      .arity_minimum = 0,
      .arity_maximum = APP_ARG_ARITY_UNBOUNDED,
-     .description = "Text to echo"},
+     .description = "Path and command-specific option values"},
+};
+
+static const app_command_arg_t optional_site_args[] = {
+    {.name = "site",
+     .required = false,
+     .arity_minimum = 0,
+     .arity_maximum = APP_ARG_ARITY_UNBOUNDED,
+     .description = "Site name and command-specific option values"},
+};
+
+static const app_command_arg_t serve_args[] = {
+    {.name = "mode",
+     .required = false,
+     .arity_minimum = 0,
+     .arity_maximum = APP_ARG_ARITY_UNBOUNDED,
+     .description = "--dev or install with command-specific option values"},
 };
 
 static const app_command_arg_t config_option_args[] = {
@@ -55,9 +64,272 @@ static const app_command_arg_t config_option_args[] = {
      .description = "Path to configuration file"},
 };
 
-static const char *const echo_examples[] = {
-    APP_NAME " echo Hello World",
-    APP_NAME " echo",
+static const app_command_arg_t site_option_args[] = {
+    {.name = "site",
+     .required = true,
+     .arity_minimum = 1,
+     .arity_maximum = 1,
+     .description = "Site slug"},
+};
+
+static const app_command_arg_t subdomain_option_args[] = {
+    {.name = "subdomain",
+     .required = true,
+     .arity_minimum = 1,
+     .arity_maximum = 1,
+     .description = "URL subdomain"},
+};
+
+static const app_command_arg_t profile_option_args[] = {
+    {.name = "profile",
+     .required = true,
+     .arity_minimum = 1,
+     .arity_maximum = 1,
+     .description = "Deployment profile"},
+};
+
+static const app_command_arg_t path_option_args[] = {
+    {.name = "path",
+     .required = true,
+     .arity_minimum = 1,
+     .arity_maximum = 1,
+     .description = "Filesystem path"},
+};
+
+static const app_command_arg_t template_option_args[] = {
+    {.name = "template",
+     .required = true,
+     .arity_minimum = 1,
+     .arity_maximum = 1,
+     .description = "Scaffold template"},
+};
+
+static const app_command_arg_t name_option_args[] = {
+    {.name = "name",
+     .required = true,
+     .arity_minimum = 1,
+     .arity_maximum = 1,
+     .description = "Site name"},
+};
+
+static const app_command_arg_t host_option_args[] = {
+    {.name = "host",
+     .required = true,
+     .arity_minimum = 1,
+     .arity_maximum = 1,
+     .description = "SSH host"},
+};
+
+static const app_command_arg_t domain_option_args[] = {
+    {.name = "domain",
+     .required = true,
+     .arity_minimum = 1,
+     .arity_maximum = 1,
+     .description = "Public base domain"},
+};
+
+static const app_command_arg_t iap_option_args[] = {
+    {.name = "iap",
+     .required = true,
+     .arity_minimum = 1,
+     .arity_maximum = 1,
+     .description = "IAP adapter"},
+};
+
+static const app_command_arg_t port_option_args[] = {
+    {.name = "port",
+     .required = true,
+     .arity_minimum = 1,
+     .arity_maximum = 1,
+     .description = "TCP port"},
+};
+
+static const app_command_arg_t identity_option_args[] = {
+    {.name = "email",
+     .required = true,
+     .arity_minimum = 1,
+     .arity_maximum = 1,
+     .description = "Synthetic identity email"},
+};
+
+static const app_command_option_t init_options[] = {
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "template",
+     .arguments = template_option_args,
+     .argument_count = APP_COUNTOF(template_option_args),
+     .description = "Scaffold template: blank or realtime"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "name",
+     .arguments = name_option_args,
+     .argument_count = APP_COUNTOF(name_option_args),
+     .description = "Site name to write into quick.json"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "profile",
+     .arguments = profile_option_args,
+     .argument_count = APP_COUNTOF(profile_option_args),
+     .description = "Deployment profile to record in quick.json"},
+};
+
+static const app_command_option_t deploy_options[] = {
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "site",
+     .arguments = site_option_args,
+     .argument_count = APP_COUNTOF(site_option_args),
+     .description = "Override the site slug"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "subdomain",
+     .arguments = subdomain_option_args,
+     .argument_count = APP_COUNTOF(subdomain_option_args),
+     .description = "Override the URL subdomain"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "profile",
+     .arguments = profile_option_args,
+     .argument_count = APP_COUNTOF(profile_option_args),
+     .description = "Deployment profile"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "dry-run",
+     .description = "Print the resolved plan without remote operations"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "no-build",
+     .description = "Skip the quick.json build command"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "no-delete",
+     .description = "Do not mirror deletions into staging"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "open",
+     .description = "Open the deployed URL after activation"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "bootstrap",
+     .description = "Allow bootstrap flow when quickd is missing"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "allow-unpublished",
+     .description = "Allow deploy when IAP/domain publication is incomplete"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "checksum",
+     .description = "Pass --checksum to rsync"},
+};
+
+static const app_command_option_t serve_options[] = {
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "dev",
+     .description = "Run quickd in local dev mode"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "port",
+     .arguments = port_option_args,
+     .argument_count = APP_COUNTOF(port_option_args),
+     .description = "Local dev port"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "identity",
+     .arguments = identity_option_args,
+     .argument_count = APP_COUNTOF(identity_option_args),
+     .description = "Synthetic dev identity email"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "profile",
+     .arguments = profile_option_args,
+     .argument_count = APP_COUNTOF(profile_option_args),
+     .description = "Profile name for install/dev"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "host",
+     .arguments = host_option_args,
+     .argument_count = APP_COUNTOF(host_option_args),
+     .description = "SSH host for install"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "remote-root",
+     .arguments = path_option_args,
+     .argument_count = APP_COUNTOF(path_option_args),
+     .description = "Remote root directory"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "domain",
+     .arguments = domain_option_args,
+     .argument_count = APP_COUNTOF(domain_option_args),
+     .description = "Public base domain"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "iap",
+     .arguments = iap_option_args,
+     .argument_count = APP_COUNTOF(iap_option_args),
+     .description = "IAP adapter: tailscale, cloudflare, or none"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "execute",
+     .description = "Run installer probes over SSH"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "allow-public-unsafe",
+     .description = "Allow iap=none for non-loopback installs"},
+};
+
+static const app_command_option_t open_options[] = {
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "profile",
+     .arguments = profile_option_args,
+     .argument_count = APP_COUNTOF(profile_option_args),
+     .description = "Profile used for URL resolution"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "copy",
+     .description = "Copy the URL when clipboard support is available"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "plain",
+     .description = "Print the URL instead of opening a browser"},
+};
+
+static const app_command_option_t list_options[] = {
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "profile",
+     .arguments = profile_option_args,
+     .argument_count = APP_COUNTOF(profile_option_args),
+     .description = "Profile to query"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "remote",
+     .description = "Query quickd over SSH"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "json",
+     .description = "Print JSON output"},
+};
+
+static const app_command_option_t doctor_options[] = {
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "profile",
+     .arguments = profile_option_args,
+     .argument_count = APP_COUNTOF(profile_option_args),
+     .description = "Profile to check"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "remote",
+     .description = "Include quickd host checks"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "site",
+     .arguments = site_option_args,
+     .argument_count = APP_COUNTOF(site_option_args),
+     .description = "Site to check"},
+    {.id = APP_COMMAND_OPTION_DOCTOR_DEEP,
+     .name = "deep",
+     .description = "Run deeper end-to-end checks when supported"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "json",
+     .description = "Print JSON output"},
+};
+
+static const char *const init_examples[] = {
+    APP_NAME " init lunch-vote",
+    APP_NAME " init --template realtime --name lunch-vote --profile lab",
+};
+
+static const char *const deploy_examples[] = {
+    APP_NAME " deploy",
+    APP_NAME " deploy --dry-run",
+    APP_NAME " deploy ./dist --site demo --profile lab",
+};
+
+static const char *const serve_examples[] = {
+    APP_NAME " serve --dev --port 9366",
+    APP_NAME " serve install --profile lab --host quick@box --remote-root /srv/quick --domain quick.example.com --iap tailscale",
+};
+
+static const char *const open_examples[] = {
+    APP_NAME " open",
+    APP_NAME " open lunch-vote --plain",
+};
+
+static const char *const list_examples[] = {
+    APP_NAME " list",
+    APP_NAME " list --profile lab --json",
 };
 
 static const char *const info_examples[] = {
@@ -65,16 +337,9 @@ static const char *const info_examples[] = {
     APP_NAME " --json info",
 };
 
-static const app_command_option_t doctor_options[] = {
-    {.id = APP_COMMAND_OPTION_DOCTOR_DEEP,
-     .name = "deep",
-     .description =
-         "Also exercise the optional TUI runtime when a TTY is available"},
-};
-
 static const char *const doctor_examples[] = {
     APP_NAME " doctor",
-    APP_NAME " --json doctor",
+    APP_NAME " doctor --json",
 };
 
 static const char *const menu_examples[] = {
@@ -106,21 +371,53 @@ static const app_global_value_option_t g_app_global_value_options[] = {
 };
 
 static const app_command_t g_app_commands[] = {
-    {.name = "hello",
-     .summary = "Print a greeting message.",
-     .handler = app_cmd_hello,
-     .arguments = hello_args,
-     .argument_count = APP_COUNTOF(hello_args),
-     .examples = hello_examples,
-     .example_count = APP_COUNTOF(hello_examples),
+    {.name = "init",
+     .summary = "Scaffold a static OpenQuick site.",
+     .handler = app_cmd_init,
+     .options = init_options,
+     .option_count = APP_COUNTOF(init_options),
+     .arguments = optional_path_args,
+     .argument_count = APP_COUNTOF(optional_path_args),
+     .examples = init_examples,
+     .example_count = APP_COUNTOF(init_examples),
      .requires_terminal = false},
-    {.name = "echo",
-     .summary = "Echo the provided text.",
-     .handler = app_cmd_echo,
-     .arguments = echo_args,
-     .argument_count = APP_COUNTOF(echo_args),
-     .examples = echo_examples,
-     .example_count = APP_COUNTOF(echo_examples),
+    {.name = "deploy",
+     .summary = "Build, rsync, and activate a site through quickd.",
+     .handler = app_cmd_deploy,
+     .options = deploy_options,
+     .option_count = APP_COUNTOF(deploy_options),
+     .arguments = optional_path_args,
+     .argument_count = APP_COUNTOF(optional_path_args),
+     .examples = deploy_examples,
+     .example_count = APP_COUNTOF(deploy_examples),
+     .requires_terminal = false},
+    {.name = "serve",
+     .summary = "Run local dev quickd or print/install host setup steps.",
+     .handler = app_cmd_serve,
+     .options = serve_options,
+     .option_count = APP_COUNTOF(serve_options),
+     .arguments = serve_args,
+     .argument_count = APP_COUNTOF(serve_args),
+     .examples = serve_examples,
+     .example_count = APP_COUNTOF(serve_examples),
+     .requires_terminal = false},
+    {.name = "open",
+     .summary = "Open or print the resolved site URL.",
+     .handler = app_cmd_open,
+     .options = open_options,
+     .option_count = APP_COUNTOF(open_options),
+     .arguments = optional_site_args,
+     .argument_count = APP_COUNTOF(optional_site_args),
+     .examples = open_examples,
+     .example_count = APP_COUNTOF(open_examples),
+     .requires_terminal = false},
+    {.name = "list",
+     .summary = "List local and remote OpenQuick deployments.",
+     .handler = app_cmd_list,
+     .options = list_options,
+     .option_count = APP_COUNTOF(list_options),
+     .examples = list_examples,
+     .example_count = APP_COUNTOF(list_examples),
      .requires_terminal = false},
     {.name = "info",
      .summary = "Display application metadata.",
@@ -129,10 +426,12 @@ static const app_command_t g_app_commands[] = {
      .example_count = APP_COUNTOF(info_examples),
      .requires_terminal = false},
     {.name = "doctor",
-     .summary = "Run starter diagnostics (add --deep for the TUI smoke test).",
+     .summary = "Run local, remote, and edge OpenQuick diagnostics.",
      .handler = app_cmd_doctor,
      .options = doctor_options,
      .option_count = APP_COUNTOF(doctor_options),
+     .arguments = optional_site_args,
+     .argument_count = APP_COUNTOF(optional_site_args),
      .examples = doctor_examples,
      .example_count = APP_COUNTOF(doctor_examples),
      .requires_terminal = false},
@@ -390,7 +689,18 @@ app_error app_command_validate_invocation(const app_command_t *command,
     }
 
     if (!end_of_options && strncmp(arg, "--", 2) == 0 && arg[2] != '\0') {
-      if (app_command_option_find(command, arg)) {
+      const app_command_option_t *option = app_command_option_find(command, arg);
+      if (option) {
+        for (size_t j = 0; j < option->argument_count; j++) {
+          if (i + 1 >= argc) {
+            snprintf(message, sizeof(message),
+                     "Error: Option '%s' for command '%s' expects a value",
+                     arg, command->name);
+            app_command_report_validation_error(config, message, NULL);
+            return APP_ERROR_MISSING_ARG;
+          }
+          i++;
+        }
         continue;
       }
       snprintf(message, sizeof(message),

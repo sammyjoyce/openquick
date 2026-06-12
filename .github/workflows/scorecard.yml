@@ -17,7 +17,7 @@ permissions: read-all
 jobs:
   analysis:
     name: Scorecard analysis
-    # Defaults to GitHub-hosted runners for template portability. Set the
+    # Defaults to GitHub-hosted runners for repository portability. Set the
     # CI_LINUX_RUNNER repository or organization variable to opt into Namespace
     # or another self-hosted Linux runner.
     runs-on: ${{ vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}

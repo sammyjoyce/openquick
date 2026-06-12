@@ -1,23 +1,22 @@
 # Public Contracts
 
-Curspan is a framework plus a reference app built on it. A "contract" here is a
-stability promise: the surfaces listed as *supported* are safe to build
-downstream code or automation on; everything else (help wording, colors, internal
-helpers) can change without notice. The contracts:
+OpenQuick has a small set of stability promises for automation and internal
+extension points. Everything else (help wording, colors, private helpers) can
+change without notice. The contracts:
 
-- the **framework API** — the `cs_` theming, surface, and component surfaces, and
-  the component registry ([Framework contract](#framework-contract));
 - the **CLI contract** — the machine-readable `opencli.json` ([CLI contract](#cli-contract));
+- the **component/rendering contract** — the vendored `cs_` theming, surface, and
+  component APIs used by CLI/TUI output ([Component contract](#component-contract));
 - the **TUI menu primitive** — the reusable `tui-menu` library ([TUI menu contract](#tui-menu-contract)).
 
-Keep mechanism in these seams. Keep local workflow policy in your app.
+Keep OpenQuick workflow policy in CLI/server code; keep reusable drawing
+mechanics in the `cs_` and `tui-menu` seams.
 
-## Framework contract
+## Component contract
 
-The framework's public surface is the `cs_` namespace (`curspan.h`) plus the
-component registry. Because components are **open code** — you copy the source
-into your project and own it — the promise is about the *shape* of the surfaces
-you call, not a binary ABI.
+The internal component surface is the `cs_` namespace plus the local component
+registry. Components are vendored source, so the promise is about the *shape* of
+the surfaces OpenQuick calls, not a binary ABI.
 
 **Supported (stable to depend on):**
 
@@ -37,11 +36,11 @@ you call, not a binary ABI.
   (and `cs_spinner_render`'s frame index) is the entry point; a `0`/`NULL` role or
   size means "use the default"; `render(NULL, …)` / `render(…, NULL)` are no-ops.
 - the **registry manifest** schema (`registry/registry.json`): the per-entry
-  `name`, `category`, `surfaces`, `files`, `dependencies`, `since` fields, and the
-  `curspan list` / `info` / `add` / `check` commands. `zig build test` validates
-  the manifest, so it never references a missing file or an unresolved dependency.
-- the **`CURSPAN_VERSION`** compile-time macro (with `CURSPAN_VERSION_ENCODE`) for
-  feature-detecting the framework across updates.
+  `name`, `category`, `surfaces`, `files`, `dependencies`, and `since` fields.
+  `zig build test` validates the manifest, so it never references a missing file
+  or an unresolved dependency.
+- the component umbrella version macros for feature-detecting the vendored
+  component surface across updates.
 
 **Private (may change without notice):**
 
@@ -61,10 +60,10 @@ covers the catalog you copy *from*, not your fork.
 `opencli.json` is the checked-in CLI contract, and the binary prints the same document:
 
 ```bash
-myapp opencli
+quick opencli
 ```
 
-`zig build test` fails when `myapp opencli` and `opencli.json` drift, so command and flag metadata must change in the C tables *before* the spec does. The canonical sources:
+`zig build test` fails when `quick opencli` and `opencli.json` drift, so command and flag metadata must change in the C tables *before* the spec does. The canonical sources:
 
 | Source | Owns |
 | --- | --- |
@@ -88,7 +87,7 @@ zig build test
 - `--json` responses that include `format_version`
 - JSON output as the default whenever stdout is not a terminal; pass `--plain`
   before the command to keep human text under pipes or redirection
-- `myapp opencli` and `myapp --json opencli` both write the same schema document because the contract is already JSON
+- `quick opencli` and `quick --json opencli` both write the same schema document because the contract is already JSON
 - stdout for command output, stderr for errors and diagnostics
 - config precedence: CLI args > environment > config file > defaults
 
@@ -98,9 +97,9 @@ The binary chooses its front-end from argv shape and terminal attachment:
 
 | Invocation | Condition | Behavior |
 | --- | --- | --- |
-| `myapp` | stdin and stdout are TTYs | Launch the interactive TUI menu. |
-| `myapp <command> ...` | any terminal shape | Dispatch the named CLI command through the command table. |
-| `myapp` | no interactive TTY | Read a headless JSON request object from stdin and dispatch it. |
+| `quick` | stdin and stdout are TTYs | Launch the interactive TUI menu. |
+| `quick <command> ...` | any terminal shape | Dispatch the named CLI command through the command table. |
+| `quick` | no interactive TTY | Read a headless JSON request object from stdin and dispatch it. |
 
 `--help` and `--version` are immediate-exit flags and keep their human-readable
 stdout behavior even under pipes.
@@ -113,8 +112,8 @@ request shape is:
 
 ```json
 {
-  "command": "hello",
-  "args": ["Alice"],
+  "command": "doctor",
+  "args": [],
   "flags": {
     "debug": false,
     "quiet": false,
@@ -153,11 +152,11 @@ failure.
 ```text
 zig-out/lib/libtui-menu.a
 zig-out/lib/pkgconfig/tui-menu.pc
-zig-out/include/curspan/core/error.h
-zig-out/include/curspan/core/types.h
-zig-out/include/curspan/tui/tui.h
-zig-out/include/curspan/tui/tui_menu.h
-zig-out/include/curspan/tui/tui_progress.h
+zig-out/include/openquick/core/error.h
+zig-out/include/openquick/core/types.h
+zig-out/include/openquick/tui/tui.h
+zig-out/include/openquick/tui/tui_menu.h
+zig-out/include/openquick/tui/tui_progress.h
 ```
 
 **Supported:**
@@ -172,7 +171,7 @@ zig-out/include/curspan/tui/tui_progress.h
 - `tui_menu_config_t`, `tui_menu_item_t`, and `tui_menu_result_t`
 - the pointer-lifetime rules documented in `tui_menu.h`
 - separators, disabled items, mnemonics, search, numeric jumps, resize handling, and interrupt handling
-- the `TUI_MENU_VERSION` compile-time macro (with `TUI_MENU_VERSION_ENCODE`) for feature-detecting the seam across template updates
+- the `TUI_MENU_VERSION` compile-time macro (with `TUI_MENU_VERSION_ENCODE`) for feature-detecting the seam across component updates
 
 The archive is self-contained: it bundles the shared UI primitives the menu
 needs (text layout, color math, design tokens, and semantic UI roles —
@@ -209,8 +208,8 @@ cc app.c $(pkg-config --cflags tui-menu) \
 
 ## Not yet
 
-The framework is deliberately a **catalog you copy from**, not a runtime you link
-against. A few things are out of scope until a real need appears across projects:
+The component catalog is vendored source, not a runtime plugin system. A few
+things are out of scope until a real need appears:
 
 - **No binary ABI / plugin system.** Distribution is open code via the registry,
   not a loadable interface. There is no stable ABI promise beyond the source-level
@@ -219,9 +218,9 @@ against. A few things are out of scope until a real need appears across projects
 - **No network registry.** The registry is local-first (`registry/registry.json`
   in this repo); there is no remote component fetch or third-party registry
   protocol.
-- **No new runtime CLI commands or flags** in the reference app that would change
-  the byte-pinned `opencli.json` contract — the framework lives in the `cs_` API
-  and the out-of-band `curspan` tool, not in new subcommands.
+- **No new runtime CLI commands or flags** that bypass the byte-pinned
+  `opencli.json` contract — reusable rendering belongs in the `cs_` API, not in
+  ad-hoc subcommands.
 - **No long-running headless service** and **no nested-subcommand engine** until
   multiple projects need the same behavior.
 

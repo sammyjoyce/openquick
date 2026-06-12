@@ -25,5 +25,17 @@ int run_tui_menu_sigint(test_stats_t *stats, const char *binary,
                         bool tui_enabled);
 int run_tui_menu_sigterm(test_stats_t *stats, const char *binary,
                          bool tui_enabled);
+int run_tui_sites_empty_state(test_stats_t *stats, const char *binary,
+                              bool tui_enabled);
+int run_tui_new_site_scaffold(test_stats_t *stats, const char *binary,
+                              bool tui_enabled);
+int run_tui_doctor_local_results(test_stats_t *stats, const char *binary,
+                                 bool tui_enabled);
+int run_tui_settings_profiles_from_xdg(test_stats_t *stats, const char *binary,
+                                       bool tui_enabled);
+int run_tui_deploy_plan_panel(test_stats_t *stats, const char *binary,
+                              bool tui_enabled);
+int run_tui_serve_install_guide(test_stats_t *stats, const char *binary,
+                                bool tui_enabled);
 
 #endif

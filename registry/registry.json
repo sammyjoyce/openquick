@@ -64,7 +64,7 @@
       "title": "Render surface",
       "category": "foundation",
       "surfaces": ["cli", "tui"],
-      "description": "The neutral cs_surface every component draws to, with a stream (SGR) backend and a curses backend behind an ops vtable. Requires the Curspan cli-style and/or tui runtime for the backends it enables.",
+      "description": "The neutral cs_surface every component draws to, with a stream (SGR) backend and a curses backend behind an ops vtable. Requires the Openquick cli-style and/or tui runtime for the backends it enables.",
       "files": [
         "src/surface/surface.h",
         "src/surface/surface_internal.h",

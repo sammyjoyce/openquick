@@ -1,11 +1,10 @@
 # Components
 
-Curspan ships a catalog of terminal-UI components. Each one is a self-contained
-`cs_<name>.h` / `cs_<name>.c` pair that you **own**: copy it into your project
-with [`curspan add`](#getting-a-component) and edit it like your own code. Every
-component renders through one neutral [surface](#the-surface) and styles itself
-through [theme roles](THEMING.md), so the same call draws on a piped CLI, a
-truecolor terminal, and inside a TUI window.
+OpenQuick keeps a vendored catalog of terminal-UI components for CLI and TUI
+presentation. Each one is a self-contained `cs_<name>.h` / `cs_<name>.c` pair.
+Every component renders through one neutral [surface](#the-surface) and styles
+itself through [theme roles](THEMING.md), so the same call draws on a piped CLI,
+a truecolor terminal, and inside a TUI window.
 
 - [The surface](#the-surface)
 - [Drawing API](#drawing-api)
@@ -23,7 +22,8 @@ the surface owns capability detection and color degradation; components stay pur
 layout and semantics.
 
 ```c
-#include "curspan.h"
+#include "surface/surface.h"
+#include "components/components.h"
 
 cs_surface_t *s = cs_surface_stream_new(stdout, config, NULL); // NULL => default theme
 cs_heading_render(&(cs_heading_t){.text = "Report", .underline = true}, s);
@@ -88,9 +88,9 @@ positioning therefore ties it to the TUI — most catalog components avoid it.
 | [`cs_progress`](#cs_progress) | `cs_progress.h` | a one-shot progress bar |
 | [`cs_spinner`](#cs_spinner) | `cs_spinner.h` | a frame-based activity indicator |
 
-Pull in the whole catalog with `#include "components/components.h"` (or the
-umbrella `curspan.h`), or include individual `cs_<name>.h` headers for a leaner
-build.
+Pull in the whole catalog with `#include "components/components.h"` plus the
+surface/theme headers you use, or include individual `cs_<name>.h` headers for a
+leaner build.
 
 Every component follows the same contract:
 
@@ -180,7 +180,7 @@ typedef struct cs_keyvalue {
   const char *separator;  // between key column and value (NULL => "  ")
 } cs_keyvalue_t;
 
-cs_keyvalue_pair_t info[] = {{"Application", "myapp"}, {"Version", "0.1.0"}};
+cs_keyvalue_pair_t info[] = {{"Application", "quick"}, {"Version", "0.1.0"}};
 cs_keyvalue_render(&(cs_keyvalue_t){.pairs = info, .count = 2}, s);
 ```
 
@@ -320,20 +320,13 @@ cs_surface_repeat(s, cs_glyph_hline(caps.unicode), cs_surface_width(s));
 
 ## Getting a component
 
-Components are open code — you copy the source into your project and own it. The
-[`curspan` CLI](../registry/registry.json) reads the registry and copies a
-component plus its full dependency closure:
+Components are vendored source. The local registry manifest records each
+component's files and dependency closure, and `zig build test` validates that the
+manifest stays in sync with the source tree.
 
-```bash
-zig build curspan                       # build zig-out/bin/curspan
-./zig-out/bin/curspan list              # the catalog, grouped by category
-./zig-out/bin/curspan info table        # a component's files + dependency closure
-./zig-out/bin/curspan add table --dest . # copy cs_table + its deps into ./src/...
-```
-
-`add` prints the exact `build.zig` source lines to add for the copied `.c`
-files. See [the registry section of ARCHITECTURE.md](ARCHITECTURE.md#distribution-the-registry-and-curspan-add)
-for how distribution works.
+For OpenQuick product work, prefer editing the vendored `src/components/`,
+`src/surface/`, and `src/style/` sources in place rather than treating the
+component catalog as a public product surface.
 
 ## See also
 

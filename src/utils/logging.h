@@ -3,7 +3,7 @@
  *
  * Provides structured logging with automatic file/line tracking for debugging.
  * Logs go to stderr to keep stdout clean for pipeline output. The logging level
- * can be controlled via APP_LOG_LEVEL environment variable, enabling debug
+ * can be controlled via QUICK_LOG_LEVEL environment variable, enabling debug
  * output without recompilation. Macros capture source location automatically.
  */
 
@@ -23,11 +23,11 @@ typedef enum {
 } app_log_level;
 
 // Initialize logging system by reading environment variables.
-// Sets up initial log level from APP_LOG_LEVEL env var. Must be called
+// Sets up initial log level from QUICK_LOG_LEVEL env var. Must be called
 // early in main() to ensure all startup messages respect the configured level.
 void app_log_init(void);
 
-// Update log level from APP_LOG_LEVEL environment variable.
+// Update log level from QUICK_LOG_LEVEL environment variable.
 // Allows dynamic log level changes without restart, useful for debugging
 // production issues by temporarily enabling debug logging.
 void app_log_update_level(void);

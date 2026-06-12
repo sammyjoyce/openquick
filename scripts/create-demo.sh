@@ -10,7 +10,7 @@ set -euo pipefail
 
 # Configuration
 DEMO_DIR="docs/demos"
-BINARY="./zig-out/bin/myapp"
+BINARY="./zig-out/bin/quick"
 
 # Colors for output
 RED='\033[0;31m'
@@ -110,16 +110,18 @@ EOF
 
 # Demo 1: Basic usage
 demo_basic_usage() {
-    record_demo "basic-usage" "Basic Command Usage" '
+    record_demo "basic-usage" "Basic OpenQuick Workflow" '
 '$BINARY' --help
 sleep 3
 '$BINARY' --version
 sleep 2
-'$BINARY' hello
+rm -rf /tmp/openquick-demo-site
+'$BINARY' init /tmp/openquick-demo-site --name demo-site
 sleep 2
-'$BINARY' hello "Demo User"
+cd /tmp/openquick-demo-site
+'$BINARY' deploy --dry-run
 sleep 2
-'$BINARY' echo "This is a test message"
+'$BINARY' open --plain
 sleep 2
 '
 }

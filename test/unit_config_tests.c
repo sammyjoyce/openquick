@@ -144,16 +144,16 @@ static bool test_use_colors_no_color_beats_force_color(void) {
 }
 
 static bool test_use_colors_honors_cli_color_never(void) {
-  char *save_color = cfg_env_dup("APP_CLI_COLOR");
+  char *save_color = cfg_env_dup("QUICK_CLI_COLOR");
   char *save_fc = cfg_env_dup("FORCE_COLOR");
   char *save_nc = cfg_env_dup("NO_COLOR");
 
   cfg_env_set("NO_COLOR", NULL);
   cfg_env_set("FORCE_COLOR", "1");
-  cfg_env_set("APP_CLI_COLOR", "never");
+  cfg_env_set("QUICK_CLI_COLOR", "never");
   const bool ok = !app_use_colors(NULL);
 
-  cfg_env_set("APP_CLI_COLOR", save_color);
+  cfg_env_set("QUICK_CLI_COLOR", save_color);
   cfg_env_set("FORCE_COLOR", save_fc);
   cfg_env_set("NO_COLOR", save_nc);
   free(save_color);
@@ -298,11 +298,12 @@ static bool test_request_json_parses_command_args_and_flags(void) {
   app_request_t request;
   app_request_init(&request);
   const char *input =
-      "{\"command\":\"hello\",\"args\":[\"Alice\"],"
+      "{\"command\":\"open\",\"args\":[\"lunch-vote\"],"
       "\"flags\":{\"debug\":true}}";
   bool ok = app_request_parse_json(&request, input) == APP_SUCCESS &&
-            request.command && strcmp(request.command, "hello") == 0 &&
-            request.arg_count == 1 && strcmp(request.args[0], "Alice") == 0 &&
+            request.command && strcmp(request.command, "open") == 0 &&
+            request.arg_count == 1 &&
+            strcmp(request.args[0], "lunch-vote") == 0 &&
             request.flag_seen[APP_FLAG_DEBUG] &&
             request.flag_values[APP_FLAG_DEBUG];
   app_request_destroy(&request);
@@ -314,13 +315,13 @@ static bool test_request_json_applies_to_config(void) {
   app_request_init(&request);
   app_config_t *config = NULL;
   bool ok = app_request_parse_json(&request,
-                                   "{\"command\":\"echo\",\"args\":[\"hi\"],"
+                                   "{\"command\":\"open\",\"args\":[\"hi\"],"
                                    "\"flags\":{\"plain_output\":true}}") ==
                 APP_SUCCESS &&
             app_config_create(&config) == APP_SUCCESS;
   if (ok) {
     ok = app_request_apply_to_config(&request, config) == APP_SUCCESS &&
-         strcmp(app_config_get_command(config), "echo") == 0 &&
+         strcmp(app_config_get_command(config), "open") == 0 &&
          app_config_is_plain_output(config);
   }
 
@@ -347,7 +348,7 @@ static bool test_request_json_decodes_bmp_unicode_escape(void) {
   // "café" must decode to UTF-8 "café" (é == 0xC3 0xA9).
   app_request_t request;
   app_request_init(&request);
-  const char *input = "{\"command\":\"echo\",\"args\":[\"caf\\u00e9\"]}";
+  const char *input = "{\"command\":\"open\",\"args\":[\"caf\\u00e9\"]}";
   const bool ok = app_request_parse_json(&request, input) == APP_SUCCESS &&
                   request.arg_count == 1 &&
                   strcmp(request.args[0], "caf\xc3\xa9") == 0;
@@ -359,7 +360,7 @@ static bool test_request_json_decodes_surrogate_pair(void) {
   // 😀 == U+1F600 grinning face == UTF-8 F0 9F 98 80.
   app_request_t request;
   app_request_init(&request);
-  const char *input = "{\"command\":\"echo\",\"args\":[\"\\uD83D\\uDE00\"]}";
+  const char *input = "{\"command\":\"open\",\"args\":[\"\\uD83D\\uDE00\"]}";
   const bool ok = app_request_parse_json(&request, input) == APP_SUCCESS &&
                   request.arg_count == 1 &&
                   strcmp(request.args[0], "\xf0\x9f\x98\x80") == 0;
@@ -370,7 +371,7 @@ static bool test_request_json_decodes_surrogate_pair(void) {
 static bool test_request_json_rejects_lone_surrogate(void) {
   app_request_t request;
   app_request_init(&request);
-  const char *input = "{\"command\":\"echo\",\"args\":[\"\\uD800\"]}";
+  const char *input = "{\"command\":\"open\",\"args\":[\"\\uD800\"]}";
   const app_error err = app_request_parse_json(&request, input);
   app_request_destroy(&request);
   return err == APP_ERROR_CONFIG_PARSE;
@@ -381,7 +382,7 @@ static bool test_request_json_rejects_escaped_nul(void) {
   // it is rejected rather than accepted like other escaped controls.
   app_request_t request;
   app_request_init(&request);
-  const char *input = "{\"command\":\"echo\",\"args\":[\"a\\u0000b\"]}";
+  const char *input = "{\"command\":\"open\",\"args\":[\"a\\u0000b\"]}";
   const app_error err = app_request_parse_json(&request, input);
   app_request_destroy(&request);
   return err == APP_ERROR_CONFIG_PARSE;
@@ -392,7 +393,7 @@ static bool test_request_json_decodes_escaped_control(void) {
   // would be rejected.
   app_request_t request;
   app_request_init(&request);
-  const char *input = "{\"command\":\"echo\",\"args\":[\"a\\u0009b\"]}";
+  const char *input = "{\"command\":\"open\",\"args\":[\"a\\u0009b\"]}";
   const bool ok = app_request_parse_json(&request, input) == APP_SUCCESS &&
                   request.arg_count == 1 &&
                   strcmp(request.args[0], "a\tb") == 0;
@@ -450,7 +451,7 @@ static bool test_config_load_reports_not_found(void) {
     return false;
   }
   const app_error err =
-      app_config_load_file(config, "/nonexistent/myapp-xyz.json");
+      app_config_load_file(config, "/nonexistent/openquick-xyz.json");
   app_config_destroy(config);
   return err == APP_ERROR_NOT_FOUND;
 }
@@ -530,7 +531,7 @@ void run_config_unit_tests(unit_stats_t *stats) {
   unit_record(stats, test_use_colors_no_color_beats_force_color(),
               "NO_COLOR beats FORCE_COLOR=1 in app_use_colors");
   unit_record(stats, test_use_colors_honors_cli_color_never(),
-              "APP_CLI_COLOR=never disables app_use_colors");
+              "QUICK_CLI_COLOR=never disables app_use_colors");
   unit_record(stats, test_config_load_reports_not_found(),
               "config load maps a missing explicit path to NOT_FOUND");
   unit_record(stats, test_config_load_reports_permission(),

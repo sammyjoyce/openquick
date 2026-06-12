@@ -1,5 +1,5 @@
 /*
- * cs_surface — the neutral render surface every Curspan component draws to.
+ * cs_surface — the neutral render surface every OpenQuick component draws to.
  *
  * A surface is a styled, role-aware drawing target that hides whether output
  * goes to a byte stream (CLI: SGR escapes, degrades by color profile) or an

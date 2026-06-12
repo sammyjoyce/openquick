@@ -117,6 +117,12 @@ int main(int argc, char **argv) {
   run_tui_menu_separator(&stats, binary, tui_enabled);
   run_tui_menu_resize(&stats, binary, tui_enabled);
   run_tui_menu_handler_resize(&stats, binary, tui_enabled);
+  run_tui_sites_empty_state(&stats, binary, tui_enabled);
+  run_tui_new_site_scaffold(&stats, binary, tui_enabled);
+  run_tui_doctor_local_results(&stats, binary, tui_enabled);
+  run_tui_settings_profiles_from_xdg(&stats, binary, tui_enabled);
+  run_tui_deploy_plan_panel(&stats, binary, tui_enabled);
+  run_tui_serve_install_guide(&stats, binary, tui_enabled);
   run_tui_menu_sigint(&stats, binary, tui_enabled);
   run_tui_menu_sigterm(&stats, binary, tui_enabled);
   printf("1..%d\n", stats.passed + stats.failed + stats.skipped);

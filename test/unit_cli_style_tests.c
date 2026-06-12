@@ -128,7 +128,7 @@ static bool test_error_plain_fallback(void) {
   if (!stream) {
     return false;
   }
-  app_cli_render_error(NULL, stream, "myapp", "invalid option '--x'",
+  app_cli_render_error(NULL, stream, "openquick", "invalid option '--x'",
                        APP_CLI_ERROR_KIND_USAGE);
   fflush(stream);
   rewind(stream);
@@ -139,7 +139,7 @@ static bool test_error_plain_fallback(void) {
   fclose(stream);
 
   return strstr(buf, "Error: Invalid option '--x'") != NULL &&
-         strstr(buf, "Try myapp --help for usage.") != NULL &&
+         strstr(buf, "Try openquick --help for usage.") != NULL &&
          strstr(buf, "\x1b") == NULL; /* no escapes on a non-TTY */
 }
 
@@ -159,11 +159,11 @@ static bool test_color_parse(void) {
 }
 
 static bool test_accent_override(void) {
-  char *previous = copy_env("APP_CLI_ACCENT");
-  bool env_ok = setenv("APP_CLI_ACCENT", "#102030", 1) == 0;
+  char *previous = copy_env("QUICK_CLI_ACCENT");
+  bool env_ok = setenv("QUICK_CLI_ACCENT", "#102030", 1) == 0;
   app_cli_color_scheme_t scheme = *app_cli_theme_default_scheme();
   app_cli_theme_apply_env_overrides(&scheme);
-  restore_env("APP_CLI_ACCENT", previous);
+  restore_env("QUICK_CLI_ACCENT", previous);
 
   const app_cli_color_t *title = &scheme.tokens[APP_CLI_COLOR_TOKEN_TITLE].dark;
   return env_ok && title->kind == APP_CLI_COLOR_RGB && title->rgb.r == 0x10 &&
@@ -171,7 +171,7 @@ static bool test_accent_override(void) {
 }
 
 static bool test_color_env_forces_profile_and_never_wins(void) {
-  char *previous_color = copy_env("APP_CLI_COLOR");
+  char *previous_color = copy_env("QUICK_CLI_COLOR");
   char *previous_no_color = copy_env("NO_COLOR");
   char *previous_term = copy_env("TERM");
   unsetenv("NO_COLOR");
@@ -179,48 +179,48 @@ static bool test_color_env_forces_profile_and_never_wins(void) {
 
   FILE *stream = tmpfile();
   if (!stream) {
-    restore_env("APP_CLI_COLOR", previous_color);
+    restore_env("QUICK_CLI_COLOR", previous_color);
     restore_env("NO_COLOR", previous_no_color);
     restore_env("TERM", previous_term);
     return false;
   }
 
-  bool ok = setenv("APP_CLI_COLOR", "truecolor", 1) == 0;
+  bool ok = setenv("QUICK_CLI_COLOR", "truecolor", 1) == 0;
   app_cli_term_t term;
   ok = ok && app_cli_term_init(&term, stream, NULL, NULL) &&
        term.style_enabled && term.profile == APP_CLI_COLOR_PROFILE_TRUECOLOR;
   app_cli_term_deinit(&term);
 
   app_cli_term_opts_t opts = {.force_profile = "truecolor"};
-  ok = ok && setenv("APP_CLI_COLOR", "never", 1) == 0 &&
+  ok = ok && setenv("QUICK_CLI_COLOR", "never", 1) == 0 &&
        !app_cli_term_init(&term, stream, NULL, &opts) && !term.style_enabled;
   app_cli_term_deinit(&term);
   fclose(stream);
 
-  restore_env("APP_CLI_COLOR", previous_color);
+  restore_env("QUICK_CLI_COLOR", previous_color);
   restore_env("NO_COLOR", previous_no_color);
   restore_env("TERM", previous_term);
   return ok;
 }
 
 static bool test_theme_env_light_and_accent_integration(void) {
-  char *previous_theme = copy_env("APP_CLI_THEME");
-  char *previous_test_theme = copy_env("APP_CLI_TEST_THEME");
-  char *previous_accent = copy_env("APP_CLI_ACCENT");
-  char *previous_color = copy_env("APP_CLI_COLOR");
+  char *previous_theme = copy_env("QUICK_CLI_THEME");
+  char *previous_test_theme = copy_env("QUICK_CLI_TEST_THEME");
+  char *previous_accent = copy_env("QUICK_CLI_ACCENT");
+  char *previous_color = copy_env("QUICK_CLI_COLOR");
   char *previous_no_color = copy_env("NO_COLOR");
   char *previous_term = copy_env("TERM");
-  unsetenv("APP_CLI_TEST_THEME");
-  unsetenv("APP_CLI_COLOR");
+  unsetenv("QUICK_CLI_TEST_THEME");
+  unsetenv("QUICK_CLI_COLOR");
   unsetenv("NO_COLOR");
   setenv("TERM", "xterm-256color", 1);
 
   FILE *stream = tmpfile();
   if (!stream) {
-    restore_env("APP_CLI_THEME", previous_theme);
-    restore_env("APP_CLI_TEST_THEME", previous_test_theme);
-    restore_env("APP_CLI_ACCENT", previous_accent);
-    restore_env("APP_CLI_COLOR", previous_color);
+    restore_env("QUICK_CLI_THEME", previous_theme);
+    restore_env("QUICK_CLI_TEST_THEME", previous_test_theme);
+    restore_env("QUICK_CLI_ACCENT", previous_accent);
+    restore_env("QUICK_CLI_COLOR", previous_color);
     restore_env("NO_COLOR", previous_no_color);
     restore_env("TERM", previous_term);
     return false;
@@ -228,9 +228,9 @@ static bool test_theme_env_light_and_accent_integration(void) {
 
   app_cli_term_opts_t opts = {.force_profile = "truecolor"};
   app_cli_render_ctx_t ctx;
-  bool ok = setenv("APP_CLI_THEME", "light", 1) == 0 &&
-            unsetenv("APP_CLI_ACCENT") == 0 &&
-            app_cli_render_ctx_init(&ctx, NULL, stream, "myapp", &opts);
+  bool ok = setenv("QUICK_CLI_THEME", "light", 1) == 0 &&
+            unsetenv("QUICK_CLI_ACCENT") == 0 &&
+            app_cli_render_ctx_init(&ctx, NULL, stream, "openquick", &opts);
   const app_cli_style_t *title =
       app_cli_style(&ctx.styles, APP_CLI_COLOR_TOKEN_TITLE);
   ok = ok && title->fg.kind == APP_CLI_RESOLVED_COLOR_RGB &&
@@ -238,8 +238,8 @@ static bool test_theme_env_light_and_accent_integration(void) {
   app_cli_render_ctx_deinit(&ctx);
 
   rewind(stream);
-  ok = ok && setenv("APP_CLI_ACCENT", "#102030", 1) == 0 &&
-       app_cli_render_ctx_init(&ctx, NULL, stream, "myapp", &opts);
+  ok = ok && setenv("QUICK_CLI_ACCENT", "#102030", 1) == 0 &&
+       app_cli_render_ctx_init(&ctx, NULL, stream, "openquick", &opts);
   title = app_cli_style(&ctx.styles, APP_CLI_COLOR_TOKEN_TITLE);
   ok = ok && title->fg.kind == APP_CLI_RESOLVED_COLOR_RGB &&
        title->fg.rgb.r == 0x10 && title->fg.rgb.g == 0x20 &&
@@ -247,10 +247,10 @@ static bool test_theme_env_light_and_accent_integration(void) {
   app_cli_render_ctx_deinit(&ctx);
   fclose(stream);
 
-  restore_env("APP_CLI_THEME", previous_theme);
-  restore_env("APP_CLI_TEST_THEME", previous_test_theme);
-  restore_env("APP_CLI_ACCENT", previous_accent);
-  restore_env("APP_CLI_COLOR", previous_color);
+  restore_env("QUICK_CLI_THEME", previous_theme);
+  restore_env("QUICK_CLI_TEST_THEME", previous_test_theme);
+  restore_env("QUICK_CLI_ACCENT", previous_accent);
+  restore_env("QUICK_CLI_COLOR", previous_color);
   restore_env("NO_COLOR", previous_no_color);
   restore_env("TERM", previous_term);
   return ok;
@@ -272,9 +272,9 @@ void run_cli_style_unit_tests(unit_stats_t *stats) {
               "error plain fallback title-cases + usage hint");
   unit_record(stats, test_color_parse(), "color spec parse (hex/index)");
   unit_record(stats, test_accent_override(),
-              "APP_CLI_ACCENT recolors accent tokens");
+              "QUICK_CLI_ACCENT recolors accent tokens");
   unit_record(stats, test_color_env_forces_profile_and_never_wins(),
-              "APP_CLI_COLOR forces profile and never wins");
+              "QUICK_CLI_COLOR forces profile and never wins");
   unit_record(stats, test_theme_env_light_and_accent_integration(),
-              "APP_CLI_THEME light mode and accent override integrate");
+              "QUICK_CLI_THEME light mode and accent override integrate");
 }

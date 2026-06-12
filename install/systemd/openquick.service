@@ -1,0 +1,23 @@
+[Unit]
+Description=OpenQuick host daemon
+Documentation=https://openquick.dev/
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=quick
+Group=quick
+WorkingDirectory=/srv/quick
+ExecStart=/usr/local/bin/quickd serve --config /etc/openquick/quickd.json
+Restart=on-failure
+RestartSec=5s
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/quick
+
+[Install]
+WantedBy=multi-user.target

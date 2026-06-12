@@ -5,7 +5,7 @@ Three test layers cover unit logic, CLI contracts, and interactive terminal flow
 | Layer | How it runs | What it asserts | Lives in |
 | --- | --- | --- | --- |
 | Unit tests | In-process, linked against the real sources | Logic inside `config`, `error`, `tui_menu_model`, and other modules | `unit_*.c` |
-| CLI contract tests | The built binary as a subprocess | Exit codes, JSON fields, durable output, `myapp opencli` matching `opencli.json` | `cli_contract_*.c` |
+| CLI contract tests | The built binary as a subprocess | Exit codes, JSON fields, durable output, `openquick opencli` matching `opencli.json` | `cli_contract_*.c` |
 | PTY/TUI scenarios | The binary in a real PTY via libghostty-vt | Rendered screen snapshots, input and resize handling | `terminal_vt_*.c` |
 
 ## Running them

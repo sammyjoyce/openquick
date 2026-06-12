@@ -101,7 +101,7 @@ static bool app_cli_hard_disabled(const app_config_t *config) {
   if (app_color_env_force() == APP_COLOR_FORCE_OFF) {
     return true;
   }
-  const char *color = getenv("APP_CLI_COLOR");
+  const char *color = getenv("QUICK_CLI_COLOR");
   if (color && strcmp(color, "never") == 0) {
     return true;
   }
@@ -124,15 +124,15 @@ bool app_cli_term_init(app_cli_term_t *term, FILE *stream,
   term->is_tty = app_cli_fd_is_tty(term->fd);
   term->profile = APP_CLI_COLOR_PROFILE_NONE;
 
-  // Forced profile precedence: explicit opts (tests) > APP_CLI_TEST_PROFILE
-  // (tests) > APP_CLI_COLOR (public). APP_CLI_COLOR=auto means "no force".
+  // Forced profile precedence: explicit opts (tests) > QUICK_CLI_TEST_PROFILE
+  // (tests) > QUICK_CLI_COLOR (public). QUICK_CLI_COLOR=auto means "no force".
   const char *force_profile = opts && opts->force_profile
                                   ? opts->force_profile
-                                  : getenv("APP_CLI_TEST_PROFILE");
+                                  : getenv("QUICK_CLI_TEST_PROFILE");
   if (!force_profile) {
     // "never" is handled as a hard disable above; here only 16/256/truecolor
     // force a specific profile ("auto"/unset leaves detection to decide).
-    const char *color = getenv("APP_CLI_COLOR");
+    const char *color = getenv("QUICK_CLI_COLOR");
     if (color && color[0] != '\0' && strcmp(color, "auto") != 0 &&
         strcmp(color, "never") != 0) {
       force_profile = color;
@@ -142,7 +142,7 @@ bool app_cli_term_init(app_cli_term_t *term, FILE *stream,
   // Width: explicit override, then env test hooks, then live detection.
   size_t width = opts ? opts->force_width : 0;
   if (width == 0) {
-    const char *env_w = getenv("APP_CLI_TEST_WIDTH");
+    const char *env_w = getenv("QUICK_CLI_TEST_WIDTH");
     if (!env_w) {
       env_w = getenv("__FANG_TEST_WIDTH");
     }
@@ -274,7 +274,7 @@ void app_cli_term_emit_reset(app_cli_term_t *term) {
 //
 // Caching is honest: we commit a process-global result ONLY after a real probe
 // completes (a definitive success or failure of the /dev/tty round-trip). A
-// transient or contextual skip (NO_COLOR/plain config, APP_CLI_OSC11=0, CI, no
+// transient or contextual skip (NO_COLOR/plain config, QUICK_CLI_OSC11=0, CI, no
 // controlling terminal) returns UNKNOWN WITHOUT freezing the cache, so a later
 // call made under different conditions can still probe.
 app_cli_bg_kind_id app_cli_term_detect_background(const app_cli_term_t *term,
@@ -289,7 +289,7 @@ app_cli_bg_kind_id app_cli_term_detect_background(const app_cli_term_t *term,
   if (app_cli_hard_disabled(config)) {
     return APP_CLI_BG_UNKNOWN;
   }
-  const char *osc = getenv("APP_CLI_OSC11");
+  const char *osc = getenv("QUICK_CLI_OSC11");
   if (osc && strcmp(osc, "0") == 0) {
     return APP_CLI_BG_UNKNOWN;
   }
@@ -303,7 +303,7 @@ app_cli_bg_kind_id app_cli_term_detect_background(const app_cli_term_t *term,
   // It sits AFTER every contextual gate above, so it models a completed probe:
   // it commits to the cache exactly as a real probe does (never reached when a
   // gate skips, proving skips do not freeze the cache).
-  const char *test_bg = getenv("APP_CLI_TEST_BG");
+  const char *test_bg = getenv("QUICK_CLI_TEST_BG");
   if (test_bg) {
     if (strcmp(test_bg, "light") == 0) {
       cached = APP_CLI_BG_LIGHT;

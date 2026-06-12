@@ -193,9 +193,9 @@ static void opencli_print_command(FILE *stream, int level,
     fputc('\n', stream);
     for (size_t i = 0; i < command->option_count; i++) {
       const app_command_option_t *option = &command->options[i];
-      opencli_print_option(stream, level + 2, option->name, false, NULL, NULL,
-                           0, option->description,
-                           i + 1 < command->option_count);
+      opencli_print_option(stream, level + 2, option->name, false, NULL,
+                           option->arguments, option->argument_count,
+                           option->description, i + 1 < command->option_count);
     }
     app_json_write_indent(stream, level + 1);
   }

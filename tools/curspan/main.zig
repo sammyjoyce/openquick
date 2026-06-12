@@ -317,7 +317,7 @@ fn cmdCheck(ctx: Ctx, reg: Registry, opts: Options) !void {
 
 fn usage() void {
     std.debug.print(
-        \\curspan — Curspan component CLI
+        \\curspan — OpenQuick component CLI
         \\
         \\Usage:
         \\  curspan list

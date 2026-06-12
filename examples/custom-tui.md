@@ -1,10 +1,11 @@
 # Example: Composing Components on a Surface
 
-Curspan components draw through one neutral [`cs_surface`](../docs/COMPONENTS.md#the-surface).
+OpenQuick's vendored components draw through one neutral [`cs_surface`](../docs/COMPONENTS.md#the-surface).
 A surface targets either a **CLI byte stream** or a **TUI ncurses window**, so the
 same component calls render in both places — the surface owns capability detection
 and color degradation. This example composes the catalog on each backend, then
-shows where to reach for the interactive TUI primitives.
+shows where to reach for the interactive TUI primitives. For the shipped product
+TUI screens, see [docs/user/tui.md](../docs/user/tui.md).
 
 - [On a CLI stream](#1-on-a-cli-stream)
 - [On a TUI window](#2-on-a-tui-window)
@@ -20,7 +21,8 @@ color policy (`NO_COLOR` / `--plain` / `--json` …), so the surface respects it
 automatically.
 
 ```c
-#include "curspan.h"
+#include "surface/surface.h"
+#include "components/components.h"
 
 static app_error show_report(const app_config_t *config) {
     cs_surface_t *s = cs_surface_stream_new(stdout, config, NULL); // NULL => default theme
@@ -198,7 +200,7 @@ if (result.status == TUI_MENU_OK) {
 }
 ```
 
-`&` in a label marks the mnemonic key (`&&` is a literal `&`). `result.status` is one of `TUI_MENU_OK`, `TUI_MENU_CANCELLED`, `TUI_MENU_INTERRUPTED`, `TUI_MENU_TOO_SMALL`, `TUI_MENU_INVALID_ARG`, or `TUI_MENU_NO_MEMORY`.
+`&` in a label marks the mnemonic key (`&&` is a literal `&`). `result.status` is one of `TUI_MENU_OK`, `TUI_MENU_CANCELLED`, `TUI_MENU_MENU` (Esc with `.enable_menu_key`), `TUI_MENU_INTERRUPTED`, `TUI_MENU_TOO_SMALL`, `TUI_MENU_INVALID_ARG`, or `TUI_MENU_NO_MEMORY`.
 
 ## 4. Theming
 

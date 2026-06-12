@@ -211,8 +211,8 @@ static void help_render_verbose(app_cli_render_ctx_t *ctx) {
   app_cli_section_title(ctx, "DESCRIPTION");
   static const char *const desc_lines[] = {
       ("  " APP_DESCRIPTION),
-      "  It provides a solid foundation with error handling, configuration,",
-      "  and testing baked in.",
+      "  It wraps rsync over SSH, quickd deploy activation,",
+      "  deterministic private URLs, and JSON output for agents.",
   };
   help_render_plain_block(ctx, desc_lines,
                           sizeof(desc_lines) / sizeof(desc_lines[0]));
@@ -241,9 +241,9 @@ static void help_render_verbose(app_cli_render_ctx_t *ctx) {
   static const char *const cfg_lines[] = {
       "  Loaded from (first hit wins):",
       "    - the path passed to --config",
-      "    - $APP_CONFIG_PATH",
-      "    - ~/.config/" APP_NAME "/config.json",
-      "    - /etc/" APP_NAME "/config.json",
+      "    - $QUICK_CONFIG_PATH",
+      "    - ~/.config/openquick/config.json",
+      "    - /etc/openquick/config.json",
   };
   help_render_plain_block(ctx, cfg_lines,
                           sizeof(cfg_lines) / sizeof(cfg_lines[0]));
@@ -252,11 +252,11 @@ static void help_render_verbose(app_cli_render_ctx_t *ctx) {
   app_cli_section_title(ctx, "EXAMPLES");
   app_cli_repeat(ctx, ' ', 2);
   app_cli_write_token(ctx, APP_CLI_COLOR_TOKEN_CODEBLOCK, ctx->program_name);
-  app_cli_write_token(ctx, APP_CLI_COLOR_TOKEN_CODEBLOCK, " hello Alice");
+  app_cli_write_token(ctx, APP_CLI_COLOR_TOKEN_CODEBLOCK, " init lunch-vote");
   app_cli_newline(ctx);
   app_cli_repeat(ctx, ' ', 2);
   app_cli_write_token(ctx, APP_CLI_COLOR_TOKEN_CODEBLOCK, ctx->program_name);
-  app_cli_write_token(ctx, APP_CLI_COLOR_TOKEN_CODEBLOCK, " --json info");
+  app_cli_write_token(ctx, APP_CLI_COLOR_TOKEN_CODEBLOCK, " deploy --dry-run");
   app_cli_newline(ctx);
   app_cli_newline(ctx);
 
@@ -330,7 +330,9 @@ void app_cli_render_command_help(const app_config_t *config, FILE *out,
          i++) {
       char label[96];
       app_option_format_label(label, sizeof(label), command->options[i].name,
-                              NULL, NULL, 0, APP_OPTION_LABEL_CLI);
+                              NULL, command->options[i].arguments,
+                              command->options[i].argument_count,
+                              APP_OPTION_LABEL_CLI);
       help_row_set(&rows[n++], label, command->options[i].description, NULL);
     }
     app_cli_section_title(&ctx, "OPTIONS");

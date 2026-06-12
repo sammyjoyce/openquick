@@ -10,7 +10,7 @@
 
 ## Acknowledgements
 
-This template builds on the work of:
+OpenQuick builds on the work of:
 
 - [Zig](https://ziglang.org/) - build system and bundled C compiler
 - [ncurses](https://invisible-island.net/ncurses/) and [PDCurses](https://pdcurses.org/) - terminal UI primitives

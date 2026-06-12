@@ -4,10 +4,26 @@ zig-out/
 zig-cache/
 zig-pkg/
 
+# Nix build outputs
+result
+result-*
+
+# JavaScript/Bun dependencies (keep built SDK dist committed)
+node_modules/
+!sdk/js/dist/
+!sdk/js/dist/**
+
 # Direnv cache
 .direnv/
 
-# Local agent state
+# Environment and local runtime state
+.env
+.env.*
+.quick/
+
+# Local agent/session state
+.agents/
+.flue/
 .pi/
 TASK.md
 .claude/worktrees/

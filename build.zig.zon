@@ -1,7 +1,7 @@
 .{
-    .name = .myapp,
+    .name = .quick,
     .version = "0.1.0",
-    .fingerprint = 0x8798022a387365d7,
+    .fingerprint = 0x8dc71ed731c49b0c,
     .dependencies = .{},
     .paths = .{
         "build.zig",

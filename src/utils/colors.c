@@ -59,11 +59,11 @@ bool app_use_colors(const app_config_t *config) {
     return false;
   }
 
-  // Shared UI style policy: APP_CLI_COLOR=never disables both the styled CLI
-  // layer and the generated TUI color bridge. The APP_CLI_ prefix is kept for
+  // Shared UI style policy: QUICK_CLI_COLOR=never disables both the styled CLI
+  // layer and the generated TUI color bridge. The QUICK_CLI_ prefix is kept for
   // compatibility with the existing public environment contract. Treat it as a
   // hard disable, like NO_COLOR, so it wins over FORCE_COLOR=1.
-  const char *cli_color = getenv("APP_CLI_COLOR");
+  const char *cli_color = getenv("QUICK_CLI_COLOR");
   if (cli_color && strcmp(cli_color, "never") == 0) {
     return false;
   }

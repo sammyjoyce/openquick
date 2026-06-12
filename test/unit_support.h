@@ -42,3 +42,4 @@ void run_cli_style_unit_tests(unit_stats_t *stats);
 void run_cli_osc11_unit_tests(unit_stats_t *stats);
 void run_shared_primitives_unit_tests(unit_stats_t *stats);
 void run_components_unit_tests(unit_stats_t *stats);
+void run_openquick_unit_tests(unit_stats_t *stats);

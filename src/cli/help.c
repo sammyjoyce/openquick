@@ -214,7 +214,9 @@ void app_print_command_help_ex(const char *program_name,
     for (size_t i = 0; i < command->option_count; i++) {
       char left[64];
       app_option_format_label(left, sizeof(left), command->options[i].name,
-                              NULL, NULL, 0, APP_OPTION_LABEL_CLI);
+                              NULL, command->options[i].arguments,
+                              command->options[i].argument_count,
+                              APP_OPTION_LABEL_CLI);
       printf("  %-20s%s\n", left, command->options[i].description);
     }
     printf("\n");

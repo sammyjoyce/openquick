@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openquick.dev/schemas/site.v1.json",
+  "name": "blank",
+  "source": ".",
+  "output": ".",
+  "build": null,
+  "subdomain": "blank",
+  "sdk": {
+    "enabled": true,
+    "import": "/_quick/sdk.js"
+  }
+}
