@@ -14,8 +14,19 @@ func TestDecodeStrictAndDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.DataDir != "/tmp/q/data" || cfg.RetainedReleases != 10 || cfg.MaxUploadBytes == 0 {
+	if cfg.DataDir != "/tmp/q/data" || cfg.RetainedReleases != 10 || cfg.MaxUploadBytes == 0 || !cfg.Directory.Enabled {
 		t.Fatalf("defaults not applied: %+v", cfg)
+	}
+	cfg, err = Decode(strings.NewReader(`{"remote_root":"/tmp/q","directory":{"enabled":false},"iap":{"type":"none"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Directory.Enabled {
+		t.Fatalf("directory.enabled=false was not preserved: %+v", cfg.Directory)
+	}
+	_, err = Decode(strings.NewReader(`{"remote_root":"/tmp/q","directory":{"enabled":true,"extra":1},"iap":{"type":"none"}}`))
+	if err == nil {
+		t.Fatalf("expected unknown directory field error")
 	}
 }
 

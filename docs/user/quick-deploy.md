@@ -105,3 +105,44 @@ ssh quick@quickbox quickd doctor --json
 ```
 
 If `quickd` is missing, install with `quick serve install ...`. If `/srv/quick` is missing or unwritable, fix host permissions before transferring. If IAP or DNS is not ready, deploy only with an explicit unpublished/unsafe flag.
+
+## Publishing a shared library site
+
+A site can publish plain JavaScript for other OpenQuick sites to import. Deploy the library like any other static site:
+
+```text
+shared-ui/
+  index.html          # optional landing page and examples
+  mod.js              # exported browser module
+```
+
+```bash
+quick deploy ./shared-ui --site shared-ui
+```
+
+Another site can import it directly from the sibling site URL:
+
+```html
+<script type="module">
+  import { toast } from 'https://shared-ui.quick.example.com/mod.js';
+  toast('Loaded from a shared OpenQuick site');
+</script>
+```
+
+For cookie-based IAP edges such as Cloudflare Access, use credentialed module fetches so the browser sends the IAP cookie to the library origin:
+
+```html
+<script type="module" crossorigin="use-credentials" src="/app.js"></script>
+```
+
+OpenQuick reflects CORS only for GET/HEAD static assets requested from sibling site origins on the same host. The `/_quick/*` API remains same-origin.
+
+## Browser site directory
+
+Authenticated viewers can open the apex host, such as `https://quick.example.com/`, or the path-fallback root `https://quick.example.com/~/`, to see the built-in site directory. It lists cataloged sites with their URLs, current release, update time, and deployer. Operators can disable it with:
+
+```json
+{
+  "directory": { "enabled": false }
+}
+```

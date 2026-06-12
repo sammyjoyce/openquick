@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -172,6 +173,56 @@ func TestCloudflareAccessAdapterJWTValidation(t *testing.T) {
 	}
 }
 
+func TestCloudflareAccessAdapterCustomStringClaims(t *testing.T) {
+	now := time.Date(2026, 6, 12, 0, 0, 0, 0, time.UTC)
+	key := mustRSA(t)
+	jwks := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{Key: &key.PublicKey, KeyID: "kid1", Algorithm: string(jose.RS256), Use: "sig"}}})
+	}))
+	defer jwks.Close()
+	adapter := &CloudflareAccessAdapter{
+		TeamDomain: "https://team.cloudflareaccess.com",
+		Audience:   "aud1",
+		JWKSURL:    jwks.URL,
+		Now:        func() time.Time { return now },
+	}
+	custom := map[string]any{
+		"team":         "platform",
+		"title":        "Staff Designer",
+		"slack_handle": "@sam",
+		"cost_center":  1234,
+		"profile":      map[string]any{"nested": true},
+	}
+	for i := 0; i < 20; i++ {
+		custom[fmt.Sprintf("z%02d", i)] = "extra"
+	}
+	tok := signAccessToken(t, key, "kid1", now, "aud1", now.Add(time.Hour), custom)
+	r := req("127.0.0.1:1")
+	r.Header.Set("Cf-Access-Jwt-Assertion", tok)
+	id, err := adapter.Authenticate(context.Background(), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := id.Capabilities["team"]; got != "platform" {
+		t.Fatalf("team capability=%v", got)
+	}
+	if got := id.Capabilities["title"]; got != "Staff Designer" {
+		t.Fatalf("title capability=%v", got)
+	}
+	if got := id.Capabilities["slack_handle"]; got != "@sam" {
+		t.Fatalf("slack capability=%v", got)
+	}
+	if _, ok := id.Capabilities["cost_center"]; ok {
+		t.Fatalf("non-string claim copied: %+v", id.Capabilities)
+	}
+	if _, ok := id.Capabilities["email"]; ok {
+		t.Fatalf("known claim copied: %+v", id.Capabilities)
+	}
+	if len(id.Capabilities) != 16 {
+		t.Fatalf("capabilities len=%d want 16: %+v", len(id.Capabilities), id.Capabilities)
+	}
+}
+
 func mustRSA(t *testing.T) *rsa.PrivateKey {
 	t.Helper()
 	k, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -181,16 +232,22 @@ func mustRSA(t *testing.T) *rsa.PrivateKey {
 	return k
 }
 
-func signAccessToken(t *testing.T, key *rsa.PrivateKey, kid string, now time.Time, aud string, exp time.Time) string {
+func signAccessToken(t *testing.T, key *rsa.PrivateKey, kid string, now time.Time, aud string, exp time.Time, custom ...map[string]any) string {
 	t.Helper()
 	opts := (&jose.SignerOptions{}).WithType("JWT").WithHeader("kid", kid)
 	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: key}, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
+	extra := map[string]any{"email": "sam@example.com", "name": "Sam", "groups": []string{"engineering"}}
+	for _, claims := range custom {
+		for k, v := range claims {
+			extra[k] = v
+		}
+	}
 	tok, err := jwt.Signed(signer).
 		Claims(jwt.Claims{Issuer: "https://team.cloudflareaccess.com", Subject: "user-1", Audience: jwt.Audience{aud}, Expiry: jwt.NewNumericDate(exp), NotBefore: jwt.NewNumericDate(now.Add(-time.Minute))}).
-		Claims(map[string]any{"email": "sam@example.com", "name": "Sam", "groups": []string{"engineering"}}).
+		Claims(extra).
 		Serialize()
 	if err != nil {
 		t.Fatal(err)

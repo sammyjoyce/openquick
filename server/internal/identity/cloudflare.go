@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -62,7 +63,8 @@ func (a *CloudflareAccessAdapter) Authenticate(ctx context.Context, r *http.Requ
 	}
 	var claims jwt.Claims
 	var extra accessClaims
-	if err := parsed.Claims(key.Key, &claims, &extra); err != nil {
+	var rawClaims map[string]any
+	if err := parsed.Claims(key.Key, &claims, &extra, &rawClaims); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidCredential, err)
 	}
 	if err := a.validateClaims(claims); err != nil {
@@ -90,6 +92,7 @@ func (a *CloudflareAccessAdapter) Authenticate(ctx context.Context, r *http.Requ
 		Login:         login,
 		Name:          extra.Name,
 		Groups:        extra.Groups,
+		Capabilities:  accessClaimCapabilities(rawClaims),
 		Raw: map[string]string{
 			"kid": kid,
 			"iss": claims.Issuer,
@@ -101,6 +104,46 @@ type accessClaims struct {
 	Email  string   `json:"email"`
 	Name   string   `json:"name"`
 	Groups []string `json:"groups"`
+}
+
+var cloudflareKnownClaims = map[string]bool{
+	"iss":    true,
+	"sub":    true,
+	"aud":    true,
+	"exp":    true,
+	"nbf":    true,
+	"iat":    true,
+	"jti":    true,
+	"email":  true,
+	"name":   true,
+	"groups": true,
+}
+
+func accessClaimCapabilities(raw map[string]any) map[string]any {
+	if len(raw) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(raw))
+	for k, v := range raw {
+		if k == "" || cloudflareKnownClaims[k] {
+			continue
+		}
+		if _, ok := v.(string); ok {
+			keys = append(keys, k)
+		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	sort.Strings(keys)
+	if len(keys) > 16 {
+		keys = keys[:16]
+	}
+	caps := make(map[string]any, len(keys))
+	for _, k := range keys {
+		caps[k] = raw[k]
+	}
+	return caps
 }
 
 func tokenKeyAndAlg(tok *jwt.JSONWebToken) (kid, alg string) {

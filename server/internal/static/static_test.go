@@ -1,6 +1,7 @@
 package static
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -126,5 +127,109 @@ func TestStaticHeaders(t *testing.T) {
 	rr = perform(h, "demo.localhost:9366", "/assets/app.12345678.js")
 	if !strings.Contains(rr.Header().Get("Cache-Control"), "immutable") {
 		t.Fatalf("hashed asset cache=%q", rr.Header().Get("Cache-Control"))
+	}
+}
+
+func performWithOrigin(h http.Handler, host, target, origin string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, "http://"+host+target, nil)
+	req.RemoteAddr = "127.0.0.1:12345"
+	if origin != "" {
+		req.Header.Set("Origin", origin)
+	}
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	return rr
+}
+
+func TestStaticCrossSiteLibraryCORS(t *testing.T) {
+	h, _ := testStaticHandler(t)
+	h.Config.PublicBaseDomain = "quick.example.com"
+
+	rr := performWithOrigin(h, "demo.quick.example.com", "/assets/app.12345678.js", "https://lib.quick.example.com")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("sibling status=%d body=%q", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "https://lib.quick.example.com" {
+		t.Fatalf("ACAO=%q", got)
+	}
+	if got := rr.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
+		t.Fatalf("ACAC=%q", got)
+	}
+	if !strings.Contains(rr.Header().Get("Vary"), "Origin") {
+		t.Fatalf("Vary=%q", rr.Header().Get("Vary"))
+	}
+
+	rr = performWithOrigin(h, "demo.quick.example.com", "/assets/app.12345678.js", "https://evil.example")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("non-sibling status=%d body=%q", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("non-sibling ACAO=%q", got)
+	}
+
+	rr = performWithOrigin(h, "demo.quick.example.com", "/_quick/capabilities", "https://lib.quick.example.com")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("api status=%d body=%q", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("api ACAO changed to %q", got)
+	}
+}
+
+func TestSiteDirectoryRendersRows(t *testing.T) {
+	h, _ := testStaticHandler(t)
+	h.Config.PublicBaseDomain = "quick.example.com"
+	if err := h.Store.RecordDeploy(context.Background(), "demo", "20260612T010203Z-feedface", "sam@example.com", 123, 4); err != nil {
+		t.Fatal(err)
+	}
+
+	rr := perform(h, "quick.example.com", "/")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("directory status=%d body=%q", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	for _, want := range []string{"OpenQuick sites", "demo", "https://demo.quick.example.com", "20260612T010203Z-feedface", "sam@example.com"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("directory body missing %q: %s", want, body)
+		}
+	}
+}
+
+func TestSiteDirectoryEscapesMetadata(t *testing.T) {
+	h, _ := testStaticHandler(t)
+	h.Config.PublicBaseDomain = "quick.example.com"
+	if err := h.Store.RecordDeploy(context.Background(), "evil", "<b>rel</b>", "<script>alert(1)</script>", 1, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	rr := perform(h, "quick.example.com", "/~/")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("directory status=%d body=%q", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	if strings.Contains(body, "<script>alert(1)</script>") || strings.Contains(body, "<b>rel</b>") {
+		t.Fatalf("directory did not escape hostile metadata: %s", body)
+	}
+	if !strings.Contains(body, "&lt;script&gt;alert(1)&lt;/script&gt;") || !strings.Contains(body, "&lt;b&gt;rel&lt;/b&gt;") {
+		t.Fatalf("directory missing escaped metadata: %s", body)
+	}
+}
+
+func TestSiteDirectoryDisabled(t *testing.T) {
+	h, _ := testStaticHandler(t)
+	h.Config.Directory.Enabled = false
+	rr := perform(h, "localhost:9366", "/")
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("disabled status=%d body=%q", rr.Code, rr.Body.String())
+	}
+}
+
+func TestSiteDirectoryAnonymousDeniedWhenIdentityRequired(t *testing.T) {
+	h, _ := testStaticHandler(t)
+	h.Config.Viewer.AllowAnonymous = false
+	h.Config.Viewer.RequireIdentity = true
+	rr := perform(h, "localhost:9366", "/")
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("identity-required status=%d body=%q", rr.Code, rr.Body.String())
 	}
 }

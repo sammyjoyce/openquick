@@ -18,17 +18,18 @@ const (
 )
 
 type Config struct {
-	Schema           string       `json:"$schema,omitempty"`
-	Listen           string       `json:"listen"`
-	PublicBaseDomain string       `json:"public_base_domain"`
-	BaseURL          string       `json:"base_url"`
-	RemoteRoot       string       `json:"remote_root"`
-	DataDir          string       `json:"data_dir"`
-	RetainedReleases int          `json:"retained_releases"`
-	MaxUploadBytes   int64        `json:"max_upload_bytes"`
-	IAP              IAPConfig    `json:"iap"`
-	Deploy           DeployConfig `json:"deploy"`
-	Viewer           ViewerConfig `json:"viewer"`
+	Schema           string          `json:"$schema,omitempty"`
+	Listen           string          `json:"listen"`
+	PublicBaseDomain string          `json:"public_base_domain"`
+	BaseURL          string          `json:"base_url"`
+	RemoteRoot       string          `json:"remote_root"`
+	DataDir          string          `json:"data_dir"`
+	RetainedReleases int             `json:"retained_releases"`
+	MaxUploadBytes   int64           `json:"max_upload_bytes"`
+	IAP              IAPConfig       `json:"iap"`
+	Deploy           DeployConfig    `json:"deploy"`
+	Viewer           ViewerConfig    `json:"viewer"`
+	Directory        DirectoryConfig `json:"directory"`
 }
 
 type IAPConfig struct {
@@ -52,6 +53,10 @@ type ViewerConfig struct {
 	AllowAnonymous  bool `json:"allow_anonymous"`
 }
 
+type DirectoryConfig struct {
+	Enabled bool `json:"enabled"`
+}
+
 func Default(root string) Config {
 	if root == "" {
 		root = DefaultRoot
@@ -70,7 +75,8 @@ func Default(root string) Config {
 			Policy:        "any_ssh_deployer",
 			ReservedNames: []string{"api", "admin", "www", "_quick"},
 		},
-		Viewer: ViewerConfig{AllowAnonymous: true},
+		Viewer:    ViewerConfig{AllowAnonymous: true},
+		Directory: DirectoryConfig{Enabled: true},
 	}
 }
 
