@@ -45,6 +45,29 @@ zig build tui-menu-lib             # reusable internal TUI menu library
 
 The default binary is `quick`; override with `-Dapp-name=...` when testing alternate packaging.
 
+## Container
+
+Build the Linux container image; the Docker build runs the Go server vet/tests and the CLI test suite in Linux stages by default:
+
+```bash
+docker build -t openquick:test .
+```
+
+Run `quickd` from the image on port 9366:
+
+```bash
+docker run --rm -p 127.0.0.1:9366:9366 openquick:test
+curl http://127.0.0.1:9366/_quick/health
+```
+
+Run the repeatable end-to-end container smoke test:
+
+```bash
+scripts/container-smoke.sh
+```
+
+The smoke image uses a dev identity and an explicit `--allow-public-unsafe` listener for local container testing only.
+
 ## CLI quickstart
 
 ```bash
