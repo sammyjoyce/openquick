@@ -6,6 +6,12 @@ Put an identity-aware edge in front of the host, then use the same-origin SDK fo
 
 OpenQuick is inspired by [Shopify Quick](https://shopify.engineering/quick); it keeps the folder-to-private-site workflow and uses SSH, rsync, and a self-hosted `quickd` host.
 
+> [!NOTE]
+> OpenQuick was built almost entirely by coding agents (design docs,
+> implementation, tests, and documentation), with human direction and review.
+> Read the code and run the test suites before trusting it in production; treat it
+> as an agent-built experiment, not a hardened release.
+
 ## Quickstart
 
 ### Bootstrap a host, then deploy a site
