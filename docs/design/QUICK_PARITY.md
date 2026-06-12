@@ -1,5 +1,7 @@
 # Shopify Quick parity matrix
 
+<!-- markdownlint-disable MD013 MD052 -->
+
 Status: implementation-audited parity note  
 Audience: OpenQuick maintainers and orchestrator agents  
 Scope: compare public Shopify Quick capabilities/design choices to OpenQuick as of this repo state.
@@ -7,10 +9,14 @@ Scope: compare public Shopify Quick capabilities/design choices to OpenQuick as 
 ## Sources
 
 1. **Primary source — Shopify Engineering:** ["Quick: An internal hosting platform for the AI era"](https://shopify.engineering/quick), June 2026. Key facts used here: folder of HTML/assets to employee-only URL; launched July 2025; 50,000+ sites; >50% employee adoption; single $200/mo VM; GCS/gcsfuse/NGINX/IAP architecture; `quick deploy` as a small `gcloud rsync` wrapper; DB/files/AI/warehouse/websockets/identity API group; zero-config browser API with server-side keys; `quick init` agent skills; no owners/anyone can overwrite; no custom backends or cron jobs; rate limiting after abuse; server migrated Node to Go; "Lehrwerkstatt" discoverability.
-2. **Author thread — Daniel Beauchamp (@pushmatrix):** <https://unrollnow.com/status/2064722585019969727>. Confirms zero-config data/files/AI/websockets APIs; chosen subdomain; shared browser-callable server with zero API keys; Artifact/designer tools; websocket collab/multiplayer; 140+ game-jam submissions; shared JS libraries published as sites; single VM plus single cloud database.
+2. **Author thread — Daniel Beauchamp (@pushmatrix):** <https://unrollnow.com/status/2064722585019969727> and <https://threadreaderapp.com/thread/2064722585019969727.html>. Confirms zero-config data/files/AI/websockets APIs; chosen subdomain; shared browser-callable server with zero API keys; Artifact/designer tools; websocket collab/multiplayer; 140+ game-jam submissions; shared JS libraries published as sites; single VM plus single cloud database. The thread video text "Upload files → you instantly get a URL" is treated below as browser-upload-portal evidence only when marked inferred-from-video.
 3. **Hacker News submission:** <https://news.ycombinator.com/item?id=48481517>. Verified through Algolia as submission-only, 4 points, zero comments; no additional capability information.
 4. **Third-party analysis — Stacktree:** <https://stacktr.ee/blog/what-shopify-quick-proves>, June 2026. Vendor commentary; confirms the primary facts, identity fields (`name`, `title`, `team`, Slack handle), Dec 2025 adoption spike, and public-internet requirements Quick deliberately skips (ownership, unguessable URLs, end-to-end gates). No new Quick capabilities beyond Source 1.
-5. **Searched but empty trails:** Lobste.rs; Reddit r/programming and r/webdev; conference talks/videos/podcasts about Quick specifically; OSS clones of Quick; public quick.shopify.io docs/screenshots; HN comment discussion. These found no additional Quick capability details.
+5. **Reimplementation reviewed — topmass/openquick:** <https://github.com/topmass/openquick>, local clone `/tmp/pi-github-repos/topmass/openquick`. Reviewed `README.md`, `packages/platform/src/{env,index,landing,routing,site-do}.ts`, `packages/cli/src/*.ts`, `packages/sdk/src/quick.ts`, and `templates/default/{AGENTS.md,CLAUDE.md}`.
+6. **Reimplementation reviewed — scampion/quick:** <https://github.com/scampion/quick>, local clone `/tmp/pi-github-repos/scampion/quick`. Reviewed `README.md`, `README.fr.md`, `src/{main,deploy,hosting,storage}.rs`, and `src/dashboard.html`.
+7. **Reimplementation reviewed — patrikbreitenmoser/quick:** <https://github.com/patrikbreitenmoser/quick>, local clone `/tmp/pi-github-repos/patrikbreitenmoser/quick`. Reviewed `README.md`, `README.de.md`, `docs/deployment.md`, `examples/portal/index.html`, `workers/{router,api,realtime,shared}/src`, `cli/bin/quick.js`, `cli/lib/*.js`, `sdk/quick.js`, and `skills/{CLAUDE.md,quick-deploy.skill}`.
+8. **Reply/Q&A retrieval attempt:** Twitter syndication metadata for tweet `2064722585019969727` reported `conversation_count=100`, but reply text was not retrievable without X auth. Attempted angles: Thread Reader, UnrollNow, nitter.poast.org, nitter.privacyredirect, twstalker, sotwe, and Exa/Perplexity reply-text searches; all usable mirrors carried only the 9-tweet author thread.
+9. **Searched but empty trails:** Lobste.rs; Reddit r/programming and r/webdev; conference talks/videos/podcasts about Quick specifically; public quick.shopify.io docs/screenshots; HN comment discussion; broad OSS searches outside Sources 5-7. These found no additional Shopify Quick capability details.
 
 ## Status vocabulary
 
@@ -25,6 +31,7 @@ Scope: compare public Shopify Quick capabilities/design choices to OpenQuick as 
 | Shopify Quick capability / design decision | OpenQuick status | OpenQuick evidence | Rationale |
 | --- | --- | --- | --- |
 | Drop a folder of HTML/assets and get a private URL with no framework/pipeline/config requirement. [S1] | parity | Product stance says "drop a folder of HTML/assets" and deploy static assets with `quick deploy` (`docs/design/WORKFLOW.md:9-24`); `quick init` scaffolds static HTML and same-origin SDK (`docs/design/WORKFLOW.md:101-162`); deploy validates output and transfers files (`src/core/ops.c:930-940`, `src/core/ops.c:1026-1094`). | OpenQuick keeps the static-folder mental model and does not infer frameworks. Privacy depends on configured IAP/trust boundary. |
+| Browser upload/deploy portal: upload files from the browser and instantly get a URL (inferred from the @pushmatrix thread video, not stated in the primary article). [S2] | gap (deferred v2/v3 by design) | OpenQuick's browser surface is an authenticated site directory, not a deploy surface (`server/internal/static/static.go:45-56`, `server/internal/static/static.go:205-283`); v0 command set centers `quick deploy` and omits a browser deploy command/surface (`docs/design/WORKFLOW.md:71-86`, `src/cli/commands.c:373-452`). | Interesting parity candidate, especially because all three reviewed rebuilds added browser deploy, but not adopted in v1; deploy remains CLI/TUI/SSH+rsync. |
 | GCS bucket per folder plus `gcsfuse` mount. [S1] | intentionally different | Architecture explicitly replaces bucket/gcsfuse with staging directories, immutable releases, and current symlink (`docs/design/ARCHITECTURE.md:275-317`); implementation prepares `.incoming` and `releases` under the site directory (`server/internal/deploy/deploy.go:69-95`) and atomically activates by rename/symlink (`server/internal/deploy/deploy.go:144-224`). | Self-hosted OpenQuick avoids a required cloud bucket. The product behavior is equivalent, but the storage mechanism is not. |
 | Wildcard subdomains route `mysite.quick.shopify.io` to the site folder. [S1] | parity | URL generation emits `https://<site>.<public_base_domain>` (`server/internal/sites/sites.go:135-138`); host routing extracts one-label sites under `.localhost` or `public_base_domain` (`server/internal/sites/sites.go:150-168`); static handler routes host to site (`server/internal/static/static.go:93-104`). | OpenQuick routes wildcard hosts in `quickd` rather than proxy config. |
 | Subdomain of the creator's choice. [S1][S2] | partial | CLI/site config model has `subdomain` and deploy plan URL resolution (`docs/design/WORKFLOW.md:217-223`, `src/core/deploy_plan.c:493-515`); deploy command accepts `--subdomain` (`src/cli/commands_deploy.c:164-180`). Server routing and deploy catalog still use the site name as the host label (`server/internal/sites/sites.go:150-168`, `server/internal/store/store.go:225-233`). | Choosing a site name gives a chosen subdomain. Alias-style `site != subdomain` is not fully wired through quickd routing/catalog yet. |
@@ -60,6 +67,7 @@ Scope: compare public Shopify Quick capabilities/design choices to OpenQuick as 
 
 - **AI proxy:** kept as v2 because provider secrets, abuse controls, budgets, and policy are required before exposing `quick.ai.*` (`docs/design/ARCHITECTURE.md:717-725`, `docs/design/ARCHITECTURE.md:1167-1175`).
 - **Warehouse proxy:** kept as v2/enterprise because it exposes private analytics data and needs explicit allowlists (`docs/design/ARCHITECTURE.md:737-741`, `docs/design/ARCHITECTURE.md:1171-1176`).
+- **Browser deploy/upload portal:** newly documented as inferred-from-video and repeatedly present in rebuilds, but v1 remains CLI/TUI/SSH+rsync; treat it as a future product candidate, not a parity requirement.
 - **True alias subdomains:** CLI accepts `subdomain`, but quickd still routes/catalogs by site name. Full `site != subdomain` serving needs catalog-aware host routing and deploy activation changes; this was outside the requested gaps.
 - **Provider-specific identity richness:** OpenQuick can normalize and pass through available provider claims, but cannot synthesize Shopify-only corporate fields unless the operator's IAP supplies them.
 - **Cloud-specific internals:** GCS/gcsfuse, NGINX wildcard mapping, and CloudSQL are intentionally not adopted; OpenQuick uses local releases, Go routing, and SQLite to remain self-hosted and one-host friendly.
@@ -69,6 +77,114 @@ Scope: compare public Shopify Quick capabilities/design choices to OpenQuick as 
 - parity: 14
 - partial: 3
 - gap (implemented now): 3
-- gap (deferred v2/v3 by design): 2
+- gap (deferred v2/v3 by design): 3
 - intentionally different: 3
-- total rows: 25
+- total rows: 26
+
+## Other reimplementations reviewed
+
+These repositories are alternative interpretations reviewed for comparison only. Their choices are not requirements for OpenQuick and are not assumed to be better than OpenQuick's SSH+rsync+single-host stance.
+
+### topmass/openquick — Cloudflare Workers OpenQuick
+
+Repo: <https://github.com/topmass/openquick>.
+
+- **What it is:** TypeScript on Cloudflare Workers, with a platform Worker, one Durable Object namespace for per-site state, optional R2, Workers AI, and an `oquick` CLI. The README frames it as running in the user's Cloudflare account/free tier (`/tmp/pi-github-repos/topmass/openquick/README.md:5-24`) and maps Shopify's VM/GCS/CloudSQL shape onto Worker/DO/R2/Workers AI primitives (`/tmp/pi-github-repos/topmass/openquick/README.md:98-115`).
+- **Quick capabilities covered:** browser hub deploys, CLI deploy/list/delete/dev/domain/auth/model commands, zero-config DB/realtime/files/AI/identity, wildcard URL mode, agent docs, site directory, and static cross-origin assets (`/tmp/pi-github-repos/topmass/openquick/README.md:22-24`, `/tmp/pi-github-repos/topmass/openquick/README.md:62-94`, `/tmp/pi-github-repos/topmass/openquick/README.md:137-158`).
+- **Deliberately omitted or different:** no warehouse API found; no custom backends/cron/permissions/build pipelines as non-goals (`/tmp/pi-github-repos/topmass/openquick/README.md:251-254`); default security differs from Shopify by making sites public with token-gated deploys unless org mode is enabled (`/tmp/pi-github-repos/topmass/openquick/README.md:178-196`).
+- **Distinctive design choices:**
+  - Root **hub** is a deploy surface and directory: drag/drop browser deploys, token handoff in URL fragment/localStorage, site list, delete buttons, and confetti (`/tmp/pi-github-repos/topmass/openquick/packages/platform/src/landing.ts:121-154`, `/tmp/pi-github-repos/topmass/openquick/packages/platform/src/landing.ts:264-349`).
+  - Deploy modes are explicit: token-gated, tokenless playground (`OPEN_DEPLOYS`) with per-IP/site caps, or Cloudflare Access org mode (`/tmp/pi-github-repos/topmass/openquick/packages/platform/src/env.ts:17-24`, `/tmp/pi-github-repos/topmass/openquick/packages/platform/src/env.ts:54-69`, `/tmp/pi-github-repos/topmass/openquick/packages/platform/src/index.ts:93-120`).
+  - One per-site Durable Object stores asset metadata/chunks, documents, uploads, counters, registry rows, and WebSocket attachments; deploy commit replaces the manifest inside a DO storage transaction (`/tmp/pi-github-repos/topmass/openquick/packages/platform/src/site-do.ts:35-58`, `/tmp/pi-github-repos/topmass/openquick/packages/platform/src/site-do.ts:254-313`).
+  - Files over 5 MiB spill to R2 and raise the cap from 25 MiB to 95 MiB; R2 keys are per-site for site assets and uploads (`/tmp/pi-github-repos/topmass/openquick/packages/platform/src/env.ts:45-52`, `/tmp/pi-github-repos/topmass/openquick/packages/platform/src/index.ts:409-435`).
+  - AI uses the Workers AI binding with model aliases, chat/image endpoints, streaming chat, and per-site/platform rate ceilings (`/tmp/pi-github-repos/topmass/openquick/packages/platform/src/index.ts:485-613`, `/tmp/pi-github-repos/topmass/openquick/README.md:198-228`).
+  - CLI deploy is hash-diffed: the client uploads only server-requested hashes and logs unchanged files skipped (`/tmp/pi-github-repos/topmass/openquick/packages/cli/src/deploy.ts:94-128`).
+
+### scampion/quick — Rust/Pingora single binary
+
+Repo: <https://github.com/scampion/quick>.
+
+- **What it is:** a Rust/Pingora static-hosting binary with local filesystem or S3-compatible storage, serving `<site>.<domain>` and an embedded dashboard (`/tmp/pi-github-repos/scampion/quick/README.md:13-37`, `/tmp/pi-github-repos/scampion/quick/src/main.rs:23-45`, `/tmp/pi-github-repos/scampion/quick/src/main.rs:109-153`).
+- **Quick capabilities covered:** static folder/ZIP/file deploys from a browser homepage, CLI deploy, chosen host label, wildcard-style host routing, SPA fallback, automatic file listing, and zero-build `.jsx` artifact rendering (`/tmp/pi-github-repos/scampion/quick/README.md:21-37`, `/tmp/pi-github-repos/scampion/quick/README.md:49-71`).
+- **Deliberately omitted or different:** explicitly no database, file-upload API, AI, warehouse, WebSocket, or identity APIs yet (`/tmp/pi-github-repos/scampion/quick/README.md:39-40`); no built-in auth/TLS, with the whole server delegated to IAP/oauth2-proxy when exposed (`/tmp/pi-github-repos/scampion/quick/README.md:117-122`).
+- **Distinctive design choices:**
+  - Local deploys are transactional: write to a staging dir, rename current to `.old`, promote staging, and roll back the previous directory if promotion fails (`/tmp/pi-github-repos/scampion/quick/src/deploy.rs:48-82`, `/tmp/pi-github-repos/scampion/quick/src/deploy.rs:259-287`).
+  - ZIP handling has concrete safety caps and checks: 1,000 entries/25 MiB from the HTTP layer, encrypted ZIP rejection, symlink rejection, `enclosed_name` traversal defense, duplicate path detection, Mac metadata filtering, and optional single-root stripping (`/tmp/pi-github-repos/scampion/quick/src/hosting.rs:13-17`, `/tmp/pi-github-repos/scampion/quick/src/deploy.rs:96-191`).
+  - Dashboard is embedded in the binary and localized English/French via `Accept-Language` plus localStorage language switcher (`/tmp/pi-github-repos/scampion/quick/src/hosting.rs:207-260`, `/tmp/pi-github-repos/scampion/quick/src/dashboard.html:698-821`).
+  - Static serving includes directory `index.html`, SPA fallback to root `index.html` for extensionless paths, and file listing when root `index.html` is missing (`/tmp/pi-github-repos/scampion/quick/src/hosting.rs:53-83`, `/tmp/pi-github-repos/scampion/quick/src/hosting.rs:196-204`, `/tmp/pi-github-repos/scampion/quick/src/hosting.rs:267-307`).
+  - `.jsx` files are rendered by a generated HTML wrapper that loads React 18 via import maps, Babel standalone, and bare imports through `esm.sh`, making Claude-style JSX artifacts deployable without a build (`/tmp/pi-github-repos/scampion/quick/src/hosting.rs:262-265`, `/tmp/pi-github-repos/scampion/quick/src/hosting.rs:309-408`).
+  - S3 mode writes immutable release prefixes and publishes by replacing `current.json` (`/tmp/pi-github-repos/scampion/quick/README.md:124-128`, `/tmp/pi-github-repos/scampion/quick/src/storage.rs:124-152`, `/tmp/pi-github-repos/scampion/quick/src/storage.rs:177-215`).
+
+### patrikbreitenmoser/quick — Cloudflare rebuild
+
+Repo: <https://github.com/patrikbreitenmoser/quick>.
+
+- **What it is:** a Cloudflare rebuild with router/API/realtime workers, R2 for sites/uploads, D1 for documents, Durable Objects for rate limiting and realtime rooms, Cloudflare Access, and AI Gateway (`/tmp/pi-github-repos/patrikbreitenmoser/quick/README.md:5-24`, `/tmp/pi-github-repos/patrikbreitenmoser/quick/README.md:89-149`).
+- **Quick capabilities covered:** browser portal deploys, CLI deploy/list/delete/login/logout/public/init, zero-config DB/files/AI/identity/realtime SDK, Access-gated private sites, agent docs, and examples (`/tmp/pi-github-repos/patrikbreitenmoser/quick/README.md:14-24`, `/tmp/pi-github-repos/patrikbreitenmoser/quick/README.md:114-130`, `/tmp/pi-github-repos/patrikbreitenmoser/quick/README.md:132-144`).
+- **Deliberately omitted or different:** no warehouse API found; no per-site owners despite overwrite guardrails (`/tmp/pi-github-repos/patrikbreitenmoser/quick/README.md:26`, `/tmp/pi-github-repos/patrikbreitenmoser/quick/README.md:155`); public sites are static-only and opt-in rather than the default (`/tmp/pi-github-repos/patrikbreitenmoser/quick/README.md:130`, `/tmp/pi-github-repos/patrikbreitenmoser/quick/README.md:153-154`).
+- **Distinctive design choices:**
+  - Portal deploy endpoint is `POST /api/sites/:name`, limited to the `www` portal site, and mirrors CLI overwrite rules with `409 { error: "confirm_overwrite", deployed_by, deployed_at }` unless `?confirm=<name>` is supplied (`/tmp/pi-github-repos/patrikbreitenmoser/quick/workers/api/src/sites.js:1-52`, `/tmp/pi-github-repos/patrikbreitenmoser/quick/examples/portal/index.html:375-409`).
+  - CLI overwrite friction is based on `meta/<site>.json`: if someone else deployed last, it prints who and requires typing the site name unless `--yes` is passed (`/tmp/pi-github-repos/patrikbreitenmoser/quick/cli/bin/quick.js:316-331`). This is a thoughtful safety valve for a no-owners model.
+  - `quick public <name> on` creates a per-site Cloudflare Access bypass app, but first scans deployed text files for `quick.db/files/ai/identity/realtime` or direct `/api/` calls and refuses non-static public sites; later deploys to a public site repeat the scan (`/tmp/pi-github-repos/patrikbreitenmoser/quick/cli/lib/detect.js:1-31`, `/tmp/pi-github-repos/patrikbreitenmoser/quick/cli/bin/quick.js:333-350`, `/tmp/pi-github-repos/patrikbreitenmoser/quick/cli/bin/quick.js:522-568`, `/tmp/pi-github-repos/patrikbreitenmoser/quick/cli/lib/cf.js:79-116`). This static-only scan is a clever guardrail.
+  - Auth fails closed for API/realtime: no `ACCESS_AUD` rejects every request unless `DEV_AUTH=insecure` is explicitly set for local tests; production validates Access JWT signature, audience, issuer, expiry, and email (`/tmp/pi-github-repos/patrikbreitenmoser/quick/workers/shared/auth.js:1-9`, `/tmp/pi-github-repos/patrikbreitenmoser/quick/workers/shared/auth.js:52-101`).
+  - AI chat streams through Cloudflare AI Gateway with Anthropic/OpenAI provider selection and server-side keys or gateway BYOK (`/tmp/pi-github-repos/patrikbreitenmoser/quick/workers/api/src/ai.js:1-12`, `/tmp/pi-github-repos/patrikbreitenmoser/quick/workers/api/src/ai.js:59-99`).
+  - `quick delete` removes site files, uploads, DB documents/change log, and public Access app state (`/tmp/pi-github-repos/patrikbreitenmoser/quick/cli/bin/quick.js:437-486`, `/tmp/pi-github-repos/patrikbreitenmoser/quick/docs/deployment.md:40-41`).
+  - Agent documentation exists as both `skills/CLAUDE.md` and a packaged `quick-deploy.skill` ZIP containing `SKILL.md` plus `references/quick-sdk.md` (`/tmp/pi-github-repos/patrikbreitenmoser/quick/skills/CLAUDE.md:1-90`; `unzip -l /tmp/pi-github-repos/patrikbreitenmoser/quick/skills/quick-deploy.skill`).
+
+## Comparative capability table
+
+Legend: **Yes** = present in reviewed evidence; **No** = not found or intentionally absent; **Variant** = present but materially different; **?** = not publicly confirmed.
+
+| Capability / idea | Shopify Quick | topmass/openquick | scampion/quick | patrik/quick | OpenQuick (ours) |
+| --- | --- | --- | --- | --- | --- |
+| Browser deploy portal (drag/drop) | Inferred-from-video [S2] | Yes, hub | Yes, embedded dashboard | Yes, portal | No; browser directory only |
+| CLI deploy | Yes, `quick deploy` / `gcloud rsync` | Yes, `oquick deploy` hash-diff | Yes, `quick deploy` | Yes, R2 sync | Yes, SSH+rsync |
+| Wildcard subdomains | Yes | Variant: path mode plus wildcard domains | Yes, `<site>.<base>` | Yes, `<site>.<domain>` | Yes |
+| IAP / identity gating | Yes, Google IAP | Variant: optional Access org mode; default public/token deploy | No built-in; delegate whole server to IAP | Yes, Cloudflare Access | Yes, pluggable IAP adapters |
+| DB API | Yes | Yes, per-site DO SQLite | No | Yes, D1 | Yes, SQLite |
+| Realtime / WebSockets | Yes | Yes, DO WebSockets/channels | No | Yes, realtime DO rooms plus DB SSE | Yes |
+| File uploads API | Yes | Yes, DO/R2 | No API; deploy uploads only | Yes, R2 | Yes |
+| AI proxy | Yes, chat/image/frontier models | Yes, Workers AI chat/image | No | Yes, Anthropic/OpenAI via AI Gateway | No, deferred v2 |
+| Warehouse / BigQuery proxy | Yes | No | No | No | No, deferred v2/enterprise |
+| Identity API richness | Rich corporate context | Stable anonymous id; email under Access | No identity API | Email/name from Access | Provider-dependent login/name/email/groups/capabilities |
+| Site directory / discoverability | Yes, Lehrwerkstatt | Yes, hub directory | No platform directory; per-site file listing | CLI list; no all-site browser directory found | Yes, authenticated browser directory |
+| Site delete | ? not public evidence | Yes, CLI and hub | No | Yes, files/uploads/DB/public app | Partial: `quickd sites delete`; no top-level `quick delete` |
+| Overwrite friction / who deployed last | No owners; prompt not reported | No prompt found | No identity/who | Yes, shows who and requires typed name | No prompt; audit/deployer metadata exists |
+| Per-site public toggle | No, internal-only | No per-site; platform mode switches | No built-in auth toggle | Yes, static-only Access bypass | No per-site public toggle |
+| ZIP upload/deploy | ? no public evidence | No ZIP extraction found | Yes, secure ZIP upload | No | No |
+| JSX/artifact rendering | ? no public evidence | No auto render | Yes, Babel/React/esm.sh wrapper | No | No; serves uploaded bytes |
+| SPA fallback | ? no public evidence | No root SPA fallback found | Yes | Partial path `.html`/directory lookup | Yes, configurable `routing.spa_fallback` |
+| Agent docs in scaffold | Yes, `quick init` skills | Yes, `AGENTS.md`/`CLAUDE.md` | No | Yes, `CLAUDE.md` plus `.skill` package | Yes, `AGENTS.md` + API docs |
+| Shared JS library imports cross-site | Yes | Yes, static CORS `*` | No special CORS | No static CORS found | Yes, sibling-site static CORS |
+| Deploy atomicity / rollback | ? not public evidence | Yes, manifest transaction | Yes, local rollback and S3 `current.json` | No transaction; full-sync then metadata | Yes, staging + release symlink |
+| Storage substrate | GCS/gcsfuse + CloudSQL | Per-site DO SQLite + R2 spill | Local filesystem or S3-compatible | R2 + D1 + DOs | Local releases + SQLite |
+| Self-host model | Internal single VM + single cloud DB | User's Cloudflare account/serverless | Single Rust binary | User's Cloudflare account/serverless | SSH-reachable host running `quickd` |
+| Auth fail-closed posture | IAP perimeter; internals not public | Variant: Access optional, public by default | No built-in auth; operator must gate | API fails closed; router relies on Access app | Yes: public `iap=none` requires explicit unsafe flag |
+
+## Ideas observed but not adopted (with rationale)
+
+- **Browser deploy portal / hub:** candidate for future consideration; it appears in all three rebuilds, but OpenQuick v1 deliberately stays CLI/TUI/SSH+rsync.
+- **Top-level `quick delete` and browser delete:** candidate for future consideration; OpenQuick has `quickd sites delete`, but no user-facing top-level delete workflow yet.
+- **Overwrite friction when someone else deployed last:** candidate for future consideration; patrik's typed-name prompt is a thoughtful safety valve for the no-owners model without adding ACLs.
+- **Per-site public toggle:** candidate for future consideration only with an explicit threat model; patrik's static-only scan is clever because it prevents public visitors from hitting APIs that require identity.
+- **Static-only scan for public sites:** candidate for future consideration if per-site public mode exists; otherwise unnecessary in the current all-sites-behind-IAP default.
+- **ZIP deploys / browser ZIP upload:** candidate for future consideration; scampion's 1,000-entry/25 MiB caps plus traversal/symlink rejection are the right class of guardrails if adopted.
+- **Automatic file listing when no `index.html`:** candidate/deferred; useful for artifact dumps, but it exposes file trees and is not part of OpenQuick's current static-site contract.
+- **Browser-side JSX artifact rendering:** conflicts with/deferred from the current stance that OpenQuick serves uploaded bytes as static files and does not inject Babel/CDN transforms.
+- **Serverless Cloudflare substrate:** conflicts with OpenQuick's SSH+rsync+single-host model; Cloudflare-specific primitives may be useful in provider integrations, not the core.
+- **Per-site Durable Object namespace and R2 spill:** conflicts with/deferred from the local disk + SQLite host model; interesting only for a Cloudflare backend variant.
+- **Hash-diff HTTP upload:** not adopted because rsync plus `--link-dest` already gives efficient diffs in OpenQuick's transport model.
+- **Local dev against the real deployed API:** candidate for future consideration; current OpenQuick dev mode serves through local `quickd`, not a live remote API proxy.
+- **Streaming AI proxy implementations:** deferred v2/v3 because provider secrets, cost ceilings, abuse policy, and audit controls must exist first.
+- **Warehouse proxy:** deferred v2/enterprise because it bridges private analytics into arbitrary sites and needs explicit allowlists.
+- **Cloudflare Access app automation / public bypass apps:** conflicts with the generic self-host model unless implemented as a provider-specific optional integration.
+- **Packaged agent `.skill` file:** candidate for future distribution; OpenQuick already scaffolds `AGENTS.md` and bundled API docs, but a portable skill artifact could help coding agents.
+- **Portal i18n:** candidate only if a browser deploy portal exists; not a current parity blocker.
+
+## Author thread and reply Q&A
+
+- The @pushmatrix thread adds detail beyond the Shopify article: subdomain of choice, zero-config/no-API-key browser API, Artifact/designer tooling, websocket collaboration/multiplayer, 140+ game-jam games, shared JS library sites with landing pages, and the deployment scale of 50k sites / >50% employees [S2].
+- The **single cloud database** detail is important: this doc now captures Shopify Quick as **single VM plus single cloud database** in Sources [S2] and in the capability rows for single-host operation and CloudSQL/single database.
+- The thread video text **"Upload files → you instantly get a URL"** suggests a browser upload/deploy portal. Because the primary article emphasizes `quick deploy`, this doc marks that row as **inferred-from-video** rather than confirmed product documentation.
+- Reply/Q&A retrieval remains blocked: syndication metadata showed `conversation_count=100`, but X requires auth for the replies. Thread Reader, UnrollNow, nitter.poast.org, nitter.privacyredirect, twstalker, sotwe, and Exa/Perplexity reply-text searches all exposed only the author thread, not the reply discussion [S8].
+- Open research item: if authenticated/mirrored replies become available, revisit whether Daniel/Alex clarified ownership, delete semantics, browser upload, rate limits, or identity-field details.
