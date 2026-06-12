@@ -1,4 +1,5 @@
 #include "commands_openquick.h"
+#include "commands.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -12,7 +13,9 @@
 #include <unistd.h>
 #endif
 
+#include "../core/ops.h"
 #include "../io/output.h"
+#include "../io/terminal.h"
 
 static char *quick_strdup_cli(const char *value) {
   if (!value) {
@@ -334,6 +337,319 @@ long quick_json_get_long_field_cli(const char *json, const char *field,
   return end && end != p ? value : fallback;
 }
 
+bool quick_cmd_prompt_site_confirmation(const app_config_t *config,
+                                        const char *site,
+                                        const char *message) {
+  if (!site || site[0] == '\0' || !app_terminal_stream_is_tty(APP_TERMINAL_STDIN)) {
+    return false;
+  }
+  if (message && message[0] != '\0') {
+    fprintf(stderr, "%s\n", message);
+  }
+  fprintf(stderr, "Type '%s' to confirm: ", site);
+  fflush(stderr);
+  char input[256];
+  if (!fgets(input, sizeof(input), stdin)) {
+    return false;
+  }
+  input[strcspn(input, "\r\n")] = '\0';
+  const bool ok = strcmp(input, site) == 0;
+  if (!ok && config && !app_config_is_json_output(config)) {
+    fprintf(stderr, "Confirmation did not match; aborted.\n");
+  }
+  return ok;
+}
+
 void quick_print_error(const app_config_t *config, const char *message) {
   app_output(message ? message : "OpenQuick error", config, true);
+}
+
+/* Site administration command handlers. */
+static const char *site_admin_nth_positional(int argc, char *const argv[],
+                                             int wanted,
+                                             const char *const *value_opts,
+                                             size_t value_opt_count) {
+  bool end_options = false;
+  int seen = 0;
+  for (int i = 0; i < argc; i++) {
+    const char *arg = argv[i];
+    if (!arg) {
+      continue;
+    }
+    if (!end_options && strcmp(arg, "--") == 0) {
+      end_options = true;
+      continue;
+    }
+    if (!end_options && strncmp(arg, "--", 2) == 0) {
+      bool takes_value = false;
+      for (size_t j = 0; j < value_opt_count; j++) {
+        if (strcmp(arg, value_opts[j]) == 0) {
+          takes_value = true;
+          break;
+        }
+      }
+      if (takes_value) {
+        i++;
+      }
+      continue;
+    }
+    if (seen == wanted) {
+      return arg;
+    }
+    seen++;
+  }
+  return NULL;
+}
+
+static bool site_admin_wants_json(const app_config_t *config, int argc,
+                                  char *const argv[]) {
+  return app_config_is_json_output(config) || quick_cmd_flag(argc, argv, "--json");
+}
+
+static void site_admin_print_raw_json_or_fallback(const char *json,
+                                                  const char *fallback_site,
+                                                  const char *field,
+                                                  bool value) {
+  if (json && json[0] != '\0') {
+    fputs(json, stdout);
+    if (json[strlen(json) - 1U] != '\n') {
+      fputc('\n', stdout);
+    }
+    return;
+  }
+  bool comma = false;
+  app_json_begin_object(stdout);
+  app_json_write_string_field(stdout, "format_version", "1.0", &comma);
+  app_json_write_string_field(stdout, "site", fallback_site, &comma);
+  app_json_write_bool_field(stdout, field, value, &comma);
+  app_json_end_object(stdout);
+  app_json_end_line(stdout);
+}
+
+static void site_admin_print_site_human(const app_config_t *config,
+                                        const char *title,
+                                        const quick_remote_site_info_t *site) {
+  app_output_format(config, false, "%s %s", title,
+                    site && site->name ? site->name : "(unknown)");
+  if (site && site->subdomain) {
+    app_output_format(config, false, "  subdomain   %s", site->subdomain);
+  }
+  if (site && site->url) {
+    app_output_format(config, false, "  url         %s", site->url);
+  }
+  if (site && site->release) {
+    app_output_format(config, false, "  release     %s", site->release);
+  }
+  if (site && site->updated_at) {
+    app_output_format(config, false, "  updated     %s", site->updated_at);
+  }
+  if (site && site->deployer) {
+    app_output_format(config, false, "  deployer    %s", site->deployer);
+  }
+  if (site && site->have_public) {
+    app_output_format(config, false, "  public      %s",
+                      site->is_public ? "on" : "off");
+  }
+}
+
+app_error app_cmd_delete(const app_config_t *config, int argc,
+                         char *const argv[]) {
+  const char *value_opts[] = {"--profile"};
+  const char *site = site_admin_nth_positional(argc, argv, 0, value_opts,
+                                               APP_COUNTOF(value_opts));
+  if (!site) {
+    quick_print_error(config, "delete requires a site");
+    return APP_ERROR_MISSING_ARG;
+  }
+  quick_profile_config_t profiles;
+  app_error err = quick_cmd_load_profiles(&profiles);
+  if (err != APP_SUCCESS) {
+    quick_print_error(config, "failed to read OpenQuick profile config");
+    return err;
+  }
+  quick_delete_result_t result;
+  quick_delete_result_init(&result);
+  quick_delete_request_t request = {.profiles = &profiles,
+                                    .profile = quick_cmd_value(argc, argv, "--profile"),
+                                    .site = site,
+                                    .assume_yes = quick_cmd_flag(argc, argv, "--yes")};
+  err = quick_op_delete(&request, &result);
+  if (err == APP_SUCCESS && result.confirmation_required) {
+    if (!site_admin_wants_json(config, argc, argv)) {
+      site_admin_print_site_human(config, "delete", &result.site);
+    }
+    char prompt[512];
+    snprintf(prompt, sizeof(prompt),
+             "Deleting site '%s' removes it from the remote host.", site);
+    if (quick_cmd_prompt_site_confirmation(config, site, prompt)) {
+      request.confirmed = true;
+      quick_delete_result_destroy(&result);
+      quick_delete_result_init(&result);
+      err = quick_op_delete(&request, &result);
+    } else {
+      quick_print_error(config,
+                        "Delete requires typing the site name to confirm; pass --yes for non-interactive use.");
+      err = APP_ERROR_VALIDATION;
+    }
+  }
+  if (err == APP_SUCCESS) {
+    if (site_admin_wants_json(config, argc, argv)) {
+      site_admin_print_raw_json_or_fallback(result.delete_json, site, "deleted",
+                                            result.deleted);
+    } else {
+      site_admin_print_site_human(config, "deleted", &result.site);
+    }
+  } else if (err != APP_ERROR_VALIDATION) {
+    quick_print_error(config, "failed to delete remote site");
+  }
+  quick_delete_result_destroy(&result);
+  quick_profile_config_destroy(&profiles);
+  return err;
+}
+
+app_error app_cmd_public(const app_config_t *config, int argc,
+                         char *const argv[]) {
+  const char *value_opts[] = {"--profile"};
+  const char *site = site_admin_nth_positional(argc, argv, 0, value_opts,
+                                               APP_COUNTOF(value_opts));
+  const char *state = site_admin_nth_positional(argc, argv, 1, value_opts,
+                                                APP_COUNTOF(value_opts));
+  if (!site) {
+    quick_print_error(config, "public requires a site");
+    return APP_ERROR_MISSING_ARG;
+  }
+  quick_public_action_t action = QUICK_PUBLIC_STATUS;
+  if (state) {
+    if (strcmp(state, "on") == 0) {
+      action = QUICK_PUBLIC_ON;
+    } else if (strcmp(state, "off") == 0) {
+      action = QUICK_PUBLIC_OFF;
+    } else {
+      quick_print_error(config, "public state must be 'on' or 'off'");
+      return APP_ERROR_VALIDATION;
+    }
+  }
+  quick_profile_config_t profiles;
+  app_error err = quick_cmd_load_profiles(&profiles);
+  if (err != APP_SUCCESS) {
+    quick_print_error(config, "failed to read OpenQuick profile config");
+    return err;
+  }
+  quick_public_result_t result;
+  quick_public_result_init(&result);
+  quick_public_request_t request = {.profiles = &profiles,
+                                    .profile = quick_cmd_value(argc, argv, "--profile"),
+                                    .site = site,
+                                    .action = action,
+                                    .assume_yes = quick_cmd_flag(argc, argv, "--yes")};
+  err = quick_op_public(&request, &result);
+  if (err == APP_SUCCESS && result.confirmation_required) {
+    if (!site_admin_wants_json(config, argc, argv)) {
+      site_admin_print_site_human(config, "public", &result.site);
+    }
+    char prompt[512];
+    snprintf(prompt, sizeof(prompt),
+             "Making site '%s' public allows unauthenticated GET/HEAD for static files.",
+             site);
+    if (quick_cmd_prompt_site_confirmation(config, site, prompt)) {
+      request.confirmed = true;
+      quick_public_result_destroy(&result);
+      quick_public_result_init(&result);
+      err = quick_op_public(&request, &result);
+    } else {
+      quick_print_error(config,
+                        "Public-on requires typing the site name to confirm; pass --yes for non-interactive use.");
+      err = APP_ERROR_VALIDATION;
+    }
+  }
+  if (err == APP_SUCCESS) {
+    if (site_admin_wants_json(config, argc, argv)) {
+      const char *json = result.changed ? result.remote_json : result.site.raw_json;
+      site_admin_print_raw_json_or_fallback(json, site, "public",
+                                            result.is_public);
+    } else {
+      site_admin_print_site_human(config,
+                                  action == QUICK_PUBLIC_STATUS ? "public" : "updated public",
+                                  &result.site);
+      app_output_format(config, false, "  public      %s",
+                        result.is_public ? "on" : "off");
+    }
+  } else if (err != APP_ERROR_VALIDATION) {
+    quick_print_error(config, "failed to update public status");
+  }
+  quick_public_result_destroy(&result);
+  quick_profile_config_destroy(&profiles);
+  return err;
+}
+
+app_error app_cmd_domain(const app_config_t *config, int argc,
+                         char *const argv[]) {
+  const char *value_opts[] = {"--site", "--profile"};
+  const char *action_arg = site_admin_nth_positional(argc, argv, 0, value_opts,
+                                                     APP_COUNTOF(value_opts));
+  const char *domain = site_admin_nth_positional(argc, argv, 1, value_opts,
+                                                 APP_COUNTOF(value_opts));
+  if (!action_arg) {
+    quick_print_error(config, "domain requires add, remove, or list");
+    return APP_ERROR_MISSING_ARG;
+  }
+  quick_domain_action_t action;
+  if (strcmp(action_arg, "add") == 0) {
+    action = QUICK_DOMAIN_ADD;
+  } else if (strcmp(action_arg, "remove") == 0) {
+    action = QUICK_DOMAIN_REMOVE;
+  } else if (strcmp(action_arg, "list") == 0) {
+    action = QUICK_DOMAIN_LIST;
+  } else {
+    quick_print_error(config, "domain action must be add, remove, or list");
+    return APP_ERROR_VALIDATION;
+  }
+  if ((action == QUICK_DOMAIN_ADD || action == QUICK_DOMAIN_REMOVE) &&
+      !domain) {
+    quick_print_error(config, "domain add/remove requires a domain");
+    return APP_ERROR_MISSING_ARG;
+  }
+  quick_profile_config_t profiles;
+  app_error err = quick_cmd_load_profiles(&profiles);
+  if (err != APP_SUCCESS) {
+    quick_print_error(config, "failed to read OpenQuick profile config");
+    return err;
+  }
+  quick_domain_result_t result;
+  quick_domain_result_init(&result);
+  quick_domain_request_t request = {.profiles = &profiles,
+                                    .profile = quick_cmd_value(argc, argv, "--profile"),
+                                    .site = quick_cmd_value(argc, argv, "--site"),
+                                    .domain = domain,
+                                    .action = action};
+  err = quick_op_domain(&request, &result);
+  if (err == APP_SUCCESS) {
+    if (site_admin_wants_json(config, argc, argv)) {
+      if (result.remote_json && result.remote_json[0]) {
+        fputs(result.remote_json, stdout);
+        if (result.remote_json[strlen(result.remote_json) - 1U] != '\n') {
+          fputc('\n', stdout);
+        }
+      } else {
+        fputs("{\"format_version\":\"1.0\",\"domains\":[]}", stdout);
+        fputc('\n', stdout);
+      }
+    } else if (action == QUICK_DOMAIN_LIST) {
+      app_output(result.remote_json && result.remote_json[0]
+                     ? result.remote_json
+                     : "No domains returned.",
+                 config, false);
+    } else {
+      app_output_format(config, false, "domain %s %s", action_arg,
+                        domain ? domain : "");
+      if (request.site) {
+        app_output_format(config, false, "  site        %s", result.site);
+      }
+    }
+  } else {
+    quick_print_error(config, "failed to run domain command");
+  }
+  quick_domain_result_destroy(&result);
+  quick_profile_config_destroy(&profiles);
+  return err;
 }

@@ -55,6 +55,12 @@ typedef struct {
   bool checksum;
   bool bootstrap;
   bool allow_unpublished;
+  bool assume_yes;
+  bool overwrite_confirmed;
+  const char *deployer;
+  const char *ssh_key_id;
+  const char *ssh_principals;
+  const char *zip_path;
   const volatile sig_atomic_t *cancel_flag;
 } quick_deploy_options_t;
 
@@ -71,12 +77,18 @@ typedef struct {
   quick_deploy_phase_t failure_phase;
   char *failure_message;
   char *bootstrap_install_command;
+  char *last_deployer;
+  char *last_release;
+  char *last_deployed_at;
   bool bootstrap_missing;
   bool publication_issue;
+  bool overwrite_confirmation_required;
+  bool zip_deploy;
 } quick_deploy_result_t;
 
 void quick_deploy_result_init(quick_deploy_result_t *result);
 void quick_deploy_result_destroy(quick_deploy_result_t *result);
+char *quick_op_default_deployer_identity(void);
 app_error quick_op_deploy_execute(const app_config_t *config,
                                   const quick_profile_config_t *profiles,
                                   const quick_deploy_plan_t *plan,
@@ -103,7 +115,10 @@ typedef struct {
   char *release;
   char *updated_at;
   char *deployer;
+  char *subdomain;
   bool stale;
+  bool is_public;
+  bool have_public;
   quick_list_source_t source;
 } quick_list_item_t;
 
@@ -123,6 +138,123 @@ void quick_list_result_init(quick_list_result_t *result);
 void quick_list_result_destroy(quick_list_result_t *result);
 app_error quick_op_list(const quick_list_request_t *request,
                         quick_list_result_t *out);
+
+typedef struct {
+  char *name;
+  char *subdomain;
+  char *url;
+  char *release;
+  char *updated_at;
+  char *deployer;
+  bool is_public;
+  bool have_public;
+  char *raw_json;
+} quick_remote_site_info_t;
+
+void quick_remote_site_info_init(quick_remote_site_info_t *info);
+void quick_remote_site_info_destroy(quick_remote_site_info_t *info);
+
+typedef struct {
+  const quick_profile_config_t *profiles;
+  const char *profile;
+  const char *site;
+  bool assume_yes;
+  bool confirmed;
+} quick_delete_request_t;
+
+typedef struct {
+  quick_remote_site_info_t site;
+  char *profile;
+  char *ssh;
+  char *delete_json;
+  bool confirmation_required;
+  bool deleted;
+} quick_delete_result_t;
+
+void quick_delete_result_init(quick_delete_result_t *result);
+void quick_delete_result_destroy(quick_delete_result_t *result);
+app_error quick_op_delete(const quick_delete_request_t *request,
+                          quick_delete_result_t *out);
+
+typedef enum {
+  QUICK_PUBLIC_STATUS = 0,
+  QUICK_PUBLIC_ON,
+  QUICK_PUBLIC_OFF,
+} quick_public_action_t;
+
+typedef struct {
+  const quick_profile_config_t *profiles;
+  const char *profile;
+  const char *site;
+  quick_public_action_t action;
+  bool assume_yes;
+  bool confirmed;
+} quick_public_request_t;
+
+typedef struct {
+  quick_remote_site_info_t site;
+  char *profile;
+  char *ssh;
+  char *remote_json;
+  bool confirmation_required;
+  bool changed;
+  bool is_public;
+  bool have_public;
+} quick_public_result_t;
+
+void quick_public_result_init(quick_public_result_t *result);
+void quick_public_result_destroy(quick_public_result_t *result);
+app_error quick_op_public(const quick_public_request_t *request,
+                          quick_public_result_t *out);
+
+typedef enum {
+  QUICK_DOMAIN_LIST = 0,
+  QUICK_DOMAIN_ADD,
+  QUICK_DOMAIN_REMOVE,
+} quick_domain_action_t;
+
+typedef struct {
+  const quick_profile_config_t *profiles;
+  const char *profile;
+  const char *site;
+  const char *domain;
+  quick_domain_action_t action;
+} quick_domain_request_t;
+
+typedef struct {
+  char *profile;
+  char *ssh;
+  char *site;
+  char *domain;
+  char *remote_json;
+} quick_domain_result_t;
+
+void quick_domain_result_init(quick_domain_result_t *result);
+void quick_domain_result_destroy(quick_domain_result_t *result);
+app_error quick_op_domain(const quick_domain_request_t *request,
+                          quick_domain_result_t *out);
+
+typedef struct {
+  const quick_profile_config_t *profiles;
+  const char *profile;
+} quick_host_stats_request_t;
+
+typedef struct {
+  char *profile;
+  char *ssh;
+  char *raw_json;
+  long sites;
+  long releases;
+  long sites_bytes;
+  long uploads_bytes;
+  long db_bytes;
+  bool parsed;
+} quick_host_stats_result_t;
+
+void quick_host_stats_result_init(quick_host_stats_result_t *result);
+void quick_host_stats_result_destroy(quick_host_stats_result_t *result);
+app_error quick_op_host_stats(const quick_host_stats_request_t *request,
+                              quick_host_stats_result_t *out);
 
 typedef enum {
   QUICK_DOCTOR_STATUS_OK = 0,
@@ -183,8 +315,31 @@ app_error quick_op_copy_url(const char *url, char **message_out);
 typedef struct {
   const quick_profile_config_t *profiles;
   const char *profile;
+  const char *site;
+  int ttl_seconds;
+} quick_dev_token_request_t;
+
+typedef struct {
+  char *profile;
+  char *ssh;
+  char *site;
+  char *url;
+  char *token;
+  char *expires_at;
+  char *raw_json;
+} quick_dev_token_result_t;
+
+void quick_dev_token_result_init(quick_dev_token_result_t *result);
+void quick_dev_token_result_destroy(quick_dev_token_result_t *result);
+app_error quick_op_mint_dev_token(const quick_dev_token_request_t *request,
+                                  quick_dev_token_result_t *out);
+
+typedef struct {
+  const quick_profile_config_t *profiles;
+  const char *profile;
   const char *port;
   const char *identity;
+  const char *remote_api_profile;
 } quick_serve_dev_request_t;
 
 typedef struct {

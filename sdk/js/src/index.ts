@@ -71,10 +71,47 @@ export interface ChatMessage {
 }
 
 export interface ChatOptions {
+  model?: string;
+  stream?: boolean;
+  onDelta?: (delta: string, event: unknown) => void;
+  [key: string]: unknown;
+}
+
+export interface ChatUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
   [key: string]: unknown;
 }
 
 export interface ChatResponse {
+  id?: string;
+  model?: string;
+  message: ChatMessage;
+  usage?: ChatUsage;
+  [key: string]: unknown;
+}
+
+export interface ImageOptions {
+  model?: string;
+  size?: string;
+  [key: string]: unknown;
+}
+
+export interface ImageResponse {
+  id: string;
+  model?: string;
+  url: string;
+  [key: string]: unknown;
+}
+
+export type WarehouseParams = Record<string, unknown>;
+
+export interface WarehouseQueryResult {
+  name: string;
+  columns: string[];
+  rows: unknown[][];
+  row_count: number;
+  truncated?: boolean;
   [key: string]: unknown;
 }
 
@@ -119,6 +156,21 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return (await response.text()) as T;
 }
 
+async function throwRequestError(response: Response): Promise<never> {
+  let details = response.statusText;
+  try {
+    const body = await parseResponse<unknown>(response);
+    if (typeof body === 'string' && body.length > 0) {
+      details = body;
+    } else if (body && typeof body === 'object' && 'error' in body) {
+      details = String((body as { error: unknown }).error);
+    }
+  } catch {
+    // Keep the HTTP status text when the error body cannot be parsed.
+  }
+  throw new Error(`OpenQuick request failed: ${response.status} ${details}`);
+}
+
 async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set('accept', 'application/json');
@@ -135,18 +187,7 @@ async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> 
   });
 
   if (!response.ok) {
-    let details = response.statusText;
-    try {
-      const body = await parseResponse<unknown>(response);
-      if (typeof body === 'string' && body.length > 0) {
-        details = body;
-      } else if (body && typeof body === 'object' && 'error' in body) {
-        details = String((body as { error: unknown }).error);
-      }
-    } catch {
-      // Keep the HTTP status text when the error body cannot be parsed.
-    }
-    throw new Error(`OpenQuick request failed: ${response.status} ${details}`);
+    await throwRequestError(response);
   }
 
   return parseResponse<T>(response);
@@ -478,17 +519,222 @@ function fetchCapabilities(): Promise<Capabilities> {
   return requestJson<Capabilities>(apiPath('capabilities'));
 }
 
-async function chat(messages: ChatMessage[], options: ChatOptions = {}): Promise<ChatResponse> {
-  void messages;
-  void options;
-
+async function requireCapability(apiName: string, capability: string): Promise<void> {
+  let capabilities: Capabilities;
   try {
-    await fetchCapabilities();
+    capabilities = await fetchCapabilities();
   } catch (error) {
-    throw new Error(`quick.ai.chat is not available on this host (capabilities check failed: ${errorMessage(error)})`);
+    throw new Error(`${apiName} is not available on this host (capabilities check failed: ${errorMessage(error)})`);
   }
 
-  throw new Error('quick.ai.chat is not available on this host');
+  if (capabilities[capability] !== true) {
+    throw new Error(`${apiName} is not available on this host`);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function extractDeltaText(payload: unknown): string {
+  if (typeof payload === 'string') {
+    return payload;
+  }
+  if (!isRecord(payload)) {
+    return '';
+  }
+
+  const delta = payload.delta;
+  if (typeof delta === 'string') {
+    return delta;
+  }
+  if (isRecord(delta) && typeof delta.content === 'string') {
+    return delta.content;
+  }
+  return '';
+}
+
+interface ChatStreamState {
+  content: string;
+  lastPayload: Record<string, unknown> | null;
+}
+
+function processChatStreamEvent(rawEvent: string, state: ChatStreamState, onDelta?: (delta: string, event: unknown) => void): boolean {
+  const data = rawEvent
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => {
+      const value = line.slice(5);
+      return value.startsWith(' ') ? value.slice(1) : value;
+    })
+    .join('\n');
+
+  if (data.trim().length === 0) {
+    return false;
+  }
+
+  const trimmed = data.trim();
+  if (trimmed === '[DONE]' || trimmed.toLowerCase() === 'done') {
+    return true;
+  }
+
+  let payload: unknown = data;
+  try {
+    payload = JSON.parse(data) as unknown;
+  } catch {
+    // Treat non-JSON data as a raw text delta.
+  }
+
+  if (isRecord(payload)) {
+    const keys = Object.keys(payload);
+    if (!(keys.length === 1 && payload.done === true)) {
+      state.lastPayload = payload;
+    }
+  }
+
+  const delta = extractDeltaText(payload);
+  if (delta.length > 0) {
+    state.content += delta;
+    onDelta?.(delta, payload);
+  }
+
+  return isRecord(payload) && payload.done === true;
+}
+
+function buildStreamChatResponse(state: ChatStreamState, fallbackModel: unknown): ChatResponse {
+  const response: Record<string, unknown> = state.lastPayload ? { ...state.lastPayload } : {};
+  const existingMessage = isRecord(response.message) ? response.message : {};
+  const content = typeof existingMessage.content === 'string' && existingMessage.content.length > 0 ? existingMessage.content : state.content;
+
+  response.message = {
+    role: typeof existingMessage.role === 'string' ? existingMessage.role : 'assistant',
+    ...existingMessage,
+    content,
+  };
+
+  if (typeof response.model !== 'string' && typeof fallbackModel === 'string') {
+    response.model = fallbackModel;
+  }
+
+  return response as ChatResponse;
+}
+
+async function requestChatStream(body: Record<string, unknown>, fallbackModel: unknown, onDelta?: (delta: string, event: unknown) => void): Promise<ChatResponse> {
+  const response = await fetch(apiPath('ai', 'chat'), {
+    method: 'POST',
+    headers: {
+      accept: 'text/event-stream, application/json',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(body),
+    credentials: 'same-origin',
+  });
+
+  if (!response.ok) {
+    await throwRequestError(response);
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  if (!response.body || !contentType.includes('text/event-stream')) {
+    const parsed = await parseResponse<ChatResponse>(response);
+    const content = isRecord(parsed.message) && typeof parsed.message.content === 'string' ? parsed.message.content : '';
+    if (content.length > 0) {
+      onDelta?.(content, parsed);
+    }
+    return parsed;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const state: ChatStreamState = { content: '', lastPayload: null };
+  let buffer = '';
+  let sawDone = false;
+
+  while (!sawDone) {
+    const chunk = await reader.read();
+    if (chunk.done) {
+      break;
+    }
+
+    buffer += decoder.decode(chunk.value, { stream: true });
+    const events = buffer.split(/\r?\n\r?\n/);
+    buffer = events.pop() || '';
+    for (const event of events) {
+      if (processChatStreamEvent(event, state, onDelta)) {
+        sawDone = true;
+        break;
+      }
+    }
+  }
+
+  buffer += decoder.decode();
+  if (!sawDone && buffer.trim().length > 0) {
+    sawDone = processChatStreamEvent(buffer, state, onDelta);
+  }
+
+  if (sawDone) {
+    await reader.cancel().catch(() => {
+      // Ignore stream shutdown races after the done sentinel.
+    });
+  }
+
+  return buildStreamChatResponse(state, fallbackModel);
+}
+
+async function chat(messages: ChatMessage[], options: ChatOptions = {}): Promise<ChatResponse> {
+  await requireCapability('quick.ai.chat', 'ai');
+
+  const { model, stream, onDelta, ...rest } = options;
+  const useStream = stream === true || typeof onDelta === 'function';
+  const body: Record<string, unknown> = {
+    ...rest,
+    messages,
+    stream: useStream,
+  };
+  if (model !== undefined) {
+    body.model = model;
+  }
+
+  if (useStream) {
+    return requestChatStream(body, model, onDelta);
+  }
+
+  return requestJson<ChatResponse>(apiPath('ai', 'chat'), {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify(body),
+  });
+}
+
+async function image(prompt: string, options: ImageOptions = {}): Promise<ImageResponse> {
+  requireId(prompt, 'prompt');
+  await requireCapability('quick.ai.image', 'ai');
+
+  const { model, size, ...rest } = options;
+  const body: Record<string, unknown> = { ...rest, prompt };
+  if (model !== undefined) {
+    body.model = model;
+  }
+  if (size !== undefined) {
+    body.size = size;
+  }
+
+  return requestJson<ImageResponse>(apiPath('ai', 'images'), {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify(body),
+  });
+}
+
+async function warehouseQuery(name: string, params: WarehouseParams = {}): Promise<WarehouseQueryResult> {
+  requireId(name, 'warehouse query name');
+  await requireCapability('quick.warehouse.query', 'warehouse');
+
+  return requestJson<WarehouseQueryResult>(apiPath('warehouse', name), {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify(params),
+  });
 }
 
 export const quick = {
@@ -509,6 +755,10 @@ export const quick = {
   },
   ai: {
     chat,
+    image,
+  },
+  warehouse: {
+    query: warehouseQuery,
   },
   capabilities: fetchCapabilities,
 };

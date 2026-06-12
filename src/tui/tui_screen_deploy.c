@@ -294,9 +294,26 @@ static void quick_tui_show_deploy_failure(app_error err,
   tui_show_message("Deploy failed", msg);
 }
 
+static bool quick_tui_confirm_deploy_overwrite(const quick_deploy_plan_t *plan,
+                                               const quick_deploy_result_t *result) {
+  char prompt[512];
+  snprintf(prompt, sizeof(prompt),
+           "%s\n\nType %s to confirm:",
+           result && result->failure_message ? result->failure_message
+                                             : "Confirm overwrite",
+           plan ? plan->site : "site");
+  char input[128] = {0};
+  if (tui_input_dialog("Confirm overwrite", prompt, input, sizeof(input)) !=
+      APP_SUCCESS) {
+    return false;
+  }
+  return plan && strcmp(input, plan->site) == 0;
+}
+
 static app_error quick_tui_run_deploy_attempt(
     quick_tui_app_state_t *state, const quick_deploy_plan_t *plan,
-    bool allow_unpublished, quick_deploy_result_t *result, bool *cancelled) {
+    bool allow_unpublished, bool overwrite_confirmed,
+    quick_deploy_result_t *result, bool *cancelled) {
   if (cancelled) {
     *cancelled = false;
   }
@@ -307,6 +324,7 @@ static app_error quick_tui_run_deploy_attempt(
     tui_progress_update(progress, 5, "starting deploy...");
   }
   quick_deploy_options_t options = {.allow_unpublished = allow_unpublished,
+                                    .overwrite_confirmed = overwrite_confirmed,
                                     .cancel_flag = tui_interrupt_flag()};
   app_error err = quick_op_deploy_execute(NULL, &state->profiles, plan,
                                           &options,
@@ -329,8 +347,24 @@ static void quick_tui_run_deploy(quick_tui_app_state_t *state,
   quick_deploy_result_t result;
   quick_deploy_result_init(&result);
   bool cancelled = false;
-  app_error err = quick_tui_run_deploy_attempt(state, plan, false, &result,
+  bool overwrite_confirmed = false;
+  app_error err = quick_tui_run_deploy_attempt(state, plan, false,
+                                               overwrite_confirmed, &result,
                                                &cancelled);
+  if (err != APP_SUCCESS && result.overwrite_confirmation_required &&
+      !cancelled) {
+    if (quick_tui_confirm_deploy_overwrite(plan, &result)) {
+      overwrite_confirmed = true;
+      quick_deploy_result_destroy(&result);
+      quick_deploy_result_init(&result);
+      err = quick_tui_run_deploy_attempt(state, plan, false,
+                                         overwrite_confirmed, &result,
+                                         &cancelled);
+    } else {
+      quick_deploy_result_destroy(&result);
+      return;
+    }
+  }
   if (err != APP_SUCCESS && result.publication_issue && !cancelled) {
     const bool deploy_anyway = tui_confirm(
         "Publication incomplete",
@@ -338,7 +372,8 @@ static void quick_tui_run_deploy(quick_tui_app_state_t *state,
     if (deploy_anyway) {
       quick_deploy_result_destroy(&result);
       quick_deploy_result_init(&result);
-      err = quick_tui_run_deploy_attempt(state, plan, true, &result,
+      err = quick_tui_run_deploy_attempt(state, plan, true,
+                                         overwrite_confirmed, &result,
                                          &cancelled);
     } else {
       quick_deploy_result_destroy(&result);

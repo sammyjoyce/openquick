@@ -47,17 +47,20 @@ static app_error serve_dev(const app_config_t *config, int argc,
       .profile = quick_cmd_value(argc, argv, "--profile"),
       .port = quick_cmd_value(argc, argv, "--port"),
       .identity = quick_cmd_value(argc, argv, "--identity"),
+      .remote_api_profile = quick_cmd_value(argc, argv, "--remote-api"),
   };
   quick_serve_dev_command_t command;
   quick_serve_dev_command_init(&command);
   err = quick_op_serve_dev_command(&request, &command);
   quick_profile_config_destroy(&profiles);
   if (err == APP_ERROR_NOT_FOUND) {
+    quick_serve_dev_command_destroy(&command);
     quick_print_error(config,
                       "quickd not found; set QUICK_QUICKD or install quickd on PATH");
     return err;
   }
   if (err != APP_SUCCESS) {
+    quick_serve_dev_command_destroy(&command);
     return err;
   }
 #ifdef _WIN32
@@ -535,7 +538,8 @@ app_error app_cmd_serve(const app_config_t *config, int argc,
   if (quick_cmd_flag(argc, argv, "--dev")) {
     return serve_dev(config, argc, argv);
   }
-  const char *value_opts[] = {"--profile", "--host", "--remote-root", "--domain", "--iap"};
+  const char *value_opts[] = {"--profile", "--host", "--remote-root",
+                              "--domain", "--iap", "--remote-api"};
   const char *sub = quick_cmd_first_positional(argc, argv, value_opts,
                                                APP_COUNTOF(value_opts));
   if (sub && strcmp(sub, "install") == 0) {

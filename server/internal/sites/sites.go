@@ -26,7 +26,8 @@ type SiteConfig struct {
 }
 
 type RoutingConfig struct {
-	SPAFallback string `json:"spa_fallback,omitempty"`
+	SPAFallback      string `json:"spa_fallback,omitempty"`
+	DirectoryListing bool   `json:"directory_listing,omitempty"`
 }
 
 func ValidateSlug(slug string) error {
@@ -46,6 +47,13 @@ func ValidateSiteName(name string, reserved []string) error {
 	return CheckReserved(name, reserved)
 }
 
+func ValidateSubdomain(label string, reserved []string) error {
+	if err := ValidateSlug(label); err != nil {
+		return err
+	}
+	return CheckReserved(label, reserved)
+}
+
 func ValidateDeployID(id string) error {
 	if !deployIDRE.MatchString(id) {
 		return fmt.Errorf("invalid deploy id %q", id)
@@ -63,6 +71,65 @@ func CheckReserved(name string, reserved []string) error {
 		return fmt.Errorf("site names beginning with underscore are reserved")
 	}
 	return nil
+}
+
+func ValidateDomain(domain string, cfg config.Config) (string, error) {
+	d := strings.ToLower(strings.Trim(strings.TrimSpace(domain), "."))
+	if d == "" || len(d) > 253 || strings.ContainsAny(d, "/:@[] ") {
+		return "", fmt.Errorf("invalid domain %q", domain)
+	}
+	labels := strings.Split(d, ".")
+	if len(labels) < 2 {
+		return "", fmt.Errorf("invalid domain %q", domain)
+	}
+	for _, label := range labels {
+		if !dnsLabelRE.MatchString(label) {
+			return "", fmt.Errorf("invalid domain %q", domain)
+		}
+	}
+	if conflictsWithApexOrReserved(d, cfg) {
+		return "", fmt.Errorf("domain %q conflicts with apex or reserved host", d)
+	}
+	return d, nil
+}
+
+func conflictsWithApexOrReserved(domain string, cfg config.Config) bool {
+	apexes := []string{}
+	if cfg.PublicBaseDomain != "" {
+		apexes = append(apexes, strings.ToLower(strings.Trim(strings.TrimSuffix(cfg.PublicBaseDomain, "."), ".")))
+	}
+	if cfg.BaseURL != "" {
+		if u, err := url.Parse(cfg.BaseURL); err == nil && u.Host != "" {
+			apexes = append(apexes, strings.ToLower(strings.Trim(strings.TrimSuffix(stripPort(u.Host), "."), ".")))
+		}
+	}
+	for _, apex := range apexes {
+		if apex == "" {
+			continue
+		}
+		if domain == apex {
+			return true
+		}
+		if strings.HasSuffix(domain, "."+apex) {
+			left := strings.TrimSuffix(domain, "."+apex)
+			if !strings.Contains(left, ".") {
+				for _, r := range ReservedNames(cfg.Deploy.ReservedNames) {
+					if left == r {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+func stripPort(host string) string {
+	h, _, err := net.SplitHostPort(host)
+	if err == nil {
+		return h
+	}
+	return host
 }
 
 func ReservedNames(configured []string) []string {
@@ -86,12 +153,43 @@ func IncomingDir(root, site string) string { return filepath.Join(SiteDir(root, 
 func UploadsDir(root, site string) string  { return filepath.Join(root, "uploads", site) }
 
 func ReadSiteConfig(siteDir string) (SiteConfig, error) {
-	path := filepath.Join(siteDir, "site.json")
+	cfg, err := readConfigFile(filepath.Join(siteDir, "site.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return SiteConfig{}, nil
+	}
+	return cfg, err
+}
+
+func ReadReleaseConfig(releaseDir string) (SiteConfig, error) {
+	for _, name := range []string{"quick.json", "site.json"} {
+		cfg, err := readConfigFile(filepath.Join(releaseDir, name))
+		if err == nil || !errors.Is(err, os.ErrNotExist) {
+			return cfg, err
+		}
+	}
+	return SiteConfig{}, nil
+}
+
+func MergeSiteConfig(base, override SiteConfig) SiteConfig {
+	out := base
+	if override.Name != "" {
+		out.Name = override.Name
+	}
+	if override.Subdomain != "" {
+		out.Subdomain = override.Subdomain
+	}
+	if override.Routing.SPAFallback != "" {
+		out.Routing.SPAFallback = override.Routing.SPAFallback
+	}
+	if override.Routing.DirectoryListing {
+		out.Routing.DirectoryListing = true
+	}
+	return out
+}
+
+func readConfigFile(path string) (SiteConfig, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return SiteConfig{}, nil
-		}
 		return SiteConfig{}, err
 	}
 	defer f.Close()
@@ -133,8 +231,15 @@ func EnsureSiteConfig(siteDir, name string) error {
 }
 
 func URLFor(site string, cfg config.Config) string {
+	return URLForSubdomain(site, site, cfg)
+}
+
+func URLForSubdomain(site, subdomain string, cfg config.Config) string {
+	if subdomain == "" {
+		subdomain = site
+	}
 	if cfg.PublicBaseDomain != "" {
-		return "https://" + site + "." + strings.TrimPrefix(strings.TrimSuffix(cfg.PublicBaseDomain, "."), ".")
+		return "https://" + subdomain + "." + strings.TrimPrefix(strings.TrimSuffix(cfg.PublicBaseDomain, "."), ".")
 	}
 	if cfg.BaseURL != "" {
 		base := strings.TrimRight(cfg.BaseURL, "/")
@@ -142,9 +247,9 @@ func URLFor(site string, cfg config.Config) string {
 	}
 	_, port, err := net.SplitHostPort(cfg.Listen)
 	if err == nil && port != "" {
-		return "http://" + site + ".localhost:" + port
+		return "http://" + subdomain + ".localhost:" + port
 	}
-	return "http://" + site + ".localhost"
+	return "http://" + subdomain + ".localhost"
 }
 
 func SiteFromHost(host string, cfg config.Config) (string, bool) {

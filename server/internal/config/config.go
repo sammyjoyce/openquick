@@ -18,18 +18,23 @@ const (
 )
 
 type Config struct {
-	Schema           string          `json:"$schema,omitempty"`
-	Listen           string          `json:"listen"`
-	PublicBaseDomain string          `json:"public_base_domain"`
-	BaseURL          string          `json:"base_url"`
-	RemoteRoot       string          `json:"remote_root"`
-	DataDir          string          `json:"data_dir"`
-	RetainedReleases int             `json:"retained_releases"`
-	MaxUploadBytes   int64           `json:"max_upload_bytes"`
-	IAP              IAPConfig       `json:"iap"`
-	Deploy           DeployConfig    `json:"deploy"`
-	Viewer           ViewerConfig    `json:"viewer"`
-	Directory        DirectoryConfig `json:"directory"`
+	Schema           string             `json:"$schema,omitempty"`
+	Listen           string             `json:"listen"`
+	PublicBaseDomain string             `json:"public_base_domain"`
+	BaseURL          string             `json:"base_url"`
+	RemoteRoot       string             `json:"remote_root"`
+	DataDir          string             `json:"data_dir"`
+	RetainedReleases int                `json:"retained_releases"`
+	MaxUploadBytes   int64              `json:"max_upload_bytes"`
+	IAP              IAPConfig          `json:"iap"`
+	Deploy           DeployConfig       `json:"deploy"`
+	Viewer           ViewerConfig       `json:"viewer"`
+	Directory        DirectoryConfig    `json:"directory"`
+	PublicStatic     PublicStaticConfig `json:"public_static"`
+	HTTPDeploy       HTTPDeployConfig   `json:"http_deploy"`
+	AI               AIConfig           `json:"ai"`
+	Warehouse        WarehouseConfig    `json:"warehouse"`
+	DevProxy         DevProxyConfig     `json:"dev_proxy"`
 }
 
 type IAPConfig struct {
@@ -44,8 +49,71 @@ type IAPConfig struct {
 }
 
 type DeployConfig struct {
-	Policy        string   `json:"policy"`
-	ReservedNames []string `json:"reserved_names"`
+	Policy         string        `json:"policy"`
+	ReservedNames  []string      `json:"reserved_names"`
+	Signing        SigningConfig `json:"signing"`
+	RequireSSHCert bool          `json:"require_ssh_cert"`
+}
+
+type SigningConfig struct {
+	Enabled  bool `json:"enabled"`
+	Required bool `json:"required"`
+}
+
+type PublicStaticConfig struct {
+	Enabled bool `json:"enabled"`
+}
+
+type HTTPDeployConfig struct {
+	Enabled         bool     `json:"enabled"`
+	Tokens          []string `json:"tokens"`
+	AllowIdentities []string `json:"allow_identities"`
+}
+
+type AIConfig struct {
+	Enabled         bool               `json:"enabled"`
+	Providers       []AIProviderConfig `json:"providers"`
+	DefaultProvider string             `json:"default_provider"`
+	Limits          AILimitsConfig     `json:"limits"`
+}
+
+type AIProviderConfig struct {
+	Name         string   `json:"name"`
+	Type         string   `json:"type"`
+	BaseURL      string   `json:"base_url"`
+	APIKeyEnv    string   `json:"api_key_env"`
+	Models       []string `json:"models"`
+	DefaultModel string   `json:"default_model"`
+
+	APIKey    string `json:"-"`
+	Available bool   `json:"-"`
+}
+
+type AILimitsConfig struct {
+	RequestsPerMinutePerIdentity int   `json:"requests_per_minute_per_identity"`
+	RequestsPerDayPerSite        int   `json:"requests_per_day_per_site"`
+	MaxRequestBytes              int64 `json:"max_request_bytes"`
+}
+
+type WarehouseConfig struct {
+	Enabled bool                   `json:"enabled"`
+	Queries []WarehouseQueryConfig `json:"queries"`
+}
+
+type WarehouseQueryConfig struct {
+	Name    string                 `json:"name"`
+	SQL     string                 `json:"sql"`
+	Params  []WarehouseParamConfig `json:"params"`
+	MaxRows int                    `json:"max_rows"`
+}
+
+type WarehouseParamConfig struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+type DevProxyConfig struct {
+	Enabled bool `json:"enabled"`
 }
 
 type ViewerConfig struct {
@@ -116,6 +184,9 @@ func Decode(r interface{ Read([]byte) (int, error) }) (Config, error) {
 		cfg.DataDir = ""
 	}
 	cfg.ApplyDefaults()
+	if err := cfg.Validate(); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
 }
 
@@ -169,6 +240,140 @@ func (c *Config) ApplyDefaults() {
 	if len(c.Deploy.ReservedNames) == 0 {
 		c.Deploy.ReservedNames = []string{"api", "admin", "www", "_quick"}
 	}
+	if c.AI.Limits.RequestsPerMinutePerIdentity <= 0 {
+		c.AI.Limits.RequestsPerMinutePerIdentity = 20
+	}
+	if c.AI.Limits.RequestsPerDayPerSite <= 0 {
+		c.AI.Limits.RequestsPerDayPerSite = 2000
+	}
+	if c.AI.Limits.MaxRequestBytes <= 0 {
+		c.AI.Limits.MaxRequestBytes = 1 << 20
+	}
+	for i := range c.AI.Providers {
+		p := &c.AI.Providers[i]
+		p.Type = strings.ToLower(strings.TrimSpace(p.Type))
+		if p.Name == "" {
+			p.Name = p.Type
+		}
+		if p.BaseURL == "" {
+			switch p.Type {
+			case "openai":
+				p.BaseURL = "https://api.openai.com/v1"
+			case "anthropic":
+				p.BaseURL = "https://api.anthropic.com"
+			}
+		}
+		p.BaseURL = strings.TrimRight(p.BaseURL, "/")
+		if p.DefaultModel == "" && len(p.Models) > 0 {
+			p.DefaultModel = p.Models[0]
+		}
+		p.APIKey = ""
+		p.Available = false
+		if p.APIKeyEnv != "" {
+			p.APIKey = os.Getenv(p.APIKeyEnv)
+			p.Available = p.APIKey != ""
+		}
+	}
+	if c.AI.DefaultProvider == "" && len(c.AI.Providers) > 0 {
+		c.AI.DefaultProvider = c.AI.Providers[0].Name
+	}
+	for i := range c.Warehouse.Queries {
+		if c.Warehouse.Queries[i].MaxRows <= 0 {
+			c.Warehouse.Queries[i].MaxRows = 1000
+		}
+	}
+}
+
+func (c Config) Validate() error {
+	if err := c.ValidateAI(); err != nil {
+		return err
+	}
+	if err := c.ValidateWarehouse(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c Config) AIConfigured() bool {
+	return c.AI.Enabled && len(c.AI.Providers) > 0
+}
+
+func (c Config) WarehouseConfigured() bool {
+	return c.Warehouse.Enabled && len(c.Warehouse.Queries) > 0
+}
+
+func (c Config) ValidateAI() error {
+	for i, p := range c.AI.Providers {
+		t := strings.ToLower(strings.TrimSpace(p.Type))
+		if t != "openai" && t != "anthropic" {
+			return fmt.Errorf("config: ai.providers[%d].type must be openai or anthropic", i)
+		}
+		if strings.TrimSpace(p.Name) == "" {
+			return fmt.Errorf("config: ai.providers[%d].name is required", i)
+		}
+		if p.DefaultModel != "" && len(p.Models) > 0 && !stringIn(p.DefaultModel, p.Models) {
+			return fmt.Errorf("config: ai.providers[%d].default_model is not in models allowlist", i)
+		}
+	}
+	return nil
+}
+
+func (c Config) ValidateWarehouse() error {
+	for i, q := range c.Warehouse.Queries {
+		if strings.TrimSpace(q.Name) == "" {
+			return fmt.Errorf("config: warehouse.queries[%d].name is required", i)
+		}
+		if _, err := CleanWarehouseSQL(q.SQL); err != nil {
+			return fmt.Errorf("config: warehouse.queries[%d].sql: %w", i, err)
+		}
+		for j, p := range q.Params {
+			if strings.TrimSpace(p.Name) == "" {
+				return fmt.Errorf("config: warehouse.queries[%d].params[%d].name is required", i, j)
+			}
+			switch strings.ToLower(strings.TrimSpace(p.Type)) {
+			case "string", "int", "float":
+			default:
+				return fmt.Errorf("config: warehouse.queries[%d].params[%d].type must be string, int, or float", i, j)
+			}
+		}
+	}
+	return nil
+}
+
+func CleanWarehouseSQL(sql string) (string, error) {
+	trimmed := strings.TrimSpace(sql)
+	if trimmed == "" {
+		return "", errors.New("sql is required")
+	}
+	body := strings.TrimSpace(strings.TrimRight(trimmed, "; \t\r\n"))
+	upper := strings.ToUpper(body)
+	if !hasSQLLeadingKeyword(upper, "SELECT") && !hasSQLLeadingKeyword(upper, "WITH") {
+		return "", errors.New("sql must start with SELECT or WITH")
+	}
+	if strings.Contains(body, ";") {
+		return "", errors.New("sql must not contain semicolons except a trailing terminator")
+	}
+	return body, nil
+}
+
+func hasSQLLeadingKeyword(upper, keyword string) bool {
+	if upper == keyword {
+		return true
+	}
+	if !strings.HasPrefix(upper, keyword) {
+		return false
+	}
+	next := upper[len(keyword)]
+	return next == ' ' || next == '\t' || next == '\r' || next == '\n' || next == '('
+}
+
+func stringIn(s string, values []string) bool {
+	for _, v := range values {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 func (c Config) ConfigPathFromEnv() string {

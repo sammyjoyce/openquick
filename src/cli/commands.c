@@ -27,6 +27,12 @@ app_error app_cmd_info(const app_config_t *config, int argc,
                        char *const argv[]);
 app_error app_cmd_doctor(const app_config_t *config, int argc,
                          char *const argv[]);
+app_error app_cmd_delete(const app_config_t *config, int argc,
+                         char *const argv[]);
+app_error app_cmd_public(const app_config_t *config, int argc,
+                         char *const argv[]);
+app_error app_cmd_domain(const app_config_t *config, int argc,
+                         char *const argv[]);
 app_error app_cmd_menu(const app_config_t *config, int argc,
                        char *const argv[]);
 app_error app_cmd_opencli(const app_config_t *config, int argc,
@@ -46,6 +52,40 @@ static const app_command_arg_t optional_site_args[] = {
      .arity_minimum = 0,
      .arity_maximum = APP_ARG_ARITY_UNBOUNDED,
      .description = "Site name and command-specific option values"},
+};
+
+static const app_command_arg_t delete_args[] = {
+    {.name = "site",
+     .required = true,
+     .arity_minimum = 1,
+     .arity_maximum = 1,
+     .description = "Site slug to delete"},
+};
+
+static const app_command_arg_t public_args[] = {
+    {.name = "site",
+     .required = true,
+     .arity_minimum = 1,
+     .arity_maximum = 1,
+     .description = "Site slug"},
+    {.name = "state",
+     .required = false,
+     .arity_minimum = 0,
+     .arity_maximum = 1,
+     .description = "on or off"},
+};
+
+static const app_command_arg_t domain_args[] = {
+    {.name = "action",
+     .required = true,
+     .arity_minimum = 1,
+     .arity_maximum = 1,
+     .description = "add, remove, or list"},
+    {.name = "domain",
+     .required = false,
+     .arity_minimum = 0,
+     .arity_maximum = 1,
+     .description = "Custom domain for add/remove"},
 };
 
 static const app_command_arg_t serve_args[] = {
@@ -207,6 +247,9 @@ static const app_command_option_t deploy_options[] = {
     {.id = APP_COMMAND_OPTION_UNKNOWN,
      .name = "checksum",
      .description = "Pass --checksum to rsync"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "yes",
+     .description = "Skip typed overwrite confirmation"},
 };
 
 static const app_command_option_t serve_options[] = {
@@ -223,6 +266,11 @@ static const app_command_option_t serve_options[] = {
      .arguments = identity_option_args,
      .argument_count = APP_COUNTOF(identity_option_args),
      .description = "Synthetic dev identity email"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "remote-api",
+     .arguments = profile_option_args,
+     .argument_count = APP_COUNTOF(profile_option_args),
+     .description = "Remote API profile for local dev proxy"},
     {.id = APP_COMMAND_OPTION_UNKNOWN,
      .name = "profile",
      .arguments = profile_option_args,
@@ -284,6 +332,50 @@ static const app_command_option_t list_options[] = {
      .description = "Print JSON output"},
 };
 
+static const app_command_option_t delete_options[] = {
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "profile",
+     .arguments = profile_option_args,
+     .argument_count = APP_COUNTOF(profile_option_args),
+     .description = "Deployment profile"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "yes",
+     .description = "Skip typed delete confirmation"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "json",
+     .description = "Print JSON output"},
+};
+
+static const app_command_option_t public_options[] = {
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "profile",
+     .arguments = profile_option_args,
+     .argument_count = APP_COUNTOF(profile_option_args),
+     .description = "Deployment profile"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "yes",
+     .description = "Skip typed public-on confirmation"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "json",
+     .description = "Print JSON output"},
+};
+
+static const app_command_option_t domain_options[] = {
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "site",
+     .arguments = site_option_args,
+     .argument_count = APP_COUNTOF(site_option_args),
+     .description = "Site slug for domain add"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "profile",
+     .arguments = profile_option_args,
+     .argument_count = APP_COUNTOF(profile_option_args),
+     .description = "Deployment profile"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "json",
+     .description = "Print JSON output"},
+};
+
 static const app_command_option_t doctor_options[] = {
     {.id = APP_COMMAND_OPTION_UNKNOWN,
      .name = "profile",
@@ -319,6 +411,7 @@ static const char *const deploy_examples[] = {
 
 static const char *const serve_examples[] = {
     APP_NAME " serve --dev --port 9366",
+    APP_NAME " serve --dev --remote-api lab",
     APP_NAME " serve install --profile lab --host quick@box --remote-root /srv/quick --domain quick.example.com --iap tailscale",
 };
 
@@ -340,6 +433,23 @@ static const char *const info_examples[] = {
 static const char *const doctor_examples[] = {
     APP_NAME " doctor",
     APP_NAME " doctor --json",
+};
+
+static const char *const delete_examples[] = {
+    APP_NAME " delete demo",
+    APP_NAME " delete demo --profile lab --yes --json",
+};
+
+static const char *const public_examples[] = {
+    APP_NAME " public demo",
+    APP_NAME " public demo on --yes",
+    APP_NAME " public demo off",
+};
+
+static const char *const domain_examples[] = {
+    APP_NAME " domain list",
+    APP_NAME " domain add app.example.com --site demo",
+    APP_NAME " domain remove app.example.com",
 };
 
 static const char *const menu_examples[] = {
@@ -434,6 +544,36 @@ static const app_command_t g_app_commands[] = {
      .argument_count = APP_COUNTOF(optional_site_args),
      .examples = doctor_examples,
      .example_count = APP_COUNTOF(doctor_examples),
+     .requires_terminal = false},
+    {.name = "delete",
+     .summary = "Delete a remote OpenQuick site after confirmation.",
+     .handler = app_cmd_delete,
+     .options = delete_options,
+     .option_count = APP_COUNTOF(delete_options),
+     .arguments = delete_args,
+     .argument_count = APP_COUNTOF(delete_args),
+     .examples = delete_examples,
+     .example_count = APP_COUNTOF(delete_examples),
+     .requires_terminal = false},
+    {.name = "public",
+     .summary = "Show or change a site's public-static flag.",
+     .handler = app_cmd_public,
+     .options = public_options,
+     .option_count = APP_COUNTOF(public_options),
+     .arguments = public_args,
+     .argument_count = APP_COUNTOF(public_args),
+     .examples = public_examples,
+     .example_count = APP_COUNTOF(public_examples),
+     .requires_terminal = false},
+    {.name = "domain",
+     .summary = "Manage custom domains for remote sites.",
+     .handler = app_cmd_domain,
+     .options = domain_options,
+     .option_count = APP_COUNTOF(domain_options),
+     .arguments = domain_args,
+     .argument_count = APP_COUNTOF(domain_args),
+     .examples = domain_examples,
+     .example_count = APP_COUNTOF(domain_examples),
      .requires_terminal = false},
     {.name = "menu",
      .summary = "Launch the interactive TUI main menu.",

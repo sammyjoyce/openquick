@@ -35,6 +35,10 @@ export const quick = {
   },
   ai: {
     chat(messages: ChatMessage[], options?: ChatOptions): Promise<ChatResponse>;
+    image(prompt: string, options?: ImageOptions): Promise<ImageResponse>;
+  },
+  warehouse: {
+    query(name: string, params?: Record<string, unknown>): Promise<WarehouseQueryResult>;
   },
   capabilities(): Promise<Capabilities>;
 };
@@ -165,7 +169,7 @@ DELETE /_quick/uploads/:id
 
 Files are served through `quickd` so identity, site namespace, content type, range requests, and quotas are enforced consistently.
 
-## Capabilities and AI
+## Capabilities
 
 Use capabilities to adapt to v0/v1/v2 hosts:
 
@@ -174,6 +178,96 @@ const caps = await quick.capabilities();
 if (caps.db) {
   // enable DB-backed UI
 }
+if (caps.ai) {
+  // enable AI UI
+}
+if (caps.warehouse) {
+  // enable reporting UI
+}
 ```
 
-AI is intentionally host-gated. In the v1 SDK shape, `quick.ai.chat()` checks `/_quick/capabilities` and then throws a clear `quick.ai.chat is not available on this host` error unless a future host enables AI.
+Feature-specific SDK calls check `GET /_quick/capabilities` first. If a host reports `ai: false` or `warehouse: false` (or omits the flag), the call fails before hitting the feature endpoint with a clear error such as `quick.ai.chat is not available on this host`.
+
+## AI
+
+Chat calls post same-origin JSON to `POST /_quick/ai/chat`:
+
+```js
+const answer = await quick.ai.chat([
+  { role: 'system', content: 'Be concise.' },
+  { role: 'user', content: 'Summarize this release.' },
+], { model: 'host-default' });
+
+console.log(answer.message.content);
+```
+
+Streaming uses the same endpoint with `stream: true`. The SDK reads server-sent events, assembles the assistant text, calls `onDelta` for each text delta, and resolves with a final `ChatResponse`:
+
+```js
+const chunks = [];
+const final = await quick.ai.chat(
+  [{ role: 'user', content: 'Draft a changelog entry.' }],
+  {
+    stream: true,
+    onDelta(delta) {
+      chunks.push(delta);
+      render(chunks.join(''));
+    },
+  },
+);
+```
+
+Image generation posts to `POST /_quick/ai/images` and returns an internal upload URL:
+
+```js
+const image = await quick.ai.image('A small launch badge in flat SVG style', {
+  model: 'host-default-image',
+  size: '1024x1024',
+});
+
+preview.src = image.url; // usually /_quick/uploads/<id>
+```
+
+Types:
+
+```ts
+type ChatMessage = { role: 'system' | 'user' | 'assistant' | string; content: string };
+type ChatResponse = {
+  id?: string;
+  model?: string;
+  message: ChatMessage;
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
+};
+type ImageResponse = { id: string; model?: string; url: string };
+```
+
+AI provider keys stay server-side. Browser code sends prompts only to the same-origin OpenQuick host.
+
+## Warehouse
+
+Named warehouse queries post same-origin JSON to `POST /_quick/warehouse/:name`:
+
+```js
+const report = await quick.warehouse.query('recent_orders', {
+  status: 'paid',
+  limit: 20,
+});
+
+for (const row of report.rows) {
+  console.log(Object.fromEntries(report.columns.map((column, index) => [column, row[index]])));
+}
+```
+
+Response shape:
+
+```ts
+type WarehouseQueryResult = {
+  name: string;
+  columns: string[];
+  rows: unknown[][];
+  row_count: number;
+  truncated?: boolean;
+};
+```
+
+Warehouse access is host-gated by `capabilities().warehouse`; query names are server-configured and should be treated as an allowlist, not arbitrary SQL.

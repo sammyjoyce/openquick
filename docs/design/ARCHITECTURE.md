@@ -1,7 +1,8 @@
 # OpenQuick high-level architecture
 
 Status: design draft  
-Audience: implementers deciding the repo split, host daemon, IAP adapters, and v0/v1 boundaries.
+Audience: implementers deciding the repo split, host daemon, IAP adapters, and v0/v1 boundaries.  
+Deferred/backlog dispositions: [DEFERRED_ASSESSMENT.md](./DEFERRED_ASSESSMENT.md)
 
 ## Executive recommendation
 
@@ -716,8 +717,9 @@ site namespace, content type, and range requests are enforced consistently.
 
 ### AI proxy
 
-Defer AI to v2 because it introduces cost, abuse, provider secrets, and policy.
-When added:
+AI is now a config-gated v1.5 feature rather than a v2 deferral. It remains off
+until the operator configures the `ai` host section, provider credentials, model
+allowlists, identity policy, budgets, and rate limits.
 
 ```js
 const res = await quick.ai.chat([
@@ -725,7 +727,7 @@ const res = await quick.ai.chat([
 ]);
 ```
 
-Server requirements before enabling AI:
+Implemented server requirements before enabling AI:
 
 - host-level provider keys only;
 - per-site and per-identity rate limits;
@@ -734,11 +736,25 @@ Server requirements before enabling AI:
 - provider allowlist;
 - no arbitrary base URL by default.
 
+The same-origin SDK exposes `quick.ai.chat()` and `quick.ai.image()`, and hosts
+advertise the capability only when policy and provider configuration are present.
+
 ### Data warehouse
 
-Defer to v2/enterprise. A warehouse proxy is valuable, but it is the highest-risk
-API because it bridges private analytics data into arbitrary static sites. It
-should require explicit host configuration and query allowlists.
+Warehouse access is now a config-gated v1.5 named-query proxy. It deliberately
+implements the accepted constrained model from [DEFERRED_ASSESSMENT.md](./DEFERRED_ASSESSMENT.md):
+operators register named, read-only queries with typed parameters and row limits;
+browser code calls only those names through `/_quick/warehouse/:name` or
+`quick.warehouse.query(name, params)`.
+
+Implemented safeguards:
+
+- explicit host configuration before `capabilities().warehouse` is true;
+- named queries only, no ad hoc SQL from browsers;
+- read-only statements with bound parameters;
+- maximum row/result limits and truncation metadata;
+- same-origin authenticated access through the standard identity gate;
+- server-side data-source credentials only.
 
 ## Client JS SDK shape
 
@@ -775,6 +791,10 @@ export const quick = {
   },
   ai: {
     chat(messages: ChatMessage[], options?: ChatOptions): Promise<ChatResponse>;
+    image(prompt: string, options?: ImageOptions): Promise<ImageResponse>;
+  },
+  warehouse: {
+    query(name: string, params?: Record<string, unknown>): Promise<WarehouseQueryResult>;
   },
   capabilities(): Promise<Capabilities>;
 };
@@ -866,8 +886,11 @@ Recommended only when paired with Cloudflare Access, Tailscale, oauth2-proxy, or
 another future adapter. OpenQuick's default should reject `iap=none` on public
 interfaces.
 
-Caddy on-demand TLS should be restricted with an `ask` endpoint if used; do not
-let arbitrary hostnames trigger certificate issuance.
+Caddy on-demand TLS is restricted with the OpenQuick domain catalog: `quickd`
+serves `/_quick/domains/ask?domain=...` to loopback/trusted proxies and returns
+allow only for cataloged domains mapped to sites. The example
+`install/caddy/Caddyfile.ondemand.example` wires that ask endpoint; do not let
+arbitrary hostnames trigger certificate issuance.
 
 ### Local dev
 
@@ -1164,20 +1187,38 @@ Deliver:
 - backup/export command for SQLite and uploads;
 - integration tests for cross-site isolation and provider auth.
 
-### v2: AI proxy and richer platform APIs
+### v1.5: deferred-items implementation now shipped
 
-Goal: match the “AI-era internal tool” use case without making v1 unsafe.
+Goal: match the “AI-era internal tool” use case without making the default host
+unsafe. These items were accepted in [DEFERRED_ASSESSMENT.md](./DEFERRED_ASSESSMENT.md)
+and are implemented as guarded, config-gated surfaces where appropriate.
 
-Deliver:
+Delivered:
 
-- AI chat/image proxy with host-managed keys;
-- budgets and per-identity rate limits;
-- provider allowlists;
-- optional warehouse query proxy with allowlisted datasets/queries;
-- admin dashboard/TUI for host health, deploys, storage, and rate limits;
-- custom domain automation and restricted Caddy on-demand TLS;
-- optional owner/namespace mode for organizations that outgrow the pure
-  no-owner model.
+- AI chat/image proxy with host-managed keys, provider/model allowlists, budgets,
+  rate limits, and audit;
+- warehouse named-query proxy with explicit host catalog, typed parameters,
+  read-only SQLite statements, row limits, and standard identity gating;
+- admin stats/TUI health for sites, releases, storage, recent deploys, and rate
+  limit counters;
+- domain catalog plus restricted Caddy on-demand TLS ask endpoint and example
+  Caddyfile;
+- per-site public-static toggle gated by `public_static.enabled`, static-only
+  scan, and continued authenticated protection for `/_quick/*`;
+- HTTP browser deploy portal gated by `http_deploy`, ZIP-only upload, same-origin
+  checks, bearer-token or allowlisted identity authorization, and overwrite
+  confirmation;
+- secure ZIP deploy/extract path shared by CLI and portal;
+- `routing.directory_listing` for explicit per-site file listings;
+- signed release manifests under `deploy.signing` plus `quickd releases verify`;
+- SSH certificate deploy audit fields and `deploy.require_ssh_cert` enforcement;
+- local dev remote-API proxy for forwarding `/_quick/*` to a selected deployed
+  site while serving local static files;
+- alias subdomains, top-level `quick delete`, overwrite friction, and packaged
+  `.skill` artifacts.
+
+Rejected owner/namespace mode remains out of scope; preserve the no-owner model
+with audit, signed manifests, and overwrite friction instead.
 
 ### v3: scale/HA only if needed
 
@@ -1187,13 +1228,17 @@ real OpenQuick deployment proves it needs it.
 
 Possible v3 work:
 
-- Postgres storage adapter;
-- object storage adapter for uploads;
-- multi-host deploy replication;
-- signed release manifests;
-- background jobs;
-- SSH certificate integration;
-- external audit log sinks.
+- Postgres storage adapter — rejected; see [DEFERRED_ASSESSMENT.md](./DEFERRED_ASSESSMENT.md).
+- object storage adapter for uploads — rejected; see [DEFERRED_ASSESSMENT.md](./DEFERRED_ASSESSMENT.md).
+- multi-host deploy replication — rejected; see [DEFERRED_ASSESSMENT.md](./DEFERRED_ASSESSMENT.md).
+- signed release manifests — implemented in v1.5, not v3.
+- background jobs — rejected; see [DEFERRED_ASSESSMENT.md](./DEFERRED_ASSESSMENT.md).
+- SSH certificate integration — deploy audit and `deploy.require_ssh_cert` implemented in v1.5.
+- external audit log sinks — rejected; see [DEFERRED_ASSESSMENT.md](./DEFERRED_ASSESSMENT.md).
+- owner/namespace mode, per-site ACLs, JSX rendering, hash-diff upload,
+  serverless substrate, portal i18n, Cloudflare Access automation,
+  cloud-internals parity, and synthetic identity fields — rejected; see
+  [DEFERRED_ASSESSMENT.md](./DEFERRED_ASSESSMENT.md).
 
 ## Implementation notes for the first PR series
 

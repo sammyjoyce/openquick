@@ -14,8 +14,9 @@ static int quick_tui_doctor_choose_scope(void) {
       {.label = "&Local only", .description = "Local CLI, tools, quick.json, output", .id = 1},
       {.label = "With &remote", .description = "Also ask selected host quickd", .id = 2},
       {.label = "&Deep", .description = "Remote checks plus temporary deploy/probes", .id = 3},
+      {.label = "Host &stats", .description = "Ask selected host for admin stats", .id = 4},
       {.kind = TUI_MENU_ITEM_SEPARATOR},
-      {.label = "&Back", .description = "Return to OpenQuick", .id = 4},
+      {.label = "&Back", .description = "Return to OpenQuick", .id = 5},
   };
   tui_menu_result_t r = tui_show_menu(
       NULL, &(tui_menu_config_t){.title = "Doctor",
@@ -26,7 +27,7 @@ static int quick_tui_doctor_choose_scope(void) {
                                  .frame_height = 14,
                                  .frame_width = 70,
                                  .show_numeric_keys = true});
-  return r.status == TUI_MENU_OK ? r.selected_id : 4;
+  return r.status == TUI_MENU_OK ? r.selected_id : 5;
 }
 
 static char *quick_tui_doctor_select_profile(quick_tui_app_state_t *state) {
@@ -71,6 +72,60 @@ static char *quick_tui_doctor_select_profile(quick_tui_app_state_t *state) {
   return out;
 }
 
+static void quick_tui_long_to_text(long value, char *buf, size_t size) {
+  if (!buf || size == 0) {
+    return;
+  }
+  if (value < 0) {
+    snprintf(buf, size, "unknown");
+  } else {
+    snprintf(buf, size, "%ld", value);
+  }
+}
+
+void quick_tui_show_host_stats(quick_tui_app_state_t *state) {
+  if (!state) {
+    return;
+  }
+  (void)quick_tui_reload_profiles(state);
+  const char *profile = quick_tui_default_profile_name(state);
+  quick_host_stats_result_t result;
+  quick_host_stats_result_init(&result);
+  quick_host_stats_request_t request = {.profiles = &state->profiles,
+                                        .profile = profile};
+  app_error err = quick_op_host_stats(&request, &result);
+  if (err != APP_SUCCESS) {
+    char msg[256];
+    snprintf(msg, sizeof(msg),
+             err == APP_ERROR_CONFIG_INVALID
+                 ? "Host stats skipped: selected profile has no SSH host."
+                 : "Host stats failed: %s",
+             app_strerror(err));
+    tui_show_message("Host stats", msg);
+    quick_host_stats_result_destroy(&result);
+    return;
+  }
+  char sites[32], releases[32], sites_bytes[32], uploads_bytes[32], db_bytes[32];
+  quick_tui_long_to_text(result.sites, sites, sizeof(sites));
+  quick_tui_long_to_text(result.releases, releases, sizeof(releases));
+  quick_tui_long_to_text(result.sites_bytes, sites_bytes, sizeof(sites_bytes));
+  quick_tui_long_to_text(result.uploads_bytes, uploads_bytes, sizeof(uploads_bytes));
+  quick_tui_long_to_text(result.db_bytes, db_bytes, sizeof(db_bytes));
+  quick_tui_kv_row_t rows[] = {
+      {"profile", result.profile, TUI_COLOR_MENU_NORMAL},
+      {"ssh", result.ssh, TUI_COLOR_MENU_NORMAL},
+      {"sites", sites, TUI_COLOR_MENU_NORMAL},
+      {"releases", releases, TUI_COLOR_MENU_NORMAL},
+      {"sites bytes", sites_bytes, TUI_COLOR_MENU_NORMAL},
+      {"uploads bytes", uploads_bytes, TUI_COLOR_MENU_NORMAL},
+      {"db bytes", db_bytes, TUI_COLOR_MENU_NORMAL},
+  };
+  quick_tui_show_keyvalue_panel("Host stats", rows,
+                                sizeof(rows) / sizeof(rows[0]),
+                                "Enter/Esc closes");
+  quick_host_stats_result_destroy(&result);
+}
+
 static void quick_tui_show_doctor_detail(const quick_doctor_check_t *check) {
   quick_tui_kv_row_t rows[] = {
       {"group", check->group, TUI_COLOR_MENU_NORMAL},
@@ -94,7 +149,11 @@ void quick_tui_screen_doctor(quick_tui_app_state_t *state) {
   }
   (void)quick_tui_reload_profiles(state);
   int scope = quick_tui_doctor_choose_scope();
+  if (scope == 5) {
+    return;
+  }
   if (scope == 4) {
+    quick_tui_show_host_stats(state);
     return;
   }
   char *profile = NULL;

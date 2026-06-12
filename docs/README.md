@@ -11,6 +11,8 @@ Developer and user documentation for OpenQuick.
 | [User guide: quick init](user/quick-init.md) | Scaffold a static OpenQuick site |
 | [User guide: quick deploy](user/quick-deploy.md) | Deploy with rsync over SSH and quickd activation |
 | [User guide: SDK](user/sdk.md) | Use `/_quick/sdk.js` from hosted sites |
+| [User guide: AI runtime](user/ai.md) | Configure and call the config-gated AI proxy |
+| [User guide: Warehouse queries](user/warehouse.md) | Configure and call named warehouse queries |
 | [User guide: TUI](user/tui.md) | Use the interactive OpenQuick dashboard |
 | [Cloudflare IAP](user/iap-cloudflare.md) | Configure Cloudflare Access in front of quickd |
 | [Tailscale IAP](user/iap-tailscale.md) | Configure Tailscale Serve/localapi/tsnet modes |

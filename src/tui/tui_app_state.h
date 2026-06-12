@@ -42,6 +42,7 @@ void quick_tui_screen_deploy_site(quick_tui_app_state_t *state,
                                   const char *site);
 void quick_tui_screen_init(quick_tui_app_state_t *state);
 void quick_tui_screen_doctor(quick_tui_app_state_t *state);
+void quick_tui_show_host_stats(quick_tui_app_state_t *state);
 void quick_tui_screen_serve(quick_tui_app_state_t *state);
 void quick_tui_screen_config(quick_tui_app_state_t *state);
 

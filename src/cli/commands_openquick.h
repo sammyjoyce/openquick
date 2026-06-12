@@ -23,4 +23,7 @@ app_error quick_read_file_cli(const char *path, char **out);
 char *quick_json_get_string_field_cli(const char *json, const char *field);
 long quick_json_get_long_field_cli(const char *json, const char *field,
                                    long fallback);
+bool quick_cmd_prompt_site_confirmation(const app_config_t *config,
+                                        const char *site,
+                                        const char *message);
 void quick_print_error(const app_config_t *config, const char *message);

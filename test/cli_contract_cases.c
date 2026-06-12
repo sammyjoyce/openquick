@@ -188,6 +188,35 @@ static bool test_command_arguments_are_not_global_config_flags(
   return ok;
 }
 
+static bool test_site_admin_help_is_registered(test_context_t *ctx) {
+  bool ok = true;
+  {
+    const char *args[] = {"delete", "--help"};
+    command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), NULL, 0);
+    ok = cc_expect_exit(&result, 0) &&
+         cc_expect_stdout_contains(&result, "delete") &&
+         cc_expect_stdout_contains(&result, "--yes") && ok;
+    cc_command_result_free(&result);
+  }
+  {
+    const char *args[] = {"public", "--help"};
+    command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), NULL, 0);
+    ok = cc_expect_exit(&result, 0) &&
+         cc_expect_stdout_contains(&result, "public") &&
+         cc_expect_stdout_contains(&result, "on or off") && ok;
+    cc_command_result_free(&result);
+  }
+  {
+    const char *args[] = {"domain", "--help"};
+    command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), NULL, 0);
+    ok = cc_expect_exit(&result, 0) &&
+         cc_expect_stdout_contains(&result, "domain") &&
+         cc_expect_stdout_contains(&result, "add, remove, or list") && ok;
+    cc_command_result_free(&result);
+  }
+  return ok;
+}
+
 static bool test_command_metadata_is_enforced(test_context_t *ctx) {
   bool ok = true;
 
@@ -446,6 +475,229 @@ static bool test_deploy_allow_unpublished_gating(test_context_t *ctx) {
 #endif
 }
 
+static bool test_site_admin_commands_use_ssh_contract(test_context_t *ctx) {
+#ifndef _WIN32
+  char bin_dir[] = "/tmp/openquick-admin-bin-XXXXXX";
+  if (!mkdtemp(bin_dir)) {
+    return false;
+  }
+  char ssh_path[512];
+  snprintf(ssh_path, sizeof(ssh_path), "%s/ssh", bin_dir);
+  const char *ssh_script =
+      "#!/bin/sh\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = sites ] && [ \"$4\" = get ]; then\n"
+      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"name\":\"demo\",\"subdomain\":\"demo\",\"url\":\"https://demo.quick.example.com\",\"release\":\"rel1\",\"deployer\":\"alice\",\"public\":false}'\n"
+      "  exit 0\n"
+      "fi\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = sites ] && [ \"$4\" = delete ]; then\n"
+      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"site\":\"demo\",\"deleted\":true}'\n"
+      "  exit 0\n"
+      "fi\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = sites ] && [ \"$4\" = public ]; then\n"
+      "  if [ \"$6\" = --on ]; then printf '%s\\n' '{\"format_version\":\"1.0\",\"site\":\"demo\",\"public\":true}'; else printf '%s\\n' '{\"format_version\":\"1.0\",\"site\":\"demo\",\"public\":false}'; fi\n"
+      "  exit 0\n"
+      "fi\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = domains ] && [ \"$4\" = list ]; then\n"
+      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"domains\":[{\"domain\":\"app.example.com\",\"site\":\"demo\"}]}'\n"
+      "  exit 0\n"
+      "fi\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = domains ] && [ \"$4\" = add ]; then\n"
+      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"domain\":\"app.example.com\",\"site\":\"demo\"}'\n"
+      "  exit 0\n"
+      "fi\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = domains ] && [ \"$4\" = remove ]; then\n"
+      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"domain\":\"app.example.com\",\"removed\":true}'\n"
+      "  exit 0\n"
+      "fi\n"
+      "exit 1\n";
+  if (!write_executable_file(ssh_path, ssh_script)) {
+    return false;
+  }
+  char *path_env = cc_format_string("%s", bin_dir);
+  const env_var_t env[] = { {"PATH", path_env},
+                            {"QUICK_REMOTE", "quick@box"},
+                            {"QUICK_BASE_DOMAIN", "quick.example.com"} };
+  bool ok = true;
+  {
+    const char *args[] = {"delete", "demo"};
+    command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
+                                         ARRAY_LEN(env));
+    ok = cc_expect_exit(&result, APP_ERROR_VALIDATION) &&
+         cc_expect_stderr_contains(&result, "requires typing the site name") && ok;
+    cc_command_result_free(&result);
+  }
+  {
+    const char *args[] = {"--json", "delete", "demo", "--yes"};
+    command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
+                                         ARRAY_LEN(env));
+    ok = cc_expect_exit(&result, 0) &&
+         cc_expect_stdout_contains(&result, "\"deleted\":true") && ok;
+    cc_command_result_free(&result);
+  }
+  {
+    const char *args[] = {"--json", "public", "demo"};
+    command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
+                                         ARRAY_LEN(env));
+    ok = cc_expect_exit(&result, 0) &&
+         cc_expect_stdout_contains(&result, "\"public\":false") && ok;
+    cc_command_result_free(&result);
+  }
+  {
+    const char *args[] = {"--json", "public", "demo", "on", "--yes"};
+    command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
+                                         ARRAY_LEN(env));
+    ok = cc_expect_exit(&result, 0) &&
+         cc_expect_stdout_contains(&result, "\"public\":true") && ok;
+    cc_command_result_free(&result);
+  }
+  {
+    const char *args[] = {"--json", "domain", "list"};
+    command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
+                                         ARRAY_LEN(env));
+    ok = cc_expect_exit(&result, 0) &&
+         cc_expect_stdout_contains(&result, "\"domains\"") && ok;
+    cc_command_result_free(&result);
+  }
+  {
+    const char *args[] = {"--json", "domain", "add", "app.example.com",
+                          "--site", "demo"};
+    command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
+                                         ARRAY_LEN(env));
+    ok = cc_expect_exit(&result, 0) &&
+         cc_expect_stdout_contains(&result, "\"domain\":\"app.example.com\"") && ok;
+    cc_command_result_free(&result);
+  }
+  free(path_env);
+  return ok;
+#else
+  (void)ctx;
+  return true;
+#endif
+}
+
+static bool test_deploy_overwrite_requires_yes_when_headless(test_context_t *ctx) {
+#ifndef _WIN32
+  char site_dir[] = "/tmp/openquick-overwrite-site-XXXXXX";
+  if (!make_site_dir(site_dir,
+                     "{\"name\":\"demo\",\"source\":\".\",\"output\":\".\",\"profile\":\"lab\"}")) {
+    return false;
+  }
+  char bin_dir[] = "/tmp/openquick-overwrite-bin-XXXXXX";
+  if (!mkdtemp(bin_dir)) {
+    return false;
+  }
+  char ssh_path[512];
+  snprintf(ssh_path, sizeof(ssh_path), "%s/ssh", bin_dir);
+  const char *ssh_script =
+      "#!/bin/sh\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = doctor ]; then\n"
+      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"ok\":true,\"checks\":[]}'\n"
+      "  exit 0\n"
+      "fi\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = prepare ]; then\n"
+      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"site\":\"demo\",\"deploy_id\":\"20260612T000000Z-abcdef\",\"staging_path\":\"/tmp/openquick-stage\",\"link_dest\":null,\"last_deployer\":\"bob\",\"last_release\":\"oldrel\",\"last_deployed_at\":\"2026-06-12T00:00:00Z\"}'\n"
+      "  exit 0\n"
+      "fi\n"
+      "exit 1\n";
+  if (!write_executable_file(ssh_path, ssh_script)) {
+    return false;
+  }
+  char *path_env = cc_format_string("%s", bin_dir);
+  const char *args[] = {"deploy", site_dir, "--site", "demo",
+                        "--allow-unpublished", "--no-build"};
+  const env_var_t env[] = { {"PATH", path_env},
+                            {"QUICK_REMOTE", "quick@box"},
+                            {"QUICK_BASE_DOMAIN", "quick.example.com"},
+                            {"USER", "alice"} };
+  command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
+                                       ARRAY_LEN(env));
+  bool ok = cc_expect_exit(&result, APP_ERROR_VALIDATION) &&
+            cc_expect_stderr_contains(&result, "last deployed by bob") &&
+            cc_expect_stderr_contains(&result, "--yes");
+  cc_command_result_free(&result);
+  free(path_env);
+  return ok;
+#else
+  (void)ctx;
+  return true;
+#endif
+}
+
+static bool test_zip_deploy_uses_scp_extract_activate(test_context_t *ctx) {
+#ifndef _WIN32
+  char root_dir[] = "/tmp/openquick-zip-root-XXXXXX";
+  char bin_dir[] = "/tmp/openquick-zip-bin-XXXXXX";
+  if (!mkdtemp(root_dir) || !mkdtemp(bin_dir)) {
+    return false;
+  }
+  char zip_path[512];
+  snprintf(zip_path, sizeof(zip_path), "%s/site.zip", root_dir);
+  if (!write_text_file(zip_path, "fake zip bytes\n")) {
+    return false;
+  }
+  char scp_log[512];
+  snprintf(scp_log, sizeof(scp_log), "%s/scp.log", root_dir);
+  char ssh_path[512], scp_path[512];
+  snprintf(ssh_path, sizeof(ssh_path), "%s/ssh", bin_dir);
+  snprintf(scp_path, sizeof(scp_path), "%s/scp", bin_dir);
+  const char *ssh_script =
+      "#!/bin/sh\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = doctor ]; then\n"
+      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"ok\":true,\"checks\":[]}'\n"
+      "  exit 0\n"
+      "fi\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = prepare ]; then\n"
+      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"site\":\"demo\",\"deploy_id\":\"ziprel\",\"staging_path\":\"/tmp/openquick-stage\",\"link_dest\":null,\"last_deployer\":null,\"last_release\":null,\"last_deployed_at\":null}'\n"
+      "  exit 0\n"
+      "fi\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = extract-zip ]; then\n"
+      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"ok\":true}'\n"
+      "  exit 0\n"
+      "fi\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = activate ]; then\n"
+      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"site\":\"demo\",\"release\":\"ziprel\",\"url\":\"https://demo.quick.example.com\"}'\n"
+      "  exit 0\n"
+      "fi\n"
+      "exit 1\n";
+  char *scp_script = cc_format_string("#!/bin/sh\nprintf '%%s %%s\\n' \"$1\" \"$2\" > '%s'\nexit 0\n", scp_log);
+  if (!scp_script || !write_executable_file(ssh_path, ssh_script) ||
+      !write_executable_file(scp_path, scp_script)) {
+    free(scp_script);
+    return false;
+  }
+  free(scp_script);
+  char *path_env = cc_format_string("%s", bin_dir);
+  const char *args[] = {"--json", "deploy", zip_path, "--site", "demo",
+                        "--yes", "--allow-unpublished", "--no-build"};
+  const env_var_t env[] = { {"PATH", path_env},
+                            {"QUICK_REMOTE", "quick@box"},
+                            {"QUICK_BASE_DOMAIN", "quick.example.com"},
+                            {"USER", "alice"} };
+  command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
+                                       ARRAY_LEN(env));
+  char *scp_seen = cc_read_text_file(scp_log);
+  bool ok = cc_expect_exit(&result, 0) &&
+            cc_expect_stdout_contains(&result, "\"release\":\"ziprel\"") &&
+            scp_seen && strstr(scp_seen, "upload.zip") != NULL;
+  if (!scp_seen) {
+    fprintf(stderr, "scp stub was not invoked\n");
+  }
+  free(scp_seen);
+  cc_command_result_free(&result);
+  free(path_env);
+  unlink(zip_path);
+  unlink(scp_log);
+  unlink(ssh_path);
+  unlink(scp_path);
+  rmdir(bin_dir);
+  rmdir(root_dir);
+  return ok;
+#else
+  (void)ctx;
+  return true;
+#endif
+}
+
 static bool test_doctor_deep_skip_without_remote(test_context_t *ctx) {
 #ifndef _WIN32
   char cfg_home[] = "/tmp/openquick-doctor-config-XXXXXX";
@@ -508,6 +760,68 @@ static bool test_open_copy_uses_clipboard_tool(test_context_t *ctx) {
   free(copied);
   cc_command_result_free(&result);
   free(path_env);
+  return ok;
+#else
+  (void)ctx;
+  return true;
+#endif
+}
+
+static bool test_serve_dev_remote_api_mints_token_and_execs_quickd(
+    test_context_t *ctx) {
+#ifndef _WIN32
+  char bin_dir[] = "/tmp/openquick-serve-remote-api-bin-XXXXXX";
+  if (!mkdtemp(bin_dir)) {
+    return false;
+  }
+  char ssh_path[512];
+  char quickd_path[512];
+  snprintf(ssh_path, sizeof(ssh_path), "%s/ssh", bin_dir);
+  snprintf(quickd_path, sizeof(quickd_path), "%s/quickd", bin_dir);
+  const char *ssh_script =
+      "#!/bin/sh\n"
+      "if [ \"$1\" = quick@box ] && [ \"$2\" = quickd ] && "
+      "[ \"$3\" = admin ] && [ \"$4\" = mint-dev-token ] && "
+      "[ \"$5\" = --site ] && [ \"$6\" = demo ] && "
+      "[ \"$7\" = --ttl ] && [ \"$8\" = 3600 ] && "
+      "[ \"$9\" = --json ]; then\n"
+      "  printf '%s\\n' '{\"token\":\"dev-token-123\",\"site\":\"demo\",\"expires_at\":\"2026-06-12T01:00:00Z\"}'\n"
+      "  exit 0\n"
+      "fi\n"
+      "printf 'unexpected ssh args:' >&2\n"
+      "for arg in \"$@\"; do printf ' [%s]' \"$arg\" >&2; done\n"
+      "printf '\\n' >&2\n"
+      "exit 1\n";
+  const char *quickd_script =
+      "#!/bin/sh\n"
+      "printf 'quickd argv:'\n"
+      "for arg in \"$@\"; do printf ' [%s]' \"$arg\"; done\n"
+      "printf '\\n'\n"
+      "exit 0\n";
+  if (!write_executable_file(ssh_path, ssh_script) ||
+      !write_executable_file(quickd_path, quickd_script)) {
+    return false;
+  }
+  const char *args[] = {"serve", "--dev", "--remote-api", "lab",
+                        "--port", "9456"};
+  const env_var_t env[] = {{"PATH", bin_dir},
+                           {"QUICK_QUICKD", quickd_path},
+                           {"QUICK_REMOTE", "quick@box"},
+                           {"QUICK_BASE_DOMAIN", "quick.example.com"},
+                           {"QUICK_SITE", "demo"},
+                           {"XDG_CONFIG_HOME", bin_dir}};
+  command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
+                                       ARRAY_LEN(env));
+  bool ok = cc_expect_exit(&result, 0) &&
+            cc_expect_stdout_contains(&result, "[--remote-api]") &&
+            cc_expect_stdout_contains(&result,
+                                      "[https://demo.quick.example.com]") &&
+            cc_expect_stdout_contains(&result, "[--remote-api-token]") &&
+            cc_expect_stdout_contains(&result, "[dev-token-123]");
+  cc_command_result_free(&result);
+  unlink(ssh_path);
+  unlink(quickd_path);
+  rmdir(bin_dir);
   return ok;
 #else
   (void)ctx;
@@ -773,6 +1087,7 @@ const test_case_t cli_contract_cases[] = {
     {"force color zero disables color", test_force_color_zero_disables_color},
     {"command arguments are not global config flags",
      test_command_arguments_are_not_global_config_flags},
+    {"site admin help is registered", test_site_admin_help_is_registered},
     {"command metadata is enforced", test_command_metadata_is_enforced},
     {"explicit config file failures are visible",
      test_explicit_config_file_failures_are_visible},
@@ -788,10 +1103,18 @@ const test_case_t cli_contract_cases[] = {
      test_deploy_bootstrap_remediation_path},
     {"deploy --allow-unpublished gates publication warnings",
      test_deploy_allow_unpublished_gating},
+    {"site admin commands use ssh contract",
+     test_site_admin_commands_use_ssh_contract},
+    {"deploy overwrite requires yes when headless",
+     test_deploy_overwrite_requires_yes_when_headless},
+    {"zip deploy uses scp extract activate",
+     test_zip_deploy_uses_scp_extract_activate},
     {"doctor --deep skips clearly without remote",
      test_doctor_deep_skip_without_remote},
     {"open --copy uses clipboard tool",
      test_open_copy_uses_clipboard_tool},
+    {"serve --dev remote API mints token and execs quickd",
+     test_serve_dev_remote_api_mints_token_and_execs_quickd},
     {"serve install guided output",
      test_serve_install_guided_output},
     {"OpenQuick init/deploy/open/list/doctor contracts",

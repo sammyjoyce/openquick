@@ -68,15 +68,18 @@ flags, JSON/headless output, `doctor`, and an OpenCLI contract. Keep that shape:
 each workflow below should have both human output and a stable JSON envelope when
 `--json` is passed or stdout is not a TTY.
 
-Recommended top-level commands for v0:
+Current top-level commands:
 
 | Command | Purpose |
 | --- | --- |
 | `quick init [dir]` | Scaffold a static site and the local OpenQuick metadata. |
-| `quick deploy [path]` | Build if needed, `rsync` assets to the selected host, and atomically publish them. |
-| `quick serve ...` | Install, start, or run the host-side server; also supports local dev mode. |
+| `quick deploy [path]` | Build if needed, transfer a folder or ZIP to the selected host, and atomically publish it. |
+| `quick serve ...` | Install, start, or run the host-side server; also supports local dev mode and remote API proxy mode. |
 | `quick open [site]` | Open or print the resolved URL for a site. |
 | `quick list` | List sites known locally or on a remote host. |
+| `quick delete SITE` | Delete a remote site after typed confirmation or `--yes`. |
+| `quick public SITE [on/off]` | Show or change a site's public-static flag. |
+| `quick domain add/remove/list` | Manage custom domains in the host catalog. |
 | `quick doctor` | Validate local tooling, config, SSH, host health, IAP, DNS, and TLS. |
 | `quick opencli` | Existing machine-readable command contract. |
 
@@ -156,7 +159,7 @@ For a generated app with a build step:
 `AGENTS.md` should explain the constraints in agent-friendly language:
 
 - produce static files in `output`;
-- use `/_quick/sdk.js` for identity, DB, realtime, uploads, and later AI;
+- use `/_quick/sdk.js` for identity, DB, realtime, uploads, AI, and warehouse when the host advertises those capabilities;
 - do not create custom servers;
 - do not store API keys in client code;
 - run `quick deploy` after changing the site.
@@ -191,11 +194,13 @@ plans.
 ```bash
 quick deploy                         # deploy current site using quick.json
 quick deploy ./dist --site demo       # deploy a folder directly
+quick deploy site.zip --site demo     # upload ZIP and extract on the host
 quick deploy --profile lab            # override profile
 quick deploy --site lunch-vote        # override site/subdomain
-quick deploy --dry-run                # show rsync and activation plan
+quick deploy --dry-run                # show transfer and activation plan
 quick deploy --no-build               # skip quick.json build command
 quick deploy --no-delete              # do not mirror deletions into the release
+quick deploy --yes                    # non-interactive overwrite confirmation
 quick deploy --open                   # open the URL after activation
 ```
 
@@ -300,6 +305,12 @@ Notes:
 - `--safe-links` prevents deployed symlinks from pointing outside the release.
 - `--checksum` should be an opt-in flag for pathological mtime/size cases; it is
   too slow as a default.
+- If the last deployer differs from the current deployer, `quick deploy` prints
+  the last deployer/release and requires typing the site name or passing `--yes`.
+- When `[path]` is a `.zip`, the CLI uploads it and calls
+  `quickd deploy extract-zip`; extraction rejects encrypted archives, symlinks,
+  absolute/traversal paths, duplicate entries, and excessive size/counts before
+  normal activation.
 
 ### Activation and atomicity
 
@@ -327,7 +338,8 @@ flowchart TD
 3. reject missing `index.html` unless `site.json.spa_fallback` explicitly allows
    a different entry;
 4. write a release manifest containing file count, total bytes, content hash,
-   deployer, and source host;
+   deployer, source host, and available SSH certificate metadata; sign it when
+   `deploy.signing` is enabled;
 5. rename the complete staging tree into `releases/<release-id>` on the same
    filesystem;
 6. atomically swap `current` by creating a new symlink and renaming it over the
@@ -513,6 +525,7 @@ Do not default to naked public static hosting. It violates the product promise.
 quick serve --dev              # serve current quick.json locally
 quick serve --dev --port 9366
 quick serve --dev --identity sam@example.com
+quick serve --dev --remote-api lunch-vote --profile lab
 ```
 
 Local dev mode:
@@ -522,7 +535,10 @@ Local dev mode:
 - uses `iap.type = none`;
 - returns a synthetic identity only if `--identity` is provided;
 - uses `http://<site>.localhost:<port>` when the browser resolves `*.localhost`,
-  otherwise falls back to `http://localhost:<port>/~/<site>/`.
+  otherwise falls back to `http://localhost:<port>/~/<site>/`;
+- with `--remote-api <site>`, serves local static files but forwards `/_quick/*`
+  to the selected deployed site through the configured profile, clearly showing
+  the remote target and logging remote API use as the authenticated developer.
 
 `iap=none` must be rejected for non-loopback bind addresses unless
 `--allow-public-unsafe` is explicitly passed.
@@ -817,34 +833,61 @@ Keep knobs coarse and host-level:
     "reserved_names": ["api", "admin", "www", "_quick"],
     "require_confirm_for_reserved_prefixes": true,
     "retained_releases": 10,
-    "audit": true
+    "audit": true,
+    "signing": { "enabled": true, "required": false },
+    "require_ssh_cert": false
   },
   "viewer": {
     "require_identity": true,
     "allow_anonymous": false
-  }
+  },
+  "public_static": { "enabled": false },
+  "http_deploy": {
+    "enabled": false,
+    "tokens": [],
+    "allow_identities": []
+  },
+  "ai": {
+    "enabled": false,
+    "default_provider": "",
+    "providers": [],
+    "limits": {
+      "requests_per_minute_per_identity": 20,
+      "requests_per_day_per_site": 2000,
+      "max_request_bytes": 1048576
+    }
+  },
+  "warehouse": {
+    "enabled": false,
+    "queries": []
+  },
+  "dev_proxy": { "enabled": false }
 }
 ```
 
 Do expose:
 
 - reserved site names;
-- deployer audit;
+- deployer audit, SSH certificate metadata, and signed manifests;
 - release retention;
 - global write policy (`any_ssh_deployer`, later `admins_only`);
-- IAP required/anonymous dev mode;
+- IAP required/anonymous dev mode and explicit remote API proxy mode;
+- public-static and HTTP deploy gates that default off;
+- AI and warehouse gates with host-managed credentials, model/query allowlists,
+  rate/budget limits, and query catalogs;
 - quotas/rate limits.
 
-Do not expose in v0:
+Do not expose:
 
 - per-site owners;
 - per-site viewer ACLs;
 - custom backends;
 - arbitrary server-side code;
-- public anonymous hosting as a one-flag accident.
+- public anonymous hosting as a one-flag accident; use explicit `public_static`
+  plus the static-only scan.
 
-A future enterprise mode can add ownership, but it should be a separate mode, not
-the default OpenQuick experience.
+Owner/namespace and per-site ACL modes are rejected for this product line unless
+a later assessment reverses [DEFERRED_ASSESSMENT.md](./DEFERRED_ASSESSMENT.md).
 
 ## Related references
 

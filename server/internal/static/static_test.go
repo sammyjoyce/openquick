@@ -1,7 +1,11 @@
 package static
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -231,5 +235,149 @@ func TestSiteDirectoryAnonymousDeniedWhenIdentityRequired(t *testing.T) {
 	rr := perform(h, "localhost:9366", "/")
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("identity-required status=%d body=%q", rr.Code, rr.Body.String())
+	}
+}
+
+func TestAliasCustomDomainAskPublicAndListing(t *testing.T) {
+	h, root := testStaticHandler(t)
+	ctx := context.Background()
+	if _, err := h.Store.EnsureSite(ctx, "demo", "alias"); err != nil {
+		t.Fatal(err)
+	}
+	rr := perform(h, "alias.localhost:9366", "/")
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "demo") {
+		t.Fatalf("alias status=%d body=%q", rr.Code, rr.Body.String())
+	}
+	if _, err := h.Store.AddDomain(ctx, "app.example.org", "demo"); err != nil {
+		t.Fatal(err)
+	}
+	rr = perform(h, "app.example.org", "/")
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "demo") {
+		t.Fatalf("domain status=%d body=%q", rr.Code, rr.Body.String())
+	}
+	req := httptest.NewRequest(http.MethodGet, "http://quick.example.com/_quick/domains/ask?domain=app.example.org", nil)
+	req.RemoteAddr = "127.0.0.1:1"
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("ask known=%d body=%q", rr.Code, rr.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodGet, "http://quick.example.com/_quick/domains/ask?domain=missing.example.org", nil)
+	req.RemoteAddr = "203.0.113.10:1"
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("ask untrusted=%d", rr.Code)
+	}
+
+	h.Config.PublicStatic.Enabled = true
+	h.Config.Viewer.AllowAnonymous = false
+	h.Config.Viewer.RequireIdentity = true
+	if err := h.Store.SetSitePublic(ctx, "demo", true); err != nil {
+		t.Fatal(err)
+	}
+	rr = perform(h, "alias.localhost:9366", "/")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("public static=%d body=%q", rr.Code, rr.Body.String())
+	}
+	rr = perform(h, "alias.localhost:9366", "/_quick/identity")
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("public api anonymous=%d body=%q", rr.Code, rr.Body.String())
+	}
+
+	rel := filepath.Join(root, "sites", "demo", "releases", "20260611T000000Z-abcdef")
+	if err := os.MkdirAll(filepath.Join(rel, "docs"), 0o770); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rel, "docs", "readme.txt"), []byte("hello"), 0o660); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rel, "docs", ".secret"), []byte("hide"), 0o660); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rel, "quick.json"), []byte(`{"routing":{"directory_listing":true}}`), 0o660); err != nil {
+		t.Fatal(err)
+	}
+	h.Config.Viewer.AllowAnonymous = true
+	h.Config.Viewer.RequireIdentity = false
+	rr = perform(h, "alias.localhost:9366", "/docs/")
+	body := rr.Body.String()
+	if rr.Code != http.StatusOK || !strings.Contains(body, "readme.txt") || strings.Contains(body, ".secret") {
+		t.Fatalf("listing status=%d body=%q", rr.Code, body)
+	}
+}
+
+func zipBody(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for name, body := range files {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func portalTokenHash(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+func postDeploy(h http.Handler, target, token, origin string, body []byte) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "http://localhost:9366"+target, bytes.NewReader(body))
+	req.RemoteAddr = "127.0.0.1:12345"
+	req.Header.Set("Content-Type", "application/zip")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	if origin != "" {
+		req.Header.Set("Origin", origin)
+	}
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	return rr
+}
+
+func TestHTTPDeployPortalTokenOriginConfirmAndActivation(t *testing.T) {
+	h, root := testStaticHandler(t)
+	body := zipBody(t, map[string]string{"index.html": "portal"})
+
+	rr := postDeploy(h, "/_quick/deploy/demo", "", "", body)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("disabled status=%d body=%q", rr.Code, rr.Body.String())
+	}
+	h.Config.HTTPDeploy.Enabled = true
+	h.Config.HTTPDeploy.Tokens = []string{portalTokenHash("secret")}
+	if err := h.Store.RecordDeploy(context.Background(), "demo", "20260612T010203Z-feedface", "alice", 1, 1); err != nil {
+		t.Fatal(err)
+	}
+	rr = postDeploy(h, "/_quick/deploy/demo", "", "", body)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("unauthorized status=%d body=%q", rr.Code, rr.Body.String())
+	}
+	rr = postDeploy(h, "/_quick/deploy/demo", "secret", "https://evil.example", body)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("origin status=%d body=%q", rr.Code, rr.Body.String())
+	}
+	rr = postDeploy(h, "/_quick/deploy/demo", "secret", "", body)
+	if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "confirm_overwrite") {
+		t.Fatalf("confirm status=%d body=%q", rr.Code, rr.Body.String())
+	}
+	rr = postDeploy(h, "/_quick/deploy/demo?confirm=demo", "secret", "", body)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("activate status=%d body=%q", rr.Code, rr.Body.String())
+	}
+	current := filepath.Join(root, "sites", "demo", "current", "index.html")
+	b, err := os.ReadFile(current)
+	if err != nil || string(b) != "portal" {
+		t.Fatalf("current=%q err=%v", b, err)
 	}
 }

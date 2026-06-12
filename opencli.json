@@ -282,6 +282,13 @@
             "aliases": [],
             "arguments": [],
             "description": "Pass --checksum to rsync"
+          },
+          {
+            "name": "yes",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Skip typed overwrite confirmation"
           }
         ],
         "arguments": [
@@ -345,6 +352,23 @@
               }
             ],
             "description": "Synthetic dev identity email"
+          },
+          {
+            "name": "remote-api",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "profile",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "Deployment profile"
+              }
+            ],
+            "description": "Remote API profile for local dev proxy"
           },
           {
             "name": "profile",
@@ -459,6 +483,7 @@
         ],
         "examples": [
           "quick serve --dev --port 9366",
+          "quick serve --dev --remote-api lab",
           "quick serve install --profile lab --host quick@box --remote-root /srv/quick --domain quick.example.com --iap tailscale"
         ]
       },
@@ -643,6 +668,192 @@
         ]
       },
       {
+        "name": "delete",
+        "description": "Delete a remote OpenQuick site after confirmation.",
+        "options": [
+          {
+            "name": "profile",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "profile",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "Deployment profile"
+              }
+            ],
+            "description": "Deployment profile"
+          },
+          {
+            "name": "yes",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Skip typed delete confirmation"
+          },
+          {
+            "name": "json",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Print JSON output"
+          }
+        ],
+        "arguments": [
+          {
+            "name": "site",
+            "required": true,
+            "arity": {
+              "minimum": 1,
+              "maximum": 1
+            },
+            "description": "Site slug to delete"
+          }
+        ],
+        "examples": [
+          "quick delete demo",
+          "quick delete demo --profile lab --yes --json"
+        ]
+      },
+      {
+        "name": "public",
+        "description": "Show or change a site's public-static flag.",
+        "options": [
+          {
+            "name": "profile",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "profile",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "Deployment profile"
+              }
+            ],
+            "description": "Deployment profile"
+          },
+          {
+            "name": "yes",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Skip typed public-on confirmation"
+          },
+          {
+            "name": "json",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Print JSON output"
+          }
+        ],
+        "arguments": [
+          {
+            "name": "site",
+            "required": true,
+            "arity": {
+              "minimum": 1,
+              "maximum": 1
+            },
+            "description": "Site slug"
+          },
+          {
+            "name": "state",
+            "required": false,
+            "arity": {
+              "minimum": 0,
+              "maximum": 1
+            },
+            "description": "on or off"
+          }
+        ],
+        "examples": [
+          "quick public demo",
+          "quick public demo on --yes",
+          "quick public demo off"
+        ]
+      },
+      {
+        "name": "domain",
+        "description": "Manage custom domains for remote sites.",
+        "options": [
+          {
+            "name": "site",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "site",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "Site slug"
+              }
+            ],
+            "description": "Site slug for domain add"
+          },
+          {
+            "name": "profile",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "profile",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "Deployment profile"
+              }
+            ],
+            "description": "Deployment profile"
+          },
+          {
+            "name": "json",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Print JSON output"
+          }
+        ],
+        "arguments": [
+          {
+            "name": "action",
+            "required": true,
+            "arity": {
+              "minimum": 1,
+              "maximum": 1
+            },
+            "description": "add, remove, or list"
+          },
+          {
+            "name": "domain",
+            "required": false,
+            "arity": {
+              "minimum": 0,
+              "maximum": 1
+            },
+            "description": "Custom domain for add/remove"
+          }
+        ],
+        "examples": [
+          "quick domain list",
+          "quick domain add app.example.com --site demo",
+          "quick domain remove app.example.com"
+        ]
+      },
+      {
         "name": "menu",
         "description": "Launch the interactive TUI main menu.",
         "options": [],
@@ -770,6 +981,7 @@
       "quick deploy --dry-run",
       "quick deploy ./dist --site demo --profile lab",
       "quick serve --dev --port 9366",
+      "quick serve --dev --remote-api lab",
       "quick serve install --profile lab --host quick@box --remote-root /srv/quick --domain quick.example.com --iap tailscale",
       "quick open",
       "quick open lunch-vote --plain",
@@ -779,6 +991,14 @@
       "quick --json info",
       "quick doctor",
       "quick doctor --json",
+      "quick delete demo",
+      "quick delete demo --profile lab --yes --json",
+      "quick public demo",
+      "quick public demo on --yes",
+      "quick public demo off",
+      "quick domain list",
+      "quick domain add app.example.com --site demo",
+      "quick domain remove app.example.com",
       "quick menu",
       "quick opencli",
       "quick --help",

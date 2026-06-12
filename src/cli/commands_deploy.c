@@ -89,6 +89,14 @@ static void deploy_cli_progress(quick_deploy_phase_t phase,
   fputs(line, out);
 }
 
+static bool deploy_path_is_zip(const char *path) {
+  if (!path) {
+    return false;
+  }
+  const size_t len = strlen(path);
+  return len >= 4U && strcmp(path + len - 4U, ".zip") == 0;
+}
+
 static const char *deploy_profile_iap_type(
     const quick_profile_config_t *profiles, const quick_deploy_plan_t *plan) {
   const quick_profile_t *profile =
@@ -195,6 +203,8 @@ app_error app_cmd_deploy(const app_config_t *config, int argc,
   const bool bootstrap = quick_cmd_flag(argc, argv, "--bootstrap");
   const bool allow_unpublished = quick_cmd_flag(argc, argv, "--allow-unpublished");
   const bool checksum = quick_cmd_flag(argc, argv, "--checksum");
+  const bool yes = quick_cmd_flag(argc, argv, "--yes");
+  const bool zip_deploy = deploy_path_is_zip(path);
 
   if (dry_run) {
     if (app_config_is_json_output(config)) {
@@ -203,18 +213,47 @@ app_error app_cmd_deploy(const app_config_t *config, int argc,
       deploy_print_human_plan(config, &plan, no_delete, checksum);
     }
   } else {
+    char *deployer = quick_op_default_deployer_identity();
+    if (!deployer) {
+      quick_deploy_plan_destroy(&plan);
+      quick_profile_config_destroy(&profiles);
+      return APP_ERROR_MEMORY;
+    }
     quick_deploy_options_t options = {
         .no_build = no_build,
         .no_delete = no_delete,
         .checksum = checksum,
         .bootstrap = bootstrap,
         .allow_unpublished = allow_unpublished,
+        .assume_yes = yes,
+        .deployer = deployer,
+        .ssh_key_id = getenv("QUICK_SSH_KEY_ID"),
+        .ssh_principals = getenv("QUICK_SSH_PRINCIPALS"),
+        .zip_path = zip_deploy ? path : NULL,
     };
     quick_deploy_result_t result;
     quick_deploy_result_init(&result);
     deploy_cli_progress_t progress = {.config = config};
     err = quick_op_deploy_execute(config, &profiles, &plan, &options,
                                   deploy_cli_progress, &progress, &result);
+    if (err != APP_SUCCESS && result.overwrite_confirmation_required) {
+      char msg[768];
+      snprintf(msg, sizeof(msg),
+               "%s\nNon-interactive deploys require --yes to overwrite this site.",
+               result.failure_message ? result.failure_message
+                                      : "Deploy requires overwrite confirmation.");
+      if (quick_cmd_prompt_site_confirmation(config, plan.site,
+                                             result.failure_message)) {
+        options.overwrite_confirmed = true;
+        quick_deploy_result_destroy(&result);
+        quick_deploy_result_init(&result);
+        err = quick_op_deploy_execute(config, &profiles, &plan, &options,
+                                      deploy_cli_progress, &progress, &result);
+      } else {
+        quick_print_error(config, msg);
+        err = APP_ERROR_VALIDATION;
+      }
+    }
     if (err == APP_SUCCESS) {
       if (app_config_is_json_output(config)) {
         deploy_print_success_json(&plan, &result);
@@ -233,6 +272,7 @@ app_error app_cmd_deploy(const app_config_t *config, int argc,
       quick_print_error(config, result.failure_message);
     }
     quick_deploy_result_destroy(&result);
+    free(deployer);
   }
 
   quick_deploy_plan_destroy(&plan);

@@ -190,6 +190,94 @@ func TestDeleteSiteRemovesCatalogAndFilesystem(t *testing.T) {
 	}
 }
 
+func TestPrepareMetadataSubdomainAndSSHCertSigning(t *testing.T) {
+	svc, st, root := newTestService(t, 10)
+	ctx := context.Background()
+
+	first, err := svc.PrepareWithOptions(ctx, "demo", PrepareOptions{Subdomain: "team-demo", Deployer: "alice", SSHKeyID: "key-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stageFile(t, first, "index.html", "one")
+	if _, err := svc.ActivateWithOptions(ctx, "demo", first.DeployID, ActivateOptions{Deployer: "alice", SSHKeyID: "key-a"}); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := st.GetSite(ctx, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Subdomain != "team-demo" {
+		t.Fatalf("subdomain=%q", rec.Subdomain)
+	}
+	second, err := svc.PrepareWithOptions(ctx, "demo", PrepareOptions{Deployer: "bob"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.LastDeployer == nil || *second.LastDeployer != "alice" || second.LastRelease == nil || *second.LastRelease != first.DeployID || second.LastDeployedAt == nil {
+		t.Fatalf("missing overwrite metadata: %+v", second)
+	}
+	if _, err := svc.PrepareWithOptions(ctx, "other", PrepareOptions{Subdomain: "team-demo"}); err == nil || !strings.Contains(err.Error(), "already used") {
+		t.Fatalf("expected subdomain uniqueness error, got %v", err)
+	}
+
+	svc.Config.Deploy.RequireSSHCert = true
+	noCert, err := svc.Prepare(ctx, "certed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stageFile(t, noCert, "index.html", "x")
+	if _, err := svc.Activate(ctx, "certed", noCert.DeployID); err == nil || !strings.Contains(err.Error(), "SSH certificate") {
+		t.Fatalf("expected require ssh cert error, got %v", err)
+	}
+
+	svc.Config.Deploy.RequireSSHCert = false
+	svc.Config.Deploy.Signing.Enabled = true
+	signed, err := svc.Prepare(ctx, "signed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stageFile(t, signed, "index.html", "signed")
+	if _, err := svc.Activate(ctx, "signed", signed.DeployID); err != nil {
+		t.Fatal(err)
+	}
+	verify, err := svc.VerifyReleases(ctx, "signed", signed.DeployID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verify.OK || verify.Checked != 1 || len(verify.Failures) != 0 {
+		t.Fatalf("verify=%+v", verify)
+	}
+	if err := os.WriteFile(filepath.Join(root, "sites", "signed", "releases", signed.DeployID, "index.html"), []byte("tampered"), 0o660); err != nil {
+		t.Fatal(err)
+	}
+	verify, err = svc.VerifyReleases(ctx, "signed", signed.DeployID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verify.OK || len(verify.Failures) == 0 {
+		t.Fatalf("tamper verify=%+v", verify)
+	}
+}
+
+func TestPublicSiteDeployRescansStaticOnly(t *testing.T) {
+	svc, st, _ := newTestService(t, 10)
+	ctx := context.Background()
+	if _, err := st.EnsureSite(ctx, "pub", "pub"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSitePublic(ctx, "pub", true); err != nil {
+		t.Fatal(err)
+	}
+	res, err := svc.Prepare(ctx, "pub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stageFile(t, res, "index.html", `<script>quick.identity.current()</script>`)
+	if _, err := svc.Activate(ctx, "pub", res.DeployID); err == nil || !strings.Contains(err.Error(), "public site deploy rejected") {
+		t.Fatalf("expected public scan rejection, got %v", err)
+	}
+}
+
 func TestActivateRejectsBadStaging(t *testing.T) {
 	svc, _, root := newTestService(t, 10)
 	ctx := context.Background()
@@ -214,6 +302,17 @@ func TestActivateRejectsBadStaging(t *testing.T) {
 		stageFile(t, res, "app.html", "app")
 		if _, err := svc.Activate(ctx, "spa", res.DeployID); err != nil {
 			t.Fatalf("spa fallback activation failed: %v", err)
+		}
+	})
+	t.Run("directory listing allows missing index", func(t *testing.T) {
+		res, err := svc.Prepare(ctx, "listing")
+		if err != nil {
+			t.Fatal(err)
+		}
+		stageFile(t, res, "quick.json", `{"routing":{"directory_listing":true}}`)
+		stageFile(t, res, "docs/readme.txt", "hello")
+		if _, err := svc.Activate(ctx, "listing", res.DeployID); err != nil {
+			t.Fatalf("directory listing activation failed: %v", err)
 		}
 	})
 	t.Run("symlink escape", func(t *testing.T) {

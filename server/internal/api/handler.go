@@ -18,6 +18,7 @@ import (
 
 	"openquick.dev/quickd/internal/config"
 	"openquick.dev/quickd/internal/identity"
+	"openquick.dev/quickd/internal/ratelimit"
 	"openquick.dev/quickd/internal/realtime"
 	"openquick.dev/quickd/internal/store"
 	"openquick.dev/quickd/internal/uploads"
@@ -42,15 +43,16 @@ func SiteFromContext(ctx context.Context) (SiteContext, bool) {
 }
 
 type Server struct {
-	Config   config.Config
-	Store    *store.Store
-	Uploads  *uploads.Manager
-	Realtime *realtime.Hub
+	Config      config.Config
+	Store       *store.Store
+	Uploads     *uploads.Manager
+	Realtime    *realtime.Hub
+	RateLimiter *ratelimit.Limiter
 }
 
 func New(cfg config.Config, st *store.Store) *Server {
 	cfg.ApplyDefaults()
-	return &Server{Config: cfg, Store: st, Uploads: uploads.New(cfg.RemoteRoot, cfg.MaxUploadBytes, st), Realtime: realtime.New()}
+	return &Server{Config: cfg, Store: st, Uploads: uploads.New(cfg.RemoteRoot, cfg.MaxUploadBytes, st), Realtime: realtime.New(), RateLimiter: ratelimit.New()}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -79,6 +81,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleUploads(w, r, site.Name, id)
 		return
 	}
+	if strings.HasPrefix(r.URL.Path, "/_quick/ai/") {
+		s.handleAI(w, r, site.Name, id)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/_quick/warehouse/") {
+		s.handleWarehouse(w, r, site.Name, id)
+		return
+	}
 	switch r.URL.Path {
 	case "/_quick/identity":
 		if r.Method != http.MethodGet {
@@ -99,7 +109,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			methodNotAllowed(w)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"identity": true, "db": true, "realtime": true, "uploads": true, "ai": false, "warehouse": false})
+		writeJSON(w, http.StatusOK, map[string]any{"identity": true, "db": true, "realtime": true, "uploads": true, "ai": s.Config.AIConfigured(), "warehouse": s.Config.WarehouseConfigured()})
 	case "/_quick/realtime":
 		if r.Method != http.MethodGet {
 			methodNotAllowed(w)

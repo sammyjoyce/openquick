@@ -302,8 +302,11 @@ void quick_tui_screen_serve(quick_tui_app_state_t *state) {
         {.label = "&Host install guide",
          .description = "Read-only install steps and command to run",
          .id = 2},
+        {.label = "Host &stats",
+         .description = "Ask selected host for admin stats",
+         .id = 3},
         {.kind = TUI_MENU_ITEM_SEPARATOR},
-        {.label = "&Back", .description = "Return to OpenQuick", .id = 3},
+        {.label = "&Back", .description = "Return to OpenQuick", .id = 4},
     };
     tui_menu_result_t r = tui_show_menu(
         NULL, &(tui_menu_config_t){.title = "Serve",
@@ -314,12 +317,14 @@ void quick_tui_screen_serve(quick_tui_app_state_t *state) {
                                    .frame_height = 14,
                                    .frame_width = 74,
                                    .show_numeric_keys = true});
-    if (r.status != TUI_MENU_OK || r.selected_id == 3) {
+    if (r.status != TUI_MENU_OK || r.selected_id == 4) {
       open = false;
     } else if (r.selected_id == 1) {
       quick_tui_serve_start_dev(state);
     } else if (r.selected_id == 2) {
       quick_tui_serve_install_guide(state);
+    } else if (r.selected_id == 3) {
+      quick_tui_show_host_stats(state);
     }
   }
 }

@@ -27,6 +27,8 @@ int run_tui_menu_sigterm(test_stats_t *stats, const char *binary,
                          bool tui_enabled);
 int run_tui_sites_empty_state(test_stats_t *stats, const char *binary,
                               bool tui_enabled);
+int run_tui_sites_detail_actions(test_stats_t *stats, const char *binary,
+                                 bool tui_enabled);
 int run_tui_new_site_scaffold(test_stats_t *stats, const char *binary,
                               bool tui_enabled);
 int run_tui_doctor_local_results(test_stats_t *stats, const char *binary,

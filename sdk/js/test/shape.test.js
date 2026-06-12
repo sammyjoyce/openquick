@@ -13,6 +13,8 @@ test('OpenQuick SDK surface shape', () => {
   assert.equal(typeof quick.realtime.channel, 'function');
   assert.equal(typeof quick.capabilities, 'function');
   assert.equal(typeof quick.ai.chat, 'function');
+  assert.equal(typeof quick.ai.image, 'function');
+  assert.equal(typeof quick.warehouse.query, 'function');
 
   const votes = quick.db.collection('votes');
   assert.equal(typeof votes.create, 'function');

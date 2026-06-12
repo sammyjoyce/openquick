@@ -28,6 +28,18 @@ async function parseResponse(response) {
   }
   return await response.text();
 }
+async function throwRequestError(response) {
+  let details = response.statusText;
+  try {
+    const body = await parseResponse(response);
+    if (typeof body === "string" && body.length > 0) {
+      details = body;
+    } else if (body && typeof body === "object" && "error" in body) {
+      details = String(body.error);
+    }
+  } catch {}
+  throw new Error(`OpenQuick request failed: ${response.status} ${details}`);
+}
 async function requestJson(path, init = {}) {
   const headers = new Headers(init.headers);
   headers.set("accept", "application/json");
@@ -41,16 +53,7 @@ async function requestJson(path, init = {}) {
     credentials: "same-origin"
   });
   if (!response.ok) {
-    let details = response.statusText;
-    try {
-      const body = await parseResponse(response);
-      if (typeof body === "string" && body.length > 0) {
-        details = body;
-      } else if (body && typeof body === "object" && "error" in body) {
-        details = String(body.error);
-      }
-    } catch {}
-    throw new Error(`OpenQuick request failed: ${response.status} ${details}`);
+    await throwRequestError(response);
   }
   return parseResponse(response);
 }
@@ -320,13 +323,177 @@ function realtimeChannel(name) {
 function fetchCapabilities() {
   return requestJson(apiPath("capabilities"));
 }
-async function chat(messages, options = {}) {
+async function requireCapability(apiName, capability) {
+  let capabilities;
   try {
-    await fetchCapabilities();
+    capabilities = await fetchCapabilities();
   } catch (error) {
-    throw new Error(`quick.ai.chat is not available on this host (capabilities check failed: ${errorMessage(error)})`);
+    throw new Error(`${apiName} is not available on this host (capabilities check failed: ${errorMessage(error)})`);
   }
-  throw new Error("quick.ai.chat is not available on this host");
+  if (capabilities[capability] !== true) {
+    throw new Error(`${apiName} is not available on this host`);
+  }
+}
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function extractDeltaText(payload) {
+  if (typeof payload === "string") {
+    return payload;
+  }
+  if (!isRecord(payload)) {
+    return "";
+  }
+  const delta = payload.delta;
+  if (typeof delta === "string") {
+    return delta;
+  }
+  if (isRecord(delta) && typeof delta.content === "string") {
+    return delta.content;
+  }
+  return "";
+}
+function processChatStreamEvent(rawEvent, state, onDelta) {
+  const data = rawEvent.split(/\r?\n/).filter((line) => line.startsWith("data:")).map((line) => {
+    const value = line.slice(5);
+    return value.startsWith(" ") ? value.slice(1) : value;
+  }).join(`
+`);
+  if (data.trim().length === 0) {
+    return false;
+  }
+  const trimmed = data.trim();
+  if (trimmed === "[DONE]" || trimmed.toLowerCase() === "done") {
+    return true;
+  }
+  let payload = data;
+  try {
+    payload = JSON.parse(data);
+  } catch {}
+  if (isRecord(payload)) {
+    const keys = Object.keys(payload);
+    if (!(keys.length === 1 && payload.done === true)) {
+      state.lastPayload = payload;
+    }
+  }
+  const delta = extractDeltaText(payload);
+  if (delta.length > 0) {
+    state.content += delta;
+    onDelta?.(delta, payload);
+  }
+  return isRecord(payload) && payload.done === true;
+}
+function buildStreamChatResponse(state, fallbackModel) {
+  const response = state.lastPayload ? { ...state.lastPayload } : {};
+  const existingMessage = isRecord(response.message) ? response.message : {};
+  const content = typeof existingMessage.content === "string" && existingMessage.content.length > 0 ? existingMessage.content : state.content;
+  response.message = {
+    role: typeof existingMessage.role === "string" ? existingMessage.role : "assistant",
+    ...existingMessage,
+    content
+  };
+  if (typeof response.model !== "string" && typeof fallbackModel === "string") {
+    response.model = fallbackModel;
+  }
+  return response;
+}
+async function requestChatStream(body, fallbackModel, onDelta) {
+  const response = await fetch(apiPath("ai", "chat"), {
+    method: "POST",
+    headers: {
+      accept: "text/event-stream, application/json",
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body),
+    credentials: "same-origin"
+  });
+  if (!response.ok) {
+    await throwRequestError(response);
+  }
+  const contentType = response.headers.get("content-type") || "";
+  if (!response.body || !contentType.includes("text/event-stream")) {
+    const parsed = await parseResponse(response);
+    const content = isRecord(parsed.message) && typeof parsed.message.content === "string" ? parsed.message.content : "";
+    if (content.length > 0) {
+      onDelta?.(content, parsed);
+    }
+    return parsed;
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder;
+  const state = { content: "", lastPayload: null };
+  let buffer = "";
+  let sawDone = false;
+  while (!sawDone) {
+    const chunk = await reader.read();
+    if (chunk.done) {
+      break;
+    }
+    buffer += decoder.decode(chunk.value, { stream: true });
+    const events = buffer.split(/\r?\n\r?\n/);
+    buffer = events.pop() || "";
+    for (const event of events) {
+      if (processChatStreamEvent(event, state, onDelta)) {
+        sawDone = true;
+        break;
+      }
+    }
+  }
+  buffer += decoder.decode();
+  if (!sawDone && buffer.trim().length > 0) {
+    sawDone = processChatStreamEvent(buffer, state, onDelta);
+  }
+  if (sawDone) {
+    await reader.cancel().catch(() => {});
+  }
+  return buildStreamChatResponse(state, fallbackModel);
+}
+async function chat(messages, options = {}) {
+  await requireCapability("quick.ai.chat", "ai");
+  const { model, stream, onDelta, ...rest } = options;
+  const useStream = stream === true || typeof onDelta === "function";
+  const body = {
+    ...rest,
+    messages,
+    stream: useStream
+  };
+  if (model !== undefined) {
+    body.model = model;
+  }
+  if (useStream) {
+    return requestChatStream(body, model, onDelta);
+  }
+  return requestJson(apiPath("ai", "chat"), {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify(body)
+  });
+}
+async function image(prompt, options = {}) {
+  requireId(prompt, "prompt");
+  await requireCapability("quick.ai.image", "ai");
+  const { model, size, ...rest } = options;
+  const body = { ...rest, prompt };
+  if (model !== undefined) {
+    body.model = model;
+  }
+  if (size !== undefined) {
+    body.size = size;
+  }
+  return requestJson(apiPath("ai", "images"), {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify(body)
+  });
+}
+async function warehouseQuery(name, params = {}) {
+  requireId(name, "warehouse query name");
+  await requireCapability("quick.warehouse.query", "warehouse");
+  return requestJson(apiPath("warehouse", name), {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify(params)
+  });
 }
 var quick = {
   identity: {
@@ -345,7 +512,11 @@ var quick = {
     channel: realtimeChannel
   },
   ai: {
-    chat
+    chat,
+    image
+  },
+  warehouse: {
+    query: warehouseQuery
   },
   capabilities: fetchCapabilities
 };

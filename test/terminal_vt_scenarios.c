@@ -866,6 +866,91 @@ int run_tui_sites_empty_state(test_stats_t *stats, const char *binary,
   return failed;
 }
 
+int run_tui_sites_detail_actions(test_stats_t *stats, const char *binary,
+                                 bool tui_enabled) {
+  const char *name = "sites detail panel shows delete and public hints";
+  if (!tui_enabled) {
+    test_skip(stats, name, "rebuild with -Denable-tui=true");
+    return 0;
+  }
+  char xdg[] = "/tmp/openquick-vt-xdg-site-actions-XXXXXX";
+  char bin_dir[] = "/tmp/openquick-vt-bin-site-actions-XXXXXX";
+  if (!make_temp_dir_path(xdg) || !make_temp_dir_path(bin_dir) ||
+      !write_profile_config(xdg)) {
+    return test_fail(stats, name, "failed to create temp inputs: %s",
+                     strerror(errno));
+  }
+  char ssh_path[PATH_MAX];
+  snprintf(ssh_path, sizeof(ssh_path), "%s/ssh", bin_dir);
+  if (!write_text_file(
+          ssh_path,
+          "#!/bin/sh\n"
+          "if [ \"$2\" = quickd ] && [ \"$3\" = list ]; then\n"
+          "  printf '%s\\n' '{\"format_version\":\"1.0\",\"sites\":[{\"name\":\"demo\",\"subdomain\":\"demo\",\"url\":\"https://demo.quick.example.com\",\"release\":\"rel1\",\"updated_at\":\"2026-06-12T00:00:00Z\",\"deployer\":\"alice\",\"public\":false}]}'\n"
+          "  exit 0\n"
+          "fi\n"
+          "exit 1\n") || chmod(ssh_path, 0755) != 0) {
+    return test_fail(stats, name, "failed to write ssh stub");
+  }
+
+  char path_value[PATH_MAX];
+  const char *old_path = getenv("PATH");
+  snprintf(path_value, sizeof(path_value), "%s%s%s", bin_dir,
+           old_path && old_path[0] ? ":" : "",
+           old_path && old_path[0] ? old_path : "");
+  env_guard_t guards[5];
+  env_guard_set(&guards[0], "XDG_CONFIG_HOME", xdg);
+  env_guard_set(&guards[1], "PATH", path_value);
+  env_guard_set(&guards[2], "QUICK_PROFILE", NULL);
+  env_guard_set(&guards[3], "QUICK_REMOTE", NULL);
+  env_guard_set(&guards[4], "QUICK_BASE_DOMAIN", NULL);
+
+  const char *args[] = {"menu"};
+  vt_session_t session;
+  bool started = vt_session_start(&session, binary, args, 1, 100, 30);
+  char *snapshot = NULL;
+  int failed = 0;
+  if (!started) failed = test_fail(stats, name, "failed to start PTY session");
+  if (!failed && !vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS,
+                                 &snapshot))
+    failed = test_fail(stats, name, "initial menu did not render");
+  if (!failed && !vt_send(&session, "s"))
+    failed = test_fail(stats, name, "failed to open Sites");
+  if (!failed && !vt_expect_text(&session, "demo - https://demo.quick.example.com",
+                                 PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "remote site row did not render");
+  if (!failed && !vt_send(&session, "\r"))
+    failed = test_fail(stats, name, "failed to open site detail");
+  if (!failed && !vt_expect_text(&session, "x:delete", PTY_TIMEOUT_MS,
+                                 &snapshot))
+    failed = test_fail(stats, name, "delete key hint missing");
+  if (!failed && !vt_expect_text(&session, "p:public", 1000, &snapshot))
+    failed = test_fail(stats, name, "public key hint missing");
+  if (!failed && !vt_send(&session, "q"))
+    failed = test_fail(stats, name, "failed to dismiss site detail");
+  if (!failed && !vt_send(&session, "q"))
+    failed = test_fail(stats, name, "failed to leave sites");
+  if (!failed && !vt_send(&session, "q"))
+    failed = test_fail(stats, name, "failed to start exit");
+  if (!failed && !vt_send(&session, "y"))
+    failed = test_fail(stats, name, "failed to confirm exit");
+  if (!failed && vt_wait_for_exit(&session, PTY_TIMEOUT_MS) != 0)
+    failed = test_fail(stats, name, "process did not exit cleanly");
+  if (!failed) test_pass(stats, name);
+  free(snapshot);
+  if (started) vt_session_close(&session);
+  restore_common_env(guards, sizeof(guards) / sizeof(guards[0]));
+  char config_path[PATH_MAX], oq[PATH_MAX];
+  snprintf(config_path, sizeof(config_path), "%s/openquick/config.json", xdg);
+  snprintf(oq, sizeof(oq), "%s/openquick", xdg);
+  unlink(config_path);
+  rmdir(oq);
+  unlink(ssh_path);
+  rmdir(bin_dir);
+  rmdir(xdg);
+  return failed;
+}
+
 int run_tui_new_site_scaffold(test_stats_t *stats, const char *binary,
                               bool tui_enabled) {
   const char *name = "new-site flow scaffolds into a temp dir under PTY";

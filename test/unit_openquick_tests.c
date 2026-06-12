@@ -405,6 +405,123 @@ static bool test_list_op_reads_local_record(void) {
 #endif
 }
 
+static bool test_delete_op_reports_confirmation_metadata(void) {
+#ifndef _WIN32
+  char bin_dir[] = "/tmp/openquick-delete-unit-bin-XXXXXX";
+  const char *old_path_env = getenv("PATH");
+  const char *old_remote_env = getenv("QUICK_REMOTE");
+  char *old_path = old_path_env ? strdup(old_path_env) : NULL;
+  char *old_remote = old_remote_env ? strdup(old_remote_env) : NULL;
+  if ((old_path_env && !old_path) || (old_remote_env && !old_remote)) return false;
+  bool ok = false;
+  quick_profile_config_t profiles;
+  quick_profile_config_init(&profiles);
+  quick_delete_result_t result;
+  quick_delete_result_init(&result);
+  if (!make_temp_dir(bin_dir)) goto cleanup;
+  char ssh_path[256];
+  snprintf(ssh_path, sizeof(ssh_path), "%s/ssh", bin_dir);
+  if (!write_executable_file(
+          ssh_path,
+          "#!/bin/sh\n"
+          "if [ \"$2\" = quickd ] && [ \"$3\" = sites ] && [ \"$4\" = get ]; then\n"
+          "  printf '%s\\n' '{\"format_version\":\"1.0\",\"name\":\"demo\",\"subdomain\":\"alias\",\"url\":\"https://alias.example.com\",\"deployer\":\"bob\",\"public\":true}'\n"
+          "  exit 0\n"
+          "fi\n"
+          "exit 1\n")) {
+    goto cleanup;
+  }
+  setenv("PATH", bin_dir, 1);
+  setenv("QUICK_REMOTE", "quick@box", 1);
+  quick_delete_request_t req = {.profiles = &profiles, .site = "demo"};
+  ok = quick_op_delete(&req, &result) == APP_SUCCESS &&
+       result.confirmation_required && result.site.name &&
+       strcmp(result.site.name, "demo") == 0 && result.site.subdomain &&
+       strcmp(result.site.subdomain, "alias") == 0 && result.site.have_public &&
+       result.site.is_public;
+cleanup:
+  if (old_path_env) setenv("PATH", old_path, 1); else unsetenv("PATH");
+  if (old_remote_env) setenv("QUICK_REMOTE", old_remote, 1); else unsetenv("QUICK_REMOTE");
+  free(old_path);
+  free(old_remote);
+  quick_delete_result_destroy(&result);
+  quick_profile_config_destroy(&profiles);
+  char ssh_cleanup[256];
+  snprintf(ssh_cleanup, sizeof(ssh_cleanup), "%s/ssh", bin_dir);
+  unlink(ssh_cleanup);
+  rmdir(bin_dir);
+  return ok;
+#else
+  return true;
+#endif
+}
+
+static bool test_public_op_parses_status(void) {
+#ifndef _WIN32
+  char bin_dir[] = "/tmp/openquick-public-unit-bin-XXXXXX";
+  const char *old_path_env = getenv("PATH");
+  const char *old_remote_env = getenv("QUICK_REMOTE");
+  char *old_path = old_path_env ? strdup(old_path_env) : NULL;
+  char *old_remote = old_remote_env ? strdup(old_remote_env) : NULL;
+  if ((old_path_env && !old_path) || (old_remote_env && !old_remote)) return false;
+  bool ok = false;
+  quick_profile_config_t profiles;
+  quick_profile_config_init(&profiles);
+  quick_public_result_t result;
+  quick_public_result_init(&result);
+  if (!make_temp_dir(bin_dir)) goto cleanup;
+  char ssh_path[256];
+  snprintf(ssh_path, sizeof(ssh_path), "%s/ssh", bin_dir);
+  if (!write_executable_file(
+          ssh_path,
+          "#!/bin/sh\n"
+          "if [ \"$2\" = quickd ] && [ \"$3\" = sites ] && [ \"$4\" = get ]; then\n"
+          "  printf '%s\\n' '{\"format_version\":\"1.0\",\"name\":\"demo\",\"public\":false}'\n"
+          "  exit 0\n"
+          "fi\n"
+          "exit 1\n")) {
+    goto cleanup;
+  }
+  setenv("PATH", bin_dir, 1);
+  setenv("QUICK_REMOTE", "quick@box", 1);
+  quick_public_request_t req = {.profiles = &profiles,
+                                .site = "demo",
+                                .action = QUICK_PUBLIC_STATUS};
+  ok = quick_op_public(&req, &result) == APP_SUCCESS && result.have_public &&
+       !result.is_public && result.site.name &&
+       strcmp(result.site.name, "demo") == 0;
+cleanup:
+  if (old_path_env) setenv("PATH", old_path, 1); else unsetenv("PATH");
+  if (old_remote_env) setenv("QUICK_REMOTE", old_remote, 1); else unsetenv("QUICK_REMOTE");
+  free(old_path);
+  free(old_remote);
+  quick_public_result_destroy(&result);
+  quick_profile_config_destroy(&profiles);
+  char ssh_cleanup[256];
+  snprintf(ssh_cleanup, sizeof(ssh_cleanup), "%s/ssh", bin_dir);
+  unlink(ssh_cleanup);
+  rmdir(bin_dir);
+  return ok;
+#else
+  return true;
+#endif
+}
+
+static bool test_domain_op_rejects_invalid_domain(void) {
+  quick_profile_config_t profiles;
+  quick_profile_config_init(&profiles);
+  quick_domain_result_t result;
+  quick_domain_result_init(&result);
+  quick_domain_request_t req = {.profiles = &profiles,
+                                .site = "demo",
+                                .domain = "bad;rm",
+                                .action = QUICK_DOMAIN_ADD};
+  bool ok = quick_op_domain(&req, &result) == APP_ERROR_VALIDATION;
+  quick_domain_result_destroy(&result);
+  quick_profile_config_destroy(&profiles);
+  return ok;
+}
+
 static bool test_doctor_op_returns_structured_checks(void) {
   quick_profile_config_t profiles;
   quick_profile_config_init(&profiles);
@@ -437,6 +554,80 @@ static bool test_tui_product_model_helpers(void) {
                                            sizeof(message)) &&
          strcmp(quick_tui_deploy_phase_label(QUICK_DEPLOY_PHASE_TRANSFER),
                 "transfer") == 0;
+}
+
+static bool test_mint_dev_token_parses_json(void) {
+#ifndef _WIN32
+  char bin_dir[] = "/tmp/openquick-dev-token-bin-XXXXXX";
+  const char *old_path_env = getenv("PATH");
+  const char *old_remote_env = getenv("QUICK_REMOTE");
+  const char *old_base_domain_env = getenv("QUICK_BASE_DOMAIN");
+  char *old_path = old_path_env ? strdup(old_path_env) : NULL;
+  char *old_remote = old_remote_env ? strdup(old_remote_env) : NULL;
+  char *old_base_domain = old_base_domain_env ? strdup(old_base_domain_env) : NULL;
+  if ((old_path_env && !old_path) || (old_remote_env && !old_remote) ||
+      (old_base_domain_env && !old_base_domain)) {
+    free(old_path);
+    free(old_remote);
+    free(old_base_domain);
+    return false;
+  }
+
+  bool ok = false;
+  quick_profile_config_t profiles;
+  quick_profile_config_init(&profiles);
+  quick_dev_token_result_t result;
+  quick_dev_token_result_init(&result);
+
+  if (!make_temp_dir(bin_dir)) goto cleanup;
+  char ssh_path[256];
+  snprintf(ssh_path, sizeof(ssh_path), "%s/ssh", bin_dir);
+  if (!write_executable_file(
+          ssh_path,
+          "#!/bin/sh\n"
+          "if [ \"$1\" = quick@box ] && [ \"$2\" = quickd ] && "
+          "[ \"$3\" = admin ] && [ \"$4\" = mint-dev-token ] && "
+          "[ \"$5\" = --site ] && [ \"$6\" = demo ] && "
+          "[ \"$7\" = --ttl ] && [ \"$8\" = 3600 ] && "
+          "[ \"$9\" = --json ]; then\n"
+          "  printf '%s\\n' '{\"token\":\"dev-token-123\",\"site\":\"demo\",\"expires_at\":\"2026-06-12T01:00:00Z\"}'\n"
+          "  exit 0\n"
+          "fi\n"
+          "exit 1\n")) {
+    goto cleanup;
+  }
+  setenv("PATH", bin_dir, 1);
+  setenv("QUICK_REMOTE", "quick@box", 1);
+  setenv("QUICK_BASE_DOMAIN", "quick.example.com", 1);
+
+  quick_dev_token_request_t req = {.profiles = &profiles,
+                                   .profile = "lab",
+                                   .site = "demo",
+                                   .ttl_seconds = 3600};
+  ok = quick_op_mint_dev_token(&req, &result) == APP_SUCCESS &&
+       result.token && strcmp(result.token, "dev-token-123") == 0 &&
+       result.expires_at &&
+       strcmp(result.expires_at, "2026-06-12T01:00:00Z") == 0 &&
+       result.site && strcmp(result.site, "demo") == 0 && result.url &&
+       strcmp(result.url, "https://demo.quick.example.com") == 0;
+
+cleanup:
+  if (old_path_env) setenv("PATH", old_path, 1); else unsetenv("PATH");
+  if (old_remote_env) setenv("QUICK_REMOTE", old_remote, 1); else unsetenv("QUICK_REMOTE");
+  if (old_base_domain_env) setenv("QUICK_BASE_DOMAIN", old_base_domain, 1); else unsetenv("QUICK_BASE_DOMAIN");
+  free(old_path);
+  free(old_remote);
+  free(old_base_domain);
+  quick_dev_token_result_destroy(&result);
+  quick_profile_config_destroy(&profiles);
+  char ssh_cleanup[256];
+  snprintf(ssh_cleanup, sizeof(ssh_cleanup), "%s/ssh", bin_dir);
+  unlink(ssh_cleanup);
+  rmdir(bin_dir);
+  return ok;
+#else
+  return true;
+#endif
 }
 
 static bool test_serve_install_steps_structure(void) {
@@ -481,10 +672,18 @@ void run_openquick_unit_tests(unit_stats_t *stats) {
               "deploy op marks publication gate failures");
   unit_record(stats, test_list_op_reads_local_record(),
               "list op returns structured local deployment records");
+  unit_record(stats, test_delete_op_reports_confirmation_metadata(),
+              "delete op fetches site metadata before confirmation");
+  unit_record(stats, test_public_op_parses_status(),
+              "public op parses remote public status");
+  unit_record(stats, test_domain_op_rejects_invalid_domain(),
+              "domain op rejects unsafe domain values");
   unit_record(stats, test_doctor_op_returns_structured_checks(),
               "doctor op returns structured checks");
   unit_record(stats, test_tui_product_model_helpers(),
               "TUI product model formats rows and validates profile fields");
+  unit_record(stats, test_mint_dev_token_parses_json(),
+              "serve dev op parses minted remote API token JSON");
   unit_record(stats, test_serve_install_steps_structure(),
               "serve op exposes guided install steps");
 }
