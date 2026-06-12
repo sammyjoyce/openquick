@@ -1,39 +1,83 @@
-# Agent Instructions
+# OpenQuick contributor instructions
 
-## External References
+OpenQuick is a C23/Zig `quick` CLI + TUI, a Go `quickd` host daemon, and a Bun-built same-origin JS SDK for static sites with shared host APIs.
 
-| Need | File |
-| --- | --- |
-| Project overview and component usage | `README.md` |
-| Contribution workflow and commit style | `CONTRIBUTING.md` |
-| Architecture/module ownership | `docs/ARCHITECTURE.md` |
-| Testing layers | `docs/TESTING.md` |
-| Component catalog API | `docs/COMPONENTS.md` |
-| Theming API | `docs/THEMING.md` |
+## Component map
 
-## Commands
+- `src/`: C23 `quick` CLI, shared ops layer, optional TUI, Zig build integration.
+- `server/`: Go `quickd` for static routing, deploy activation, identity, and `/_quick/*` APIs.
+- `sdk/js/`: dependency-free SDK built by Bun and embedded into `quickd`.
+- `skills/`: agent skill source and `.skill` packaging.
+- `docs/`: user docs and design records.
+- `test/`: unit tests, CLI contract subprocess tests, and PTY/ghostty-vt terminal scenarios.
+- `install/`: systemd, Caddy, Cloudflare, and Tailscale install assets.
+- `examples/`: example OpenQuick sites.
 
-| Task | Command |
-| --- | --- |
-| Build debug binary | `zig build` |
-| Run CI gate locally | `zig build check` |
-| Run tests | `zig build test` |
-| Run unit tests only | `zig build unit-test` |
-| Validate component registry | `zig build registry` |
-| Check formatting | `zig build fmt-check` |
-| Apply formatting | `zig build fmt` |
-| TUI/PTY scenarios when touched | `zig build -Denable-tui=true terminal-test` |
+## Build and test
 
-## Component Catalog
+Run focused checks while iterating. Run `just test-all` before committing.
 
-- Components live in `src/components/cs_*.{c,h}` and render only through `src/surface/`.
-- Component styling uses semantic roles from `src/style/cs_theme.*` and `src/style/ui_theme.*`.
-- Keep `registry/registry.json` in sync with component source files and dependency closures.
-- `zig build test` also validates `registry/registry.json` against the component source tree.
+```bash
+zig build
+zig build check
+zig build terminal-test
+zig build -Denable-tui=false
+```
 
-## Build Boundaries
+```bash
+cd server && go build ./... && go vet ./... && go test -count=1 ./...
+```
 
-- Keep the component registry tool pure Zig; it is host-built and should not depend on project C sources.
-- Keep `src/surface/surface_curses.c` and other curses-only code behind TUI-enabled builds.
-- CLI-only or unit-test builds must not require ncurses/PDCurses.
-- Zig formatting covers `build.zig`, `src/`, `test/`, and `tools/` via `zig build fmt-check`.
+```bash
+cd sdk/js && bun run build && bun test
+```
+
+```bash
+just build-all
+just test-all
+```
+
+After any CLI surface change, refresh and commit the OpenCLI contract:
+
+```bash
+zig build run -- opencli > opencli.json
+```
+
+`zig build test` enforces that `quick opencli` matches `opencli.json`.
+
+After SDK changes, rebuild the SDK and embedded quickd copy:
+
+```bash
+just build-sdk
+```
+
+`just build-sdk` runs `bun run build` and copies `sdk/js/dist/quick.js` to `server/internal/api/sdk/quick.js`.
+
+## Architecture rules
+
+- Put workflow logic in `src/core/ops.{h,c}`. Keep CLI handlers and TUI screens thin consumers. Do not duplicate business logic.
+- Spawn subprocesses with argv arrays. Never build shell command strings for user-controlled values.
+- Preserve server security invariants:
+  - Strip inbound `X-Quick-*` headers.
+  - Trust identity or source headers only from loopback or configured trusted proxies.
+  - Keep static path and symlink hardening in `server/internal/static/static.go`.
+  - Keep `/_quick/*` APIs same-origin.
+  - Gate new risky features in host config and default them OFF.
+- Keep SQLite migrations idempotent with `IF NOT EXISTS` or explicit column checks.
+- Keep the vendored `cs_` component namespace unless a scoped migration changes all callers.
+- Preserve the no-owner model. Use audit, signed manifests, and overwrite friction instead of per-site owners or ACLs.
+- Keep the SDK fixed to the documented capability families: identity, DB, realtime, uploads, AI, warehouse, and capabilities.
+
+## Never do
+
+- Do not commit without a green `just test-all` or a documented reason it could not run.
+- Do not regenerate `opencli.json` and ignore mismatches.
+- Do not add SDK runtime dependencies; read `docs/design/UNJS_ASSESSMENT.md` first.
+- Do not weaken fail-closed auth or origin checks.
+- Do not bypass the ops layer from CLI or TUI code.
+
+## Authoritative references
+
+- Start with `docs/design/ARCHITECTURE.md` and `docs/design/WORKFLOW.md`.
+- Use `docs/design/QUICK_PARITY.md` for parity decisions.
+- Use `docs/design/DEFERRED_ASSESSMENT.md` for rejected ideas and why they stay out.

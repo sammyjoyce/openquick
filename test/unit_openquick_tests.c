@@ -26,6 +26,32 @@ static bool write_executable_file(const char *path, const char *content) {
   return write_file(path, content) && chmod(path, 0755) == 0;
 }
 
+static bool file_contains(const char *path, const char *needle) {
+  FILE *f = fopen(path, "rb");
+  if (!f) return false;
+  if (fseek(f, 0, SEEK_END) != 0) {
+    fclose(f);
+    return false;
+  }
+  long size = ftell(f);
+  if (size < 0) {
+    fclose(f);
+    return false;
+  }
+  rewind(f);
+  char *buf = malloc((size_t)size + 1U);
+  if (!buf) {
+    fclose(f);
+    return false;
+  }
+  size_t n = fread(buf, 1, (size_t)size, f);
+  buf[n] = '\0';
+  bool ok = n == (size_t)size && strstr(buf, needle) != NULL;
+  free(buf);
+  fclose(f);
+  return ok;
+}
+
 static bool make_temp_dir(char *tmpl) {
   return mkdtemp(tmpl) != NULL;
 }
@@ -242,8 +268,13 @@ static bool test_init_op_scaffolds_temp_dir(void) {
   if (!make_temp_dir(dir)) return false;
   char index_path[256];
   char quick_path[256];
+  char agents[256], ignore[256], docs[256], api[256];
   snprintf(index_path, sizeof(index_path), "%s/index.html", dir);
   snprintf(quick_path, sizeof(quick_path), "%s/quick.json", dir);
+  snprintf(agents, sizeof(agents), "%s/AGENTS.md", dir);
+  snprintf(ignore, sizeof(ignore), "%s/.quickignore", dir);
+  snprintf(docs, sizeof(docs), "%s/docs", dir);
+  snprintf(api, sizeof(api), "%s/docs/openquick-api.md", dir);
   quick_init_result_t result;
   quick_init_result_init(&result);
   quick_init_request_t req = {.target_dir = dir,
@@ -253,15 +284,13 @@ static bool test_init_op_scaffolds_temp_dir(void) {
   bool ok = quick_op_init(&req, &result) == APP_SUCCESS &&
             result.site && strcmp(result.site, "lunch-vote") == 0 &&
             result.file_count == 5 && access(index_path, F_OK) == 0 &&
-            access(quick_path, F_OK) == 0;
+            access(quick_path, F_OK) == 0 &&
+            file_contains(agents, "OpenQuick site agent guide") &&
+            file_contains(agents, "const caps = await quick.capabilities(); if (caps.ai)") &&
+            file_contains(api, "quick.warehouse.query(name, params)");
   quick_init_result_destroy(&result);
   unlink(index_path);
   unlink(quick_path);
-  char agents[256], ignore[256], docs[256], api[256];
-  snprintf(agents, sizeof(agents), "%s/AGENTS.md", dir);
-  snprintf(ignore, sizeof(ignore), "%s/.quickignore", dir);
-  snprintf(docs, sizeof(docs), "%s/docs", dir);
-  snprintf(api, sizeof(api), "%s/docs/openquick-api.md", dir);
   unlink(agents);
   unlink(ignore);
   unlink(api);

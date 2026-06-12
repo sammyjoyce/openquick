@@ -1,14 +1,16 @@
 # OpenQuick JavaScript SDK reference
 
-Import the SDK from the same origin as the hosted site:
+Import the SDK from the same origin as the hosted site. The SDK uses leading-slash `/_quick/*` paths and `same-origin` credentials.
 
-```js
-import { quick } from '/_quick/sdk.js';
+```html
+<script type="module">
+  import { quick } from '/_quick/sdk.js';
+
+  console.log(await quick.identity.current());
+</script>
 ```
 
-The SDK only calls relative `/_quick/*` URLs with same-origin credentials.
-
-## Surface
+## Top-level surface
 
 ```ts
 export const quick = {
@@ -38,7 +40,31 @@ export const quick = {
 };
 ```
 
+## Capabilities pattern
+
+Check host capabilities before rendering optional UI. AI and warehouse SDK calls also enforce their capability check before hitting feature endpoints.
+
+```js
+const caps = await quick.capabilities();
+
+if (caps.db === true) {
+  console.log('DB UI can be enabled');
+}
+
+if (caps.ai === true) {
+  console.log('AI UI can be enabled');
+}
+
+if (caps.warehouse !== true) {
+  console.log('Hide reports UI on this host');
+}
+```
+
+If a host does not advertise AI or warehouse, calls fail early with errors such as `quick.ai.chat is not available on this host` or `quick.warehouse.query is not available on this host`.
+
 ## Identity
+
+`quick.identity.current()` fetches `GET /_quick/identity` once and caches it for the page lifetime. `onChange()` registers a page-local listener and returns an unsubscribe function.
 
 ```ts
 type Identity = {
@@ -57,28 +83,26 @@ type Identity = {
 
 ```js
 const me = await quick.identity.current();
-const stop = quick.identity.onChange((identity) => {
-  console.log(identity.email || identity.login || identity.subject);
+console.log(me.email || me.login || me.subject);
+
+const stopIdentity = quick.identity.onChange((identity) => {
+  console.log('identity changed', identity.provider, identity.subject);
 });
+
+stopIdentity();
 ```
 
-`current()` fetches `GET /_quick/identity` once per page lifetime. `onChange()` returns an unsubscribe function.
+Provider fields depend on the host IAP. Do not parse Cloudflare or Tailscale headers in site code; use `quick.identity.current()`.
 
-## Capabilities
+## Document DB collections
 
-```js
-const caps = await quick.capabilities();
-if (caps.db) enableDbUi();
-if (caps.ai) enableAiUi();
-if (caps.warehouse) enableReportsUi();
-```
-
-AI and warehouse calls check capabilities first. If a host reports the feature as false or omits it, the SDK throws a clear not-available error before calling the feature endpoint.
-
-## Document DB
+Collections are namespaced by the site on the host. Documents have an `id` plus JSON fields.
 
 ```ts
-type DocumentRecord = { id: string; [key: string]: unknown };
+type DocumentRecord = {
+  id: string;
+  [key: string]: unknown;
+};
 
 type Collection<T = DocumentRecord> = {
   create(data: Record<string, unknown>): Promise<T>;
@@ -88,22 +112,29 @@ type Collection<T = DocumentRecord> = {
   list(): Promise<T[]>;
   subscribe(handlers: DbSubscriptionHandlers<T>): Promise<() => void>;
 };
-
-type DbSubscriptionHandlers<T> = {
-  since?: string;
-  onCreate?: (doc: T) => void;
-  onUpdate?: (doc: T) => void;
-  onDelete?: (id: string) => void;
-};
 ```
 
+Create, read, update, list, and remove records:
+
 ```js
-const posts = quick.db.collection('posts');
-const created = await posts.create({ title: 'Hello', status: 'draft' });
-const post = await posts.get(created.id);
-await posts.update(created.id, { status: 'published' });
-const all = await posts.list();
-await posts.remove(created.id);
+const votes = quick.db.collection('votes');
+
+const created = await votes.create({
+  choice: 'ramen',
+  by: 'sam@example.com',
+  created_at: new Date().toISOString(),
+});
+
+const record = await votes.get(created.id);
+console.log(record.choice);
+
+const updated = await votes.update(created.id, { choice: 'tacos' });
+console.log(updated.choice);
+
+const allVotes = await votes.list();
+console.log(allVotes.length);
+
+await votes.remove(created.id);
 ```
 
 HTTP backing:
@@ -116,17 +147,40 @@ PATCH  /_quick/db/:collection/:id
 DELETE /_quick/db/:collection/:id
 ```
 
-Subscriptions use `/_quick/realtime` and channel `db:<collection>`:
+## DB subscriptions
 
-```js
-const unsubscribe = await posts.subscribe({
-  onCreate: (doc) => console.log('created', doc),
-  onUpdate: (doc) => console.log('updated', doc),
-  onDelete: (id) => console.log('deleted', id),
-});
+DB subscriptions use the shared WebSocket at `/_quick/realtime` and the channel `db:<collection>`. `subscribe()` resolves to an unsubscribe function.
+
+```ts
+type DbSubscriptionHandlers<T> = {
+  since?: string;
+  onCreate?: (doc: T) => void;
+  onUpdate?: (doc: T) => void;
+  onDelete?: (id: string) => void;
+};
 ```
 
-## Realtime
+```js
+const votes = quick.db.collection('votes');
+
+const stopVotes = await votes.subscribe({
+  onCreate(doc) {
+    console.log('created', doc.id);
+  },
+  onUpdate(doc) {
+    console.log('updated', doc.id);
+  },
+  onDelete(id) {
+    console.log('deleted', id);
+  },
+});
+
+stopVotes();
+```
+
+## Realtime channels
+
+Use realtime channels for small collaborative UI events. The SDK opens `/_quick/realtime`, subscribes to channels, and publishes JSON envelopes.
 
 ```ts
 type RealtimeEnvelope = {
@@ -145,14 +199,22 @@ type Channel = {
 
 ```js
 const room = quick.realtime.channel('lunch-room');
-const stop = room.on('cursor', (data) => renderCursor(data));
+
+const stopCursor = room.on('cursor', (data, envelope) => {
+  console.log(envelope.channel, data);
+});
+
 room.send('cursor', { x: 120, y: 90 });
+stopCursor();
 ```
 
 ## Uploads
 
+Uploads accept a `File` or `Blob`. The SDK sends a multipart form to `POST /_quick/uploads` and returns metadata including a URL served by quickd.
+
 ```ts
 type UploadOptions = { name?: string };
+
 type Upload = {
   id: string;
   url: string;
@@ -163,10 +225,22 @@ type Upload = {
 };
 ```
 
-```js
-const upload = await quick.uploads.put(file, { name: file.name });
-const metadata = await quick.uploads.get(upload.id);
-await quick.uploads.remove(upload.id);
+```html
+<input id="asset" type="file">
+<script type="module">
+  import { quick } from '/_quick/sdk.js';
+
+  const input = document.querySelector('#asset');
+  const file = input.files[0];
+  const upload = await quick.uploads.put(file, { name: file.name });
+
+  console.log(upload.id, upload.url);
+
+  const metadata = await quick.uploads.get(upload.id);
+  console.log(metadata.size);
+
+  await quick.uploads.remove(upload.id);
+</script>
 ```
 
 HTTP backing:
@@ -177,9 +251,9 @@ GET    /_quick/uploads/:id
 DELETE /_quick/uploads/:id
 ```
 
-## AI
+## AI chat
 
-AI is host-gated. Hosts report `capabilities().ai === true` only when configured.
+AI is host-config gated. Provider keys stay on the host. Browser code sends prompts only to same-origin OpenQuick endpoints.
 
 ```ts
 type ChatMessage = {
@@ -191,64 +265,88 @@ type ChatOptions = {
   model?: string;
   stream?: boolean;
   onDelta?: (delta: string, event: unknown) => void;
+  [key: string]: unknown;
 };
 
 type ChatResponse = {
   id?: string;
   model?: string;
   message: ChatMessage;
-  usage?: { prompt_tokens?: number; completion_tokens?: number };
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    [key: string]: unknown;
+  };
 };
-
-type ImageOptions = { model?: string; size?: string };
-type ImageResponse = { id: string; model?: string; url: string };
 ```
 
-Chat:
+Non-streaming chat posts to `POST /_quick/ai/chat`:
 
 ```js
 const answer = await quick.ai.chat([
   { role: 'system', content: 'Be concise.' },
-  { role: 'user', content: 'Summarize this page.' },
+  { role: 'user', content: 'Summarize this release.' },
 ], { model: 'host-default' });
+
+console.log(answer.message.content);
 ```
 
-Streaming chat:
+Streaming chat uses the same endpoint with `stream: true`. The SDK reads server-sent events, calls `onDelta` for each text delta, and resolves with a final assembled `ChatResponse`.
 
 ```js
 let text = '';
+
 const final = await quick.ai.chat(
-  [{ role: 'user', content: 'Draft release notes.' }],
+  [{ role: 'user', content: 'Draft a changelog entry.' }],
   {
     stream: true,
     onDelta(delta) {
       text += delta;
-      output.textContent = text;
+      console.log(text);
     },
   },
 );
+
+console.log(final.message.content);
 ```
 
-Image:
+Passing `onDelta` also selects streaming behavior even if `stream` is omitted.
 
-```js
-const image = await quick.ai.image('A flat icon of a rocket', {
-  model: 'host-default-image',
-  size: '1024x1024',
-});
-preview.src = image.url;
+## AI images
+
+Image generation posts to `POST /_quick/ai/images` and returns an internal upload URL.
+
+```ts
+type ImageOptions = {
+  model?: string;
+  size?: string;
+  [key: string]: unknown;
+};
+
+type ImageResponse = {
+  id: string;
+  model?: string;
+  url: string;
+};
 ```
 
-HTTP backing:
+```html
+<img id="preview" alt="Generated badge">
+<script type="module">
+  import { quick } from '/_quick/sdk.js';
 
-```text
-POST /_quick/ai/chat
-POST /_quick/ai/images
+  const image = await quick.ai.image('A small launch badge in flat SVG style', {
+    model: 'host-default-image',
+    size: '1024x1024',
+  });
+
+  document.querySelector('#preview').src = image.url;
+</script>
 ```
 
-## Warehouse
+## Warehouse named queries
 
-Warehouse is host-gated. Hosts report `capabilities().warehouse === true` only when named queries are configured.
+Warehouse is host-config gated. Query names are a host allowlist, not arbitrary SQL from the browser.
 
 ```ts
 type WarehouseQueryResult = {
@@ -269,6 +367,8 @@ const report = await quick.warehouse.query('recent_orders', {
 const rows = report.rows.map((row) =>
   Object.fromEntries(report.columns.map((column, index) => [column, row[index]])),
 );
+
+console.table(rows);
 ```
 
 HTTP backing:
@@ -277,4 +377,18 @@ HTTP backing:
 POST /_quick/warehouse/:name
 ```
 
-Hosts may also support `GET /_quick/warehouse/:name` with query parameters, but browser code should prefer the SDK call.
+## Failure handling
+
+Treat SDK calls as network and authorization boundaries. Handle unavailable host gates, IAP expiry, rate limits, and validation errors.
+
+```js
+try {
+  const caps = await quick.capabilities();
+  if (caps.ai === true) {
+    const answer = await quick.ai.chat([{ role: 'user', content: 'Say hi.' }]);
+    console.log(answer.message.content);
+  }
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+}
+```

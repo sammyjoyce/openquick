@@ -862,16 +862,32 @@ static bool test_openquick_site_workflow_contracts(test_context_t *ctx) {
     return false;
   }
   char quick_json[512];
+  char agents_md[512];
+  char api_md[512];
   snprintf(quick_json, sizeof(quick_json), "%s/quick.json", dir);
+  snprintf(agents_md, sizeof(agents_md), "%s/AGENTS.md", dir);
+  snprintf(api_md, sizeof(api_md), "%s/docs/openquick-api.md", dir);
   bool ok = true;
 
   {
     const char *args[] = {"--plain", "init", dir, "--name", "Lunch Vote",
                           "--profile", "lab"};
     command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), NULL, 0);
+    char *agents_text = cc_read_text_file(agents_md);
+    char *api_text = cc_read_text_file(api_md);
+    const bool scaffold_ok =
+        agents_text && api_text &&
+        strstr(agents_text, "OpenQuick site agent guide") &&
+        strstr(agents_text, "quick deploy --dry-run") &&
+        strstr(api_text, "quick.warehouse.query(name, params)");
+    if (!scaffold_ok) {
+      fprintf(stderr, "generated scaffold docs missing expected guidance\n");
+    }
     ok = cc_expect_exit(&result, 0) &&
          cc_expect_stdout_contains(&result, "Initialized OpenQuick site") &&
-         cc_file_exists(quick_json) && ok;
+         cc_file_exists(quick_json) && scaffold_ok && ok;
+    free(agents_text);
+    free(api_text);
     cc_command_result_free(&result);
   }
 
