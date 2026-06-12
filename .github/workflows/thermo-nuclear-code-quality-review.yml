@@ -93,7 +93,7 @@ jobs:
 
       - name: Setup Node
         if: steps.pr-number.outputs.skip != 'true'
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v6.4.0
         with:
           node-version: "22"
 
