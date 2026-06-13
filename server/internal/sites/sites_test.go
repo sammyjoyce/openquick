@@ -1,6 +1,8 @@
 package sites
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"openquick.dev/quickd/internal/config"
@@ -31,6 +33,44 @@ func TestValidateSiteNameReservedAndSlug(t *testing.T) {
 				t.Fatalf("ValidateSiteName(%q) err=%v ok=%v", tt.name, err, tt.ok)
 			}
 		})
+	}
+}
+
+func TestReadReleaseConfigToleratesCLIFields(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	// A deployed quick.json carries CLI-only fields (source, output, build,
+	// profile, sdk). The host must accept it and read the shared fields.
+	scaffold := `{
+  "$schema": "https://openquick.dev/schemas/site.v1.json",
+  "name": "demo",
+  "source": ".",
+  "output": ".",
+  "build": null,
+  "profile": null,
+  "subdomain": "demo",
+  "sdk": { "enabled": true, "import": "/_quick/sdk.js" }
+}`
+	if err := os.WriteFile(filepath.Join(dir, "quick.json"), []byte(scaffold), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := ReadReleaseConfig(dir)
+	if err != nil {
+		t.Fatalf("ReadReleaseConfig rejected CLI quick.json: %v", err)
+	}
+	if cfg.Name != "demo" || cfg.Subdomain != "demo" {
+		t.Fatalf("unexpected config: %+v", cfg)
+	}
+}
+
+func TestReadSiteConfigStaysStrict(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "site.json"), []byte(`{"name":"demo","bogus":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadSiteConfig(dir); err == nil {
+		t.Fatal("host-managed site.json with unknown fields should be rejected")
 	}
 }
 

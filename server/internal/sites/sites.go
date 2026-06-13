@@ -153,16 +153,20 @@ func IncomingDir(root, site string) string { return filepath.Join(SiteDir(root, 
 func UploadsDir(root, site string) string  { return filepath.Join(root, "uploads", site) }
 
 func ReadSiteConfig(siteDir string) (SiteConfig, error) {
-	cfg, err := readConfigFile(filepath.Join(siteDir, "site.json"))
+	cfg, err := readConfigFile(filepath.Join(siteDir, "site.json"), true)
 	if errors.Is(err, os.ErrNotExist) {
 		return SiteConfig{}, nil
 	}
 	return cfg, err
 }
 
+// ReadReleaseConfig reads site config shipped inside a release. Deployed
+// quick.json is the CLI's site config and carries CLI-only fields such as
+// "source", "output", and "sdk", so unknown fields are tolerated here;
+// host-managed site.json stays strict in ReadSiteConfig.
 func ReadReleaseConfig(releaseDir string) (SiteConfig, error) {
 	for _, name := range []string{"quick.json", "site.json"} {
-		cfg, err := readConfigFile(filepath.Join(releaseDir, name))
+		cfg, err := readConfigFile(filepath.Join(releaseDir, name), false)
 		if err == nil || !errors.Is(err, os.ErrNotExist) {
 			return cfg, err
 		}
@@ -187,14 +191,16 @@ func MergeSiteConfig(base, override SiteConfig) SiteConfig {
 	return out
 }
 
-func readConfigFile(path string) (SiteConfig, error) {
+func readConfigFile(path string, strict bool) (SiteConfig, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return SiteConfig{}, err
 	}
 	defer f.Close()
 	dec := json.NewDecoder(f)
-	dec.DisallowUnknownFields()
+	if strict {
+		dec.DisallowUnknownFields()
+	}
 	var cfg SiteConfig
 	if err := dec.Decode(&cfg); err != nil {
 		return SiteConfig{}, err

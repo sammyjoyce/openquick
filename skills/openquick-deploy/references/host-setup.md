@@ -114,6 +114,51 @@ Forward local static files to a deployed site's remote APIs only when the user a
 quick serve --dev --remote-api lab
 ```
 
+### Loopback host with real deploys (no edge)
+
+When you want the full prepare/rsync/activate deploy flow on one machine without DNS, TLS, or an edge proxy, run `quickd serve` against a local root and point a profile at `localhost` over SSH:
+
+```json
+{
+  "$schema": "https://openquick.dev/schemas/host.v1.json",
+  "listen": "127.0.0.1:9366",
+  "public_base_domain": "localhost",
+  "remote_root": "/srv/quick",
+  "iap": { "type": "dev" },
+  "viewer": { "require_identity": true, "allow_anonymous": false }
+}
+```
+
+```bash
+quickd serve --config /srv/quick/config/quickd.json --identity sam@example.com
+```
+
+Profile shape for the same machine (requires `ssh localhost` to work non-interactively):
+
+```json
+{
+  "default_profile": "local",
+  "profiles": {
+    "local": {
+      "ssh": "sam@localhost",
+      "remote_root": "/srv/quick",
+      "base_url": "http://localhost:9366/~",
+      "iap": { "type": "none" }
+    }
+  }
+}
+```
+
+Facts that matter in this posture:
+
+- `iap.type: "dev"` with `--identity` gives an authenticated synthetic identity on loopback, so `/_quick/db`, uploads, and realtime work.
+  `iap: none` without an identity serves pages but rejects data APIs with `authentication required`.
+- Deploys stop with an IAP/domain publication message because no edge exists; pass `--allow-unpublished`.
+- `quick doctor` edge probes (`http_health`, `http_identity`) probe `https://<site>.<base_domain>` and fail without DNS/TLS;
+  the working URL is the `base_url` path form `http://localhost:9366/~/<site>`.
+  Set `base_url` (not `base_domain`) in the profile so resolved URLs use the path form.
+- `quickd` resolves over the SSH session's non-interactive PATH; install it somewhere like `/usr/local/bin` or `~/.local/bin` that the default shell exposes.
+
 ## Container option
 
 Build and run the repository container when you need a local smoke host:
