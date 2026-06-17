@@ -30,6 +30,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- `packages.{quick,quickd}` flake outputs build release binaries directly
+  (`nix build .#quick`, `nix build .#quickd`), so packagers no longer have to
+  write their own recipes and `quickd` is no longer easy to miss.
 - Experimental bare non-TTY headless protocol: read a JSON request from stdin
   and dispatch it through the existing command table.
 - Unknown-command errors suggest the closest command ("Did you mean ...?"),

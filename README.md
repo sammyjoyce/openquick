@@ -236,6 +236,13 @@ zig build
 (cd sdk/js && bun run build)
 ```
 
+Or build release binaries with Nix (no toolchain setup needed):
+
+```bash
+nix build .#quick    # headless CLI with the bundled agent skill
+nix build .#quickd   # host daemon
+```
+
 Run the main test layers:
 
 ```bash
