@@ -291,6 +291,35 @@ cd ..
 quick deploy site.zip --site demo --profile lab
 ```
 
+## Activation fails with `json: unknown field`
+
+Symptoms:
+
+- `quick deploy` fails in the activate phase with a message like `json: unknown field "source"`.
+
+Older `quickd` builds parsed a deployed `quick.json` strictly, but the CLI scaffold includes CLI-only fields (`source`, `output`, `build`, `profile`, `sdk`).
+Upgrade `quickd` to a build where release-config parsing tolerates CLI fields. As a workaround on an old host, exclude the file from the transfer:
+
+```bash
+echo "quick.json" >> .quickignore
+quick deploy
+```
+
+Host-managed `sites/<site>/site.json` is still parsed strictly; only the release-shipped `quick.json` is tolerant.
+
+## Data APIs return `authentication required`
+
+Symptoms:
+
+- The page loads but `quick.db`, `quick.uploads`, or DB subscriptions fail with HTTP 401.
+- `/_quick/identity` returns `"authenticated": false` with provider `anonymous`.
+
+State-changing and data APIs require an authenticated identity even when anonymous static viewing is allowed. Fix the identity source rather than the site code:
+
+- On a real host, configure the IAP (`tailscale` or `cloudflare`) so `/_quick/identity` authenticates viewers.
+- On a loopback host without an edge, set `iap.type: "dev"` and start `quickd serve --identity you@example.com` to get a synthetic authenticated identity.
+- `quick serve --dev` already passes `--identity`; check it was not started with an empty value.
+
 ## Build output is missing
 
 Symptoms:
