@@ -91,3 +91,19 @@ test('db.create flattens the data envelope on single documents', async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test('db.create preserves a data id when the parent envelope omits id', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    jsonResponse({
+      data: { id: 'doc-4', choice: 'tea' },
+      created_by: 'dev:sam@example.com',
+    });
+  try {
+    const doc = await quick.db.collection('votes').create({ choice: 'tea' });
+    assert.equal(doc.id, 'doc-4');
+    assert.equal(doc.choice, 'tea');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

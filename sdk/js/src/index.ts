@@ -215,7 +215,11 @@ function normalizeDocument<T>(value: unknown): T {
   if (value && typeof value === 'object' && 'data' in value) {
     const { data, ...meta } = value as { data?: unknown; id?: unknown };
     if (data && typeof data === 'object' && !Array.isArray(data)) {
-      return { ...meta, ...(data as Record<string, unknown>), id: (value as { id?: unknown }).id } as T;
+      const result = { ...meta, ...(data as Record<string, unknown>) } as Record<string, unknown>;
+      if (Object.prototype.hasOwnProperty.call(value, 'id')) {
+        result.id = (value as { id?: unknown }).id;
+      }
+      return result as T;
     }
   }
   return value as T;

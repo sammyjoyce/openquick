@@ -75,7 +75,11 @@ function normalizeDocument(value) {
   if (value && typeof value === "object" && "data" in value) {
     const { data, ...meta } = value;
     if (data && typeof data === "object" && !Array.isArray(data)) {
-      return { ...meta, ...data, id: value.id };
+      const result = { ...meta, ...data };
+      if (Object.prototype.hasOwnProperty.call(value, "id")) {
+        result.id = value.id;
+      }
+      return result;
     }
   }
   return value;
