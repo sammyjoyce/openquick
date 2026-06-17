@@ -50,6 +50,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   `output`, `build`, `profile`, `sdk`) instead of failing activation with
   `json: unknown field "source"`. Host-managed `site.json` is still parsed
   strictly.
+- The JS SDK now returns documents in the documented `DocumentRecord` shape.
+  `db.list()` unwraps the host's `{"documents": [...]}` envelope, and
+  `create`/`get`/`update` results and DB subscription events flatten the
+  host's `data` envelope so user fields sit next to `id` as documented.
 - Headless JSON requests accept RFC 8259 `\uXXXX` escapes (including UTF-16
   surrogate pairs), matching what standard JSON serializers emit.
 - A config file with an unknown key whose value is a nested object or array no

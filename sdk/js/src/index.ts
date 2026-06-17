@@ -193,14 +193,32 @@ async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> 
   return parseResponse<T>(response);
 }
 
-function normalizeList<T>(value: T[] | { items?: T[] }): T[] {
+function normalizeList<T>(value: T[] | { items?: T[]; documents?: T[] }): T[] {
   if (Array.isArray(value)) {
     return value;
   }
-  if (value && typeof value === 'object' && Array.isArray(value.items)) {
-    return value.items;
+  if (value && typeof value === 'object') {
+    if (Array.isArray(value.documents)) {
+      return value.documents;
+    }
+    if (Array.isArray(value.items)) {
+      return value.items;
+    }
   }
   return [];
+}
+
+// quickd wraps document fields in a `data` envelope alongside server
+// metadata. Flatten to the documented DocumentRecord shape: `id` plus the
+// caller's fields, with metadata kept unless shadowed by user fields.
+function normalizeDocument<T>(value: unknown): T {
+  if (value && typeof value === 'object' && 'data' in value) {
+    const { data, ...meta } = value as { data?: unknown; id?: unknown };
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+      return { ...meta, ...(data as Record<string, unknown>), id: (value as { id?: unknown }).id } as T;
+    }
+  }
+  return value as T;
 }
 
 function notifyIdentity(identity: Identity): void {
@@ -414,24 +432,28 @@ function collection<T = DocumentRecord>(name: string): Collection<T> {
   const channel = `db:${name}`;
 
   return {
-    create(data: Record<string, unknown>): Promise<T> {
-      return requestJson<T>(base, {
-        method: 'POST',
-        headers: jsonHeaders,
-        body: JSON.stringify(data),
-      });
+    async create(data: Record<string, unknown>): Promise<T> {
+      return normalizeDocument<T>(
+        await requestJson<unknown>(base, {
+          method: 'POST',
+          headers: jsonHeaders,
+          body: JSON.stringify(data),
+        }),
+      );
     },
 
-    get(id: string): Promise<T> {
-      return requestJson<T>(`${base}/${encodeURIComponent(requireId(id, 'document id'))}`);
+    async get(id: string): Promise<T> {
+      return normalizeDocument<T>(await requestJson<unknown>(`${base}/${encodeURIComponent(requireId(id, 'document id'))}`));
     },
 
-    update(id: string, patch: Record<string, unknown>): Promise<T> {
-      return requestJson<T>(`${base}/${encodeURIComponent(requireId(id, 'document id'))}`, {
-        method: 'PATCH',
-        headers: jsonHeaders,
-        body: JSON.stringify(patch),
-      });
+    async update(id: string, patch: Record<string, unknown>): Promise<T> {
+      return normalizeDocument<T>(
+        await requestJson<unknown>(`${base}/${encodeURIComponent(requireId(id, 'document id'))}`, {
+          method: 'PATCH',
+          headers: jsonHeaders,
+          body: JSON.stringify(patch),
+        }),
+      );
     },
 
     async remove(id: string): Promise<void> {
@@ -441,17 +463,18 @@ function collection<T = DocumentRecord>(name: string): Collection<T> {
     },
 
     async list(): Promise<T[]> {
-      return normalizeList<T>(await requestJson<T[] | { items?: T[] }>(base));
+      const raw = await requestJson<unknown[] | { items?: unknown[]; documents?: unknown[] }>(base);
+      return normalizeList<unknown>(raw).map((doc) => normalizeDocument<T>(doc));
     },
 
     async subscribe(handlers: DbSubscriptionHandlers<T>): Promise<() => void> {
       const unsubs: Array<() => void> = [];
 
       if (handlers.onCreate) {
-        unsubs.push(realtimeClient.on(channel, 'create', (data) => handlers.onCreate?.(data as T), handlers.since));
+        unsubs.push(realtimeClient.on(channel, 'create', (data) => handlers.onCreate?.(normalizeDocument<T>(data)), handlers.since));
       }
       if (handlers.onUpdate) {
-        unsubs.push(realtimeClient.on(channel, 'update', (data) => handlers.onUpdate?.(data as T), handlers.since));
+        unsubs.push(realtimeClient.on(channel, 'update', (data) => handlers.onUpdate?.(normalizeDocument<T>(data)), handlers.since));
       }
       if (handlers.onDelete) {
         unsubs.push(
