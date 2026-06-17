@@ -20,7 +20,7 @@
       devShells = eachSystem (
         system:
         let
-          pkgs = import nixpkgs { inherit system; };
+          pkgs = nixpkgs.legacyPackages.${system};
           lib = pkgs.lib;
           ncursesDev = lib.getDev pkgs.ncurses;
           ncursesLib = lib.getLib pkgs.ncurses;
@@ -125,7 +125,7 @@
       packages = eachSystem (
         system:
         let
-          pkgs = import nixpkgs { inherit system; };
+          pkgs = nixpkgs.legacyPackages.${system};
           lib = pkgs.lib;
           zig = pkgs.zig_0_16 or pkgs.zig;
 
@@ -153,15 +153,15 @@
                 -Doptimize=ReleaseSafe \
                 -Denable-tui=false \
                 -Dcli-terminfo=disabled \
-                -Dstrip=true \
-                --prefix "$out" \
-                install
+                -Dstrip=true
 
               runHook postBuild
             '';
 
             installPhase = ''
               runHook preInstall
+
+              install -Dm755 zig-out/bin/quick "$out/bin/quick"
 
               mkdir -p "$out/share/agent-skills"
               cp -R skills/openquick-deploy "$out/share/agent-skills/openquick"
@@ -224,7 +224,7 @@
       formatter = eachSystem (
         system:
         let
-          pkgs = import nixpkgs { inherit system; };
+          pkgs = nixpkgs.legacyPackages.${system};
         in
         pkgs.writeShellScriptBin "format-nix" ''
           if [ "$#" -eq 0 ]; then
