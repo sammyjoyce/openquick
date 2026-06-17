@@ -28,3 +28,82 @@ test('OpenQuick SDK surface shape', () => {
   assert.equal(typeof channel.on, 'function');
   assert.equal(typeof channel.send, 'function');
 });
+
+function jsonResponse(body) {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+test('db.list unwraps the quickd documents envelope and data nesting', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    jsonResponse({
+      documents: [
+        {
+          id: 'doc-1',
+          data: { text: 'hello', by: 'sam@example.com' },
+          created_by: 'dev:sam@example.com',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+    });
+  try {
+    const docs = await quick.db.collection('notes').list();
+    assert.equal(docs.length, 1);
+    assert.equal(docs[0].id, 'doc-1');
+    assert.equal(docs[0].text, 'hello');
+    assert.equal(docs[0].by, 'sam@example.com');
+    assert.equal(docs[0].created_by, 'dev:sam@example.com');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('db.list still accepts a bare array of flat documents', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => jsonResponse([{ id: 'doc-2', text: 'flat' }]);
+  try {
+    const docs = await quick.db.collection('notes').list();
+    assert.equal(docs.length, 1);
+    assert.equal(docs[0].id, 'doc-2');
+    assert.equal(docs[0].text, 'flat');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('db.create flattens the data envelope on single documents', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    jsonResponse({
+      id: 'doc-3',
+      data: { choice: 'ramen' },
+      created_by: 'dev:sam@example.com',
+    });
+  try {
+    const doc = await quick.db.collection('votes').create({ choice: 'ramen' });
+    assert.equal(doc.id, 'doc-3');
+    assert.equal(doc.choice, 'ramen');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('db.create preserves a data id when the parent envelope omits id', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    jsonResponse({
+      data: { id: 'doc-4', choice: 'tea' },
+      created_by: 'dev:sam@example.com',
+    });
+  try {
+    const doc = await quick.db.collection('votes').create({ choice: 'tea' });
+    assert.equal(doc.id, 'doc-4');
+    assert.equal(doc.choice, 'tea');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

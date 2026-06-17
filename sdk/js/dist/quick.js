@@ -61,10 +61,28 @@ function normalizeList(value) {
   if (Array.isArray(value)) {
     return value;
   }
-  if (value && typeof value === "object" && Array.isArray(value.items)) {
-    return value.items;
+  if (value && typeof value === "object") {
+    if (Array.isArray(value.documents)) {
+      return value.documents;
+    }
+    if (Array.isArray(value.items)) {
+      return value.items;
+    }
   }
   return [];
+}
+function normalizeDocument(value) {
+  if (value && typeof value === "object" && "data" in value) {
+    const { data, ...meta } = value;
+    if (data && typeof data === "object" && !Array.isArray(data)) {
+      const result = { ...meta, ...data };
+      if (Object.prototype.hasOwnProperty.call(value, "id")) {
+        result.id = value.id;
+      }
+      return result;
+    }
+  }
+  return value;
 }
 function notifyIdentity(identity) {
   for (const listener of Array.from(identityListeners)) {
@@ -242,22 +260,22 @@ function collection(name) {
   const base = apiPath("db", name);
   const channel = `db:${name}`;
   return {
-    create(data) {
-      return requestJson(base, {
+    async create(data) {
+      return normalizeDocument(await requestJson(base, {
         method: "POST",
         headers: jsonHeaders,
         body: JSON.stringify(data)
-      });
+      }));
     },
-    get(id) {
-      return requestJson(`${base}/${encodeURIComponent(requireId(id, "document id"))}`);
+    async get(id) {
+      return normalizeDocument(await requestJson(`${base}/${encodeURIComponent(requireId(id, "document id"))}`));
     },
-    update(id, patch) {
-      return requestJson(`${base}/${encodeURIComponent(requireId(id, "document id"))}`, {
+    async update(id, patch) {
+      return normalizeDocument(await requestJson(`${base}/${encodeURIComponent(requireId(id, "document id"))}`, {
         method: "PATCH",
         headers: jsonHeaders,
         body: JSON.stringify(patch)
-      });
+      }));
     },
     async remove(id) {
       await requestJson(`${base}/${encodeURIComponent(requireId(id, "document id"))}`, {
@@ -265,15 +283,16 @@ function collection(name) {
       });
     },
     async list() {
-      return normalizeList(await requestJson(base));
+      const raw = await requestJson(base);
+      return normalizeList(raw).map((doc) => normalizeDocument(doc));
     },
     async subscribe(handlers) {
       const unsubs = [];
       if (handlers.onCreate) {
-        unsubs.push(realtimeClient.on(channel, "create", (data) => handlers.onCreate?.(data), handlers.since));
+        unsubs.push(realtimeClient.on(channel, "create", (data) => handlers.onCreate?.(normalizeDocument(data)), handlers.since));
       }
       if (handlers.onUpdate) {
-        unsubs.push(realtimeClient.on(channel, "update", (data) => handlers.onUpdate?.(data), handlers.since));
+        unsubs.push(realtimeClient.on(channel, "update", (data) => handlers.onUpdate?.(normalizeDocument(data)), handlers.since));
       }
       if (handlers.onDelete) {
         unsubs.push(realtimeClient.on(channel, "delete", (data) => handlers.onDelete?.(typeof data === "string" ? data : String(data?.id || "")), handlers.since));
