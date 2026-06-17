@@ -74,6 +74,19 @@ func TestReadSiteConfigStaysStrict(t *testing.T) {
 	}
 }
 
+func TestReadReleaseConfigSiteJSONStaysStrict(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	// A release-shipped site.json is not the CLI's quick.json, so it should
+	// still reject unknown fields to surface typos.
+	if err := os.WriteFile(filepath.Join(dir, "site.json"), []byte(`{"name":"demo","bogus":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadReleaseConfig(dir); err == nil {
+		t.Fatal("release site.json with unknown fields should be rejected")
+	}
+}
+
 func TestSplitPathFallback(t *testing.T) {
 	site, p, ok := SplitPathFallback("/~/demo/assets/app.js")
 	if !ok || site != "demo" || p != "/assets/app.js" {

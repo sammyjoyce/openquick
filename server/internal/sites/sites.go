@@ -162,11 +162,18 @@ func ReadSiteConfig(siteDir string) (SiteConfig, error) {
 
 // ReadReleaseConfig reads site config shipped inside a release. Deployed
 // quick.json is the CLI's site config and carries CLI-only fields such as
-// "source", "output", and "sdk", so unknown fields are tolerated here;
-// host-managed site.json stays strict in ReadSiteConfig.
+// "source", "output", and "sdk", so unknown fields are tolerated for it.
+// A release-shipped site.json stays strict so typos are still caught, matching
+// host-managed site.json in ReadSiteConfig.
 func ReadReleaseConfig(releaseDir string) (SiteConfig, error) {
-	for _, name := range []string{"quick.json", "site.json"} {
-		cfg, err := readConfigFile(filepath.Join(releaseDir, name), false)
+	for _, f := range []struct {
+		name   string
+		strict bool
+	}{
+		{"quick.json", false},
+		{"site.json", true},
+	} {
+		cfg, err := readConfigFile(filepath.Join(releaseDir, f.name), f.strict)
 		if err == nil || !errors.Is(err, os.ErrNotExist) {
 			return cfg, err
 		}
