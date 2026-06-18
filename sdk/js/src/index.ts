@@ -127,9 +127,70 @@ const jsonHeaders = {
 let identityCache: Identity | null = null;
 let identityRequest: Promise<Identity> | null = null;
 const identityListeners = new Set<(identity: Identity) => void>();
+const rootQuickBase = '/_quick';
+
+function normalizeApiBase(value: string): string {
+  const trimmed = value.trim().replace(/\/+$/, '');
+  return trimmed.length > 0 ? trimmed : rootQuickBase;
+}
+
+function locationPathFallbackBase(): string | null {
+  if (typeof location === 'undefined') {
+    return null;
+  }
+
+  const parts = location.pathname.split('/');
+  if (parts.length >= 3 && parts[1] === '~' && parts[2]) {
+    return `/~/${parts[2]}/_quick`;
+  }
+  return null;
+}
+
+function sdkPathBase(): string | null {
+  try {
+    const sdkURL = new URL(import.meta.url);
+    if (!sdkURL.pathname.endsWith('/_quick/sdk.js')) {
+      return null;
+    }
+
+    const base = sdkURL.pathname.slice(0, -'/sdk.js'.length);
+    if (base === rootQuickBase) {
+      return locationPathFallbackBase() || rootQuickBase;
+    }
+    return base;
+  } catch {
+    return null;
+  }
+}
+
+function configuredApiBase(): string | null {
+  const configured = (globalThis as { OPENQUICK_API_BASE?: unknown }).OPENQUICK_API_BASE;
+  return typeof configured === 'string' && configured.trim().length > 0 ? normalizeApiBase(configured) : null;
+}
+
+function detectApiBase(): string {
+  return configuredApiBase() || sdkPathBase() || locationPathFallbackBase() || rootQuickBase;
+}
+
+const apiBase = detectApiBase();
 
 function apiPath(...parts: string[]): string {
-  return `/_quick/${parts.map((part) => encodeURIComponent(part)).join('/')}`;
+  const suffix = parts.map((part) => encodeURIComponent(part)).join('/');
+  return suffix ? `${apiBase}/${suffix}` : apiBase;
+}
+
+function realtimeURL(...parts: string[]): string {
+  const pageURL = typeof location === 'undefined' ? 'http://localhost/' : location.href;
+  const url = new URL(apiPath(...parts), pageURL);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  return url.href;
+}
+
+function pathAwareURL<T extends { url?: string }>(value: T): T {
+  if (!value || typeof value !== 'object' || typeof value.url !== 'string' || !value.url.startsWith(`${rootQuickBase}/`)) {
+    return value;
+  }
+  return { ...value, url: `${apiBase}${value.url.slice(rootQuickBase.length)}` };
 }
 
 function requireId(id: string, label: string): string {
@@ -360,7 +421,7 @@ class RealtimeClient {
       return this.socket;
     }
 
-    const socket = new WebSocket('/_quick/realtime');
+    const socket = new WebSocket(realtimeURL('realtime'));
     this.socket = socket;
     this.openPromise = null;
 
@@ -513,14 +574,16 @@ async function putUpload(file: File | Blob, options: UploadOptions = {}): Promis
   form.append('file', file, name);
   form.append('name', name);
 
-  return requestJson<Upload>(apiPath('uploads'), {
+  const upload = await requestJson<Upload>(apiPath('uploads'), {
     method: 'POST',
     body: form,
   });
+  return pathAwareURL(upload);
 }
 
-function getUpload(id: string): Promise<Upload> {
-  return requestJson<Upload>(apiPath('uploads', requireId(id, 'upload id')));
+async function getUpload(id: string): Promise<Upload> {
+  const upload = await requestJson<Upload>(apiPath('uploads', requireId(id, 'upload id')));
+  return pathAwareURL(upload);
 }
 
 async function removeUpload(id: string): Promise<void> {
@@ -746,11 +809,12 @@ async function image(prompt: string, options: ImageOptions = {}): Promise<ImageR
     body.size = size;
   }
 
-  return requestJson<ImageResponse>(apiPath('ai', 'images'), {
+  const image = await requestJson<ImageResponse>(apiPath('ai', 'images'), {
     method: 'POST',
     headers: jsonHeaders,
     body: JSON.stringify(body),
   });
+  return pathAwareURL(image);
 }
 
 async function warehouseQuery(name: string, params: WarehouseParams = {}): Promise<WarehouseQueryResult> {

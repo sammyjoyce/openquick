@@ -2241,6 +2241,15 @@ static bool quick_doctor_identity_shape_ok(const char *json) {
   return ok;
 }
 
+static bool quick_doctor_identity_looks_like_login_gate(const char *body) {
+  if (!body || body[0] == '\0') {
+    return false;
+  }
+  return strstr(body, "__exe.dev/login") || strstr(body, "Temporary Redirect") ||
+         strstr(body, "Cloudflare Access") || strstr(body, "Sign in") ||
+         strstr(body, "Login") || strstr(body, "login");
+}
+
 static app_error quick_doctor_curl_get(const char *url,
                                        quick_process_result_t *res) {
   char *const argv[] = {"curl", "-fsS", "--max-time", "5", (char *)url,
@@ -2286,16 +2295,23 @@ static app_error quick_doctor_probe_http(quick_doctor_result_t *result,
 
   quick_process_result_t identity = {0};
   err = quick_doctor_curl_get(identity_url, &identity);
-  const bool identity_ok = err == APP_SUCCESS && identity.exit_code == 0 &&
+  const bool identity_http_ok = err == APP_SUCCESS && identity.exit_code == 0;
+  const bool identity_ok = identity_http_ok &&
                            quick_doctor_identity_shape_ok(identity.out);
+  const bool identity_login_gate = identity_http_ok && !identity_ok &&
+                                   quick_doctor_identity_looks_like_login_gate(identity.out);
   char identity_detail[640];
   snprintf(identity_detail, sizeof(identity_detail), "%s%s", identity_url,
-           identity_ok ? "" :
-                         " (identity JSON missing authenticated/provider/subject)");
+           identity_ok ? "" : identity_login_gate
+                             ? " (unauthenticated curl reached a login/redirect page)"
+                             : " (identity JSON missing authenticated/provider/subject)");
   add_err = quick_doctor_add_check(
-      result, "http_identity", "edge/iap", identity_ok ? "ok" : "fail",
+      result, "http_identity", "edge/iap",
+      identity_ok ? "ok" : identity_login_gate ? "warn" : "fail",
       identity_detail,
-      "Ensure /_quick/identity returns authenticated, provider, and subject.");
+      identity_login_gate
+          ? "Run doctor from an authenticated edge session/network, or make the site public only if intended."
+          : "Ensure /_quick/identity returns authenticated, provider, and subject.");
   quick_process_result_destroy(&identity);
   free(health_url);
   free(identity_url);

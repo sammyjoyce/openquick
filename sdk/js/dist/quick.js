@@ -6,8 +6,59 @@ var jsonHeaders = {
 var identityCache = null;
 var identityRequest = null;
 var identityListeners = new Set;
+var rootQuickBase = "/_quick";
+function normalizeApiBase(value) {
+  const trimmed = value.trim().replace(/\/+$/, "");
+  return trimmed.length > 0 ? trimmed : rootQuickBase;
+}
+function locationPathFallbackBase() {
+  if (typeof location === "undefined") {
+    return null;
+  }
+  const parts = location.pathname.split("/");
+  if (parts.length >= 3 && parts[1] === "~" && parts[2]) {
+    return `/~/${parts[2]}/_quick`;
+  }
+  return null;
+}
+function sdkPathBase() {
+  try {
+    const sdkURL = new URL(import.meta.url);
+    if (!sdkURL.pathname.endsWith("/_quick/sdk.js")) {
+      return null;
+    }
+    const base = sdkURL.pathname.slice(0, -"/sdk.js".length);
+    if (base === rootQuickBase) {
+      return locationPathFallbackBase() || rootQuickBase;
+    }
+    return base;
+  } catch {
+    return null;
+  }
+}
+function configuredApiBase() {
+  const configured = globalThis.OPENQUICK_API_BASE;
+  return typeof configured === "string" && configured.trim().length > 0 ? normalizeApiBase(configured) : null;
+}
+function detectApiBase() {
+  return configuredApiBase() || sdkPathBase() || locationPathFallbackBase() || rootQuickBase;
+}
+var apiBase = detectApiBase();
 function apiPath(...parts) {
-  return `/_quick/${parts.map((part) => encodeURIComponent(part)).join("/")}`;
+  const suffix = parts.map((part) => encodeURIComponent(part)).join("/");
+  return suffix ? `${apiBase}/${suffix}` : apiBase;
+}
+function realtimeURL(...parts) {
+  const pageURL = typeof location === "undefined" ? "http://localhost/" : location.href;
+  const url = new URL(apiPath(...parts), pageURL);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.href;
+}
+function pathAwareURL(value) {
+  if (!value || typeof value !== "object" || typeof value.url !== "string" || !value.url.startsWith(`${rootQuickBase}/`)) {
+    return value;
+  }
+  return { ...value, url: `${apiBase}${value.url.slice(rootQuickBase.length)}` };
 }
 function requireId(id, label) {
   if (typeof id !== "string" || id.length === 0) {
@@ -198,7 +249,7 @@ class RealtimeClient {
     if (this.socket && this.socket.readyState !== WebSocket.CLOSED) {
       return this.socket;
     }
-    const socket = new WebSocket("/_quick/realtime");
+    const socket = new WebSocket(realtimeURL("realtime"));
     this.socket = socket;
     this.openPromise = null;
     socket.addEventListener("open", () => {
@@ -315,13 +366,15 @@ async function putUpload(file, options = {}) {
   const form = new FormData;
   form.append("file", file, name);
   form.append("name", name);
-  return requestJson(apiPath("uploads"), {
+  const upload = await requestJson(apiPath("uploads"), {
     method: "POST",
     body: form
   });
+  return pathAwareURL(upload);
 }
-function getUpload(id) {
-  return requestJson(apiPath("uploads", requireId(id, "upload id")));
+async function getUpload(id) {
+  const upload = await requestJson(apiPath("uploads", requireId(id, "upload id")));
+  return pathAwareURL(upload);
 }
 async function removeUpload(id) {
   await requestJson(apiPath("uploads", requireId(id, "upload id")), {
@@ -499,11 +552,12 @@ async function image(prompt, options = {}) {
   if (size !== undefined) {
     body.size = size;
   }
-  return requestJson(apiPath("ai", "images"), {
+  const image2 = await requestJson(apiPath("ai", "images"), {
     method: "POST",
     headers: jsonHeaders,
     body: JSON.stringify(body)
   });
+  return pathAwareURL(image2);
 }
 async function warehouseQuery(name, params = {}) {
   requireId(name, "warehouse query name");

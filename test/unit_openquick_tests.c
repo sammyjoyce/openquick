@@ -564,6 +564,107 @@ static bool test_doctor_op_returns_structured_checks(void) {
   return ok;
 }
 
+static bool test_doctor_private_identity_redirect_is_warning(void) {
+#ifndef _WIN32
+  char bin_dir[] = "/tmp/openquick-doctor-private-bin-XXXXXX";
+  const char *old_path_env = getenv("PATH");
+  const bool had_path = old_path_env != NULL;
+  char *old_path = old_path_env ? strdup(old_path_env) : NULL;
+  if (had_path && !old_path) return false;
+
+  quick_profile_config_t profiles;
+  quick_profile_config_init(&profiles);
+  quick_doctor_result_t result;
+  quick_doctor_result_init(&result);
+  bool ok = false;
+
+  if (!make_temp_dir(bin_dir)) {
+    goto cleanup;
+  }
+  char rsync_path[256];
+  char ssh_path[256];
+  char curl_path[256];
+  snprintf(rsync_path, sizeof(rsync_path), "%s/rsync", bin_dir);
+  snprintf(ssh_path, sizeof(ssh_path), "%s/ssh", bin_dir);
+  snprintf(curl_path, sizeof(curl_path), "%s/curl", bin_dir);
+
+  if (!write_executable_file(rsync_path, "#!/bin/sh\nexit 0\n") ||
+      !write_executable_file(
+          ssh_path,
+          "#!/bin/sh\n"
+          "if [ \"$2\" = quickd ] && [ \"$3\" = doctor ]; then\n"
+          "  printf '%s\\n' '{\"format_version\":\"1.0\",\"ok\":true}'\n"
+          "  exit 0\n"
+          "fi\n"
+          "if [ \"$2\" = quickd ] && [ \"$3\" = admin ]; then\n"
+          "  printf '%s\\n' '{\"sites\":1,\"releases\":2}'\n"
+          "  exit 0\n"
+          "fi\n"
+          "exit 1\n") ||
+      !write_executable_file(
+          curl_path,
+          "#!/bin/sh\n"
+          "case \"$4\" in\n"
+          "  */_quick/health) printf '%s\\n' '{\"format_version\":\"1.0\",\"ok\":true}' ; exit 0 ;;\n"
+          "  */_quick/identity) printf '%s\\n' '<a href=\"/__exe.dev/login\">Temporary Redirect</a>' ; exit 0 ;;\n"
+          "esac\n"
+          "exit 1\n")) {
+    goto cleanup;
+  }
+  setenv("PATH", bin_dir, 1);
+
+  profiles.default_profile = strdup("lab");
+  quick_profile_t *p = quick_profile_config_upsert(&profiles, "lab");
+  if (!profiles.default_profile || !p) {
+    goto cleanup;
+  }
+  p->ssh = strdup("quick@box");
+  p->remote_root = strdup("/srv/quick");
+  p->base_url = strdup("https://quick.example.com/~/");
+  if (!p->ssh || !p->remote_root || !p->base_url) {
+    goto cleanup;
+  }
+
+  quick_doctor_request_t req = {.profiles = &profiles,
+                                .profile = "lab",
+                                .site = "demo",
+                                .remote = true};
+  if (quick_op_doctor(&req, &result) != APP_SUCCESS || !result.ok) {
+    goto cleanup;
+  }
+  for (size_t i = 0; i < result.count; i++) {
+    if (result.checks[i].name && strcmp(result.checks[i].name, "http_identity") == 0) {
+      ok = result.checks[i].status == QUICK_DOCTOR_STATUS_WARN &&
+           result.checks[i].detail && strstr(result.checks[i].detail, "login/redirect") != NULL;
+      break;
+    }
+  }
+
+cleanup:
+  if (had_path) {
+    setenv("PATH", old_path, 1);
+  } else {
+    unsetenv("PATH");
+  }
+  free(old_path);
+  quick_doctor_result_destroy(&result);
+  quick_profile_config_destroy(&profiles);
+  if (bin_dir[0]) {
+    char cleanup_path[256];
+    snprintf(cleanup_path, sizeof(cleanup_path), "%s/rsync", bin_dir);
+    unlink(cleanup_path);
+    snprintf(cleanup_path, sizeof(cleanup_path), "%s/ssh", bin_dir);
+    unlink(cleanup_path);
+    snprintf(cleanup_path, sizeof(cleanup_path), "%s/curl", bin_dir);
+    unlink(cleanup_path);
+    rmdir(bin_dir);
+  }
+  return ok;
+#else
+  return true;
+#endif
+}
+
 static bool test_tui_product_model_helpers(void) {
   quick_list_item_t item = {.name = "demo",
                             .url = "https://demo.quick.example.com",
@@ -709,6 +810,8 @@ void run_openquick_unit_tests(unit_stats_t *stats) {
               "domain op rejects unsafe domain values");
   unit_record(stats, test_doctor_op_returns_structured_checks(),
               "doctor op returns structured checks");
+  unit_record(stats, test_doctor_private_identity_redirect_is_warning(),
+              "doctor treats private identity redirects as warning");
   unit_record(stats, test_tui_product_model_helpers(),
               "TUI product model formats rows and validates profile fields");
   unit_record(stats, test_mint_dev_token_parses_json(),
