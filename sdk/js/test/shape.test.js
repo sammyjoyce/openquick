@@ -189,3 +189,47 @@ test('SDK falls back to root API routes when location pathname is unavailable', 
     }
   }
 });
+
+test('SDK uses path-fallback WebSocket routes for realtime', async () => {
+  const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');
+  const originalWebSocket = globalThis.WebSocket;
+  Object.defineProperty(globalThis, 'location', {
+    configurable: true,
+    value: {
+      href: 'https://quick.example.com/~/demo/app/',
+      pathname: '/~/demo/app/',
+      protocol: 'https:',
+      host: 'quick.example.com',
+    },
+  });
+
+  const seen = [];
+  class FakeWebSocket {
+    static OPEN = 1;
+    static CLOSED = 3;
+
+    constructor(url) {
+      this.url = url;
+      this.readyState = 0;
+      seen.push(String(url));
+    }
+
+    addEventListener() {}
+    removeEventListener() {}
+    send() {}
+  }
+  globalThis.WebSocket = FakeWebSocket;
+
+  try {
+    const { quick: scopedQuick } = await import(`../dist/quick.js?realtime-path-fallback=${Date.now()}`);
+    scopedQuick.realtime.channel('room').send('cursor', { x: 1 });
+    assert.equal(seen[0], 'wss://quick.example.com/~/demo/_quick/realtime');
+  } finally {
+    globalThis.WebSocket = originalWebSocket;
+    if (originalLocation) {
+      Object.defineProperty(globalThis, 'location', originalLocation);
+    } else {
+      delete globalThis.location;
+    }
+  }
+});
