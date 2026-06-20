@@ -157,3 +157,35 @@ test('SDK uses path-fallback API routes when the page is under /~/site', async (
     }
   }
 });
+
+test('SDK falls back to root API routes when location pathname is unavailable', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');
+  Object.defineProperty(globalThis, 'location', {
+    configurable: true,
+    value: {
+      href: 'https://quick.example.com/app/',
+      protocol: 'https:',
+      host: 'quick.example.com',
+    },
+  });
+
+  const seen = [];
+  globalThis.fetch = async (path) => {
+    seen.push(String(path));
+    return jsonResponse({ authenticated: false, provider: 'anonymous', subject: 'anonymous' });
+  };
+
+  try {
+    const { quick: scopedQuick } = await import(`../dist/quick.js?missing-pathname=${Date.now()}`);
+    await scopedQuick.identity.current();
+    assert.equal(seen[0], '/_quick/identity');
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalLocation) {
+      Object.defineProperty(globalThis, 'location', originalLocation);
+    } else {
+      delete globalThis.location;
+    }
+  }
+});

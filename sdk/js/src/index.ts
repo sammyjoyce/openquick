@@ -129,13 +129,8 @@ let identityRequest: Promise<Identity> | null = null;
 const identityListeners = new Set<(identity: Identity) => void>();
 const rootQuickBase = '/_quick';
 
-function normalizeApiBase(value: string): string {
-  const trimmed = value.trim().replace(/\/+$/, '');
-  return trimmed.length > 0 ? trimmed : rootQuickBase;
-}
-
 function locationPathFallbackBase(): string | null {
-  if (typeof location === 'undefined') {
+  if (typeof location === 'undefined' || typeof location.pathname !== 'string') {
     return null;
   }
 
@@ -163,13 +158,8 @@ function sdkPathBase(): string | null {
   }
 }
 
-function configuredApiBase(): string | null {
-  const configured = (globalThis as { OPENQUICK_API_BASE?: unknown }).OPENQUICK_API_BASE;
-  return typeof configured === 'string' && configured.trim().length > 0 ? normalizeApiBase(configured) : null;
-}
-
 function detectApiBase(): string {
-  return configuredApiBase() || sdkPathBase() || locationPathFallbackBase() || rootQuickBase;
+  return sdkPathBase() || locationPathFallbackBase() || rootQuickBase;
 }
 
 const apiBase = detectApiBase();

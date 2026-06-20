@@ -7,12 +7,8 @@ var identityCache = null;
 var identityRequest = null;
 var identityListeners = new Set;
 var rootQuickBase = "/_quick";
-function normalizeApiBase(value) {
-  const trimmed = value.trim().replace(/\/+$/, "");
-  return trimmed.length > 0 ? trimmed : rootQuickBase;
-}
 function locationPathFallbackBase() {
-  if (typeof location === "undefined") {
+  if (typeof location === "undefined" || typeof location.pathname !== "string") {
     return null;
   }
   const parts = location.pathname.split("/");
@@ -36,12 +32,8 @@ function sdkPathBase() {
     return null;
   }
 }
-function configuredApiBase() {
-  const configured = globalThis.OPENQUICK_API_BASE;
-  return typeof configured === "string" && configured.trim().length > 0 ? normalizeApiBase(configured) : null;
-}
 function detectApiBase() {
-  return configuredApiBase() || sdkPathBase() || locationPathFallbackBase() || rootQuickBase;
+  return sdkPathBase() || locationPathFallbackBase() || rootQuickBase;
 }
 var apiBase = detectApiBase();
 function apiPath(...parts) {
