@@ -564,9 +564,12 @@ static bool test_doctor_op_returns_structured_checks(void) {
   return ok;
 }
 
-static bool test_doctor_private_identity_redirect_is_warning(void) {
 #ifndef _WIN32
-  char bin_dir[] = "/tmp/openquick-doctor-private-bin-XXXXXX";
+static bool check_doctor_identity_response(const char *identity_body,
+                                           quick_doctor_status_t expected_status,
+                                           bool expected_result_ok,
+                                           const char *detail_needle) {
+  char bin_dir[] = "/tmp/openquick-doctor-identity-bin-XXXXXX";
   const char *old_path_env = getenv("PATH");
   const bool had_path = old_path_env != NULL;
   char *old_path = old_path_env ? strdup(old_path_env) : NULL;
@@ -588,6 +591,20 @@ static bool test_doctor_private_identity_redirect_is_warning(void) {
   snprintf(ssh_path, sizeof(ssh_path), "%s/ssh", bin_dir);
   snprintf(curl_path, sizeof(curl_path), "%s/curl", bin_dir);
 
+  char curl_script[1024];
+  int n = snprintf(
+      curl_script, sizeof(curl_script),
+      "#!/bin/sh\n"
+      "case \"$4\" in\n"
+      "  */_quick/health) printf '%%s\\n' '{\"format_version\":\"1.0\",\"ok\":true}' ; exit 0 ;;\n"
+      "  */_quick/identity) printf '%%s\\n' '%s' ; exit 0 ;;\n"
+      "esac\n"
+      "exit 1\n",
+      identity_body);
+  if (n < 0 || (size_t)n >= sizeof(curl_script)) {
+    goto cleanup;
+  }
+
   if (!write_executable_file(rsync_path, "#!/bin/sh\nexit 0\n") ||
       !write_executable_file(
           ssh_path,
@@ -601,14 +618,7 @@ static bool test_doctor_private_identity_redirect_is_warning(void) {
           "  exit 0\n"
           "fi\n"
           "exit 1\n") ||
-      !write_executable_file(
-          curl_path,
-          "#!/bin/sh\n"
-          "case \"$4\" in\n"
-          "  */_quick/health) printf '%s\\n' '{\"format_version\":\"1.0\",\"ok\":true}' ; exit 0 ;;\n"
-          "  */_quick/identity) printf '%s\\n' '<a href=\"/__exe.dev/login\">Temporary Redirect</a>' ; exit 0 ;;\n"
-          "esac\n"
-          "exit 1\n")) {
+      !write_executable_file(curl_path, curl_script)) {
     goto cleanup;
   }
   setenv("PATH", bin_dir, 1);
@@ -629,13 +639,15 @@ static bool test_doctor_private_identity_redirect_is_warning(void) {
                                 .profile = "lab",
                                 .site = "demo",
                                 .remote = true};
-  if (quick_op_doctor(&req, &result) != APP_SUCCESS || !result.ok) {
+  if (quick_op_doctor(&req, &result) != APP_SUCCESS ||
+      result.ok != expected_result_ok) {
     goto cleanup;
   }
   for (size_t i = 0; i < result.count; i++) {
     if (result.checks[i].name && strcmp(result.checks[i].name, "http_identity") == 0) {
-      ok = result.checks[i].status == QUICK_DOCTOR_STATUS_WARN &&
-           result.checks[i].detail && strstr(result.checks[i].detail, "login/redirect") != NULL;
+      ok = result.checks[i].status == expected_status &&
+           (!detail_needle || (result.checks[i].detail &&
+                               strstr(result.checks[i].detail, detail_needle) != NULL));
       break;
     }
   }
@@ -660,6 +672,24 @@ cleanup:
     rmdir(bin_dir);
   }
   return ok;
+}
+#endif
+
+static bool test_doctor_private_identity_redirect_is_warning(void) {
+#ifndef _WIN32
+  return check_doctor_identity_response(
+      "<a href=\"/__exe.dev/login\">Temporary Redirect</a>",
+      QUICK_DOCTOR_STATUS_WARN, true, "login/redirect");
+#else
+  return true;
+#endif
+}
+
+static bool test_doctor_malformed_identity_login_field_is_failure(void) {
+#ifndef _WIN32
+  return check_doctor_identity_response(
+      "{\"authenticated\":true,\"login\":\"sam\"}", QUICK_DOCTOR_STATUS_FAIL,
+      false, "identity JSON missing");
 #else
   return true;
 #endif
@@ -812,6 +842,8 @@ void run_openquick_unit_tests(unit_stats_t *stats) {
               "doctor op returns structured checks");
   unit_record(stats, test_doctor_private_identity_redirect_is_warning(),
               "doctor treats private identity redirects as warning");
+  unit_record(stats, test_doctor_malformed_identity_login_field_is_failure(),
+              "doctor fails malformed identity JSON with login field");
   unit_record(stats, test_tui_product_model_helpers(),
               "TUI product model formats rows and validates profile fields");
   unit_record(stats, test_mint_dev_token_parses_json(),

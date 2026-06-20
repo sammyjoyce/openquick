@@ -2246,8 +2246,7 @@ static bool quick_doctor_identity_looks_like_login_gate(const char *body) {
     return false;
   }
   return strstr(body, "__exe.dev/login") || strstr(body, "Temporary Redirect") ||
-         strstr(body, "Cloudflare Access") || strstr(body, "Sign in") ||
-         strstr(body, "Login") || strstr(body, "login");
+         strstr(body, "Cloudflare Access") || strstr(body, "Sign in");
 }
 
 static app_error quick_doctor_curl_get(const char *url,
