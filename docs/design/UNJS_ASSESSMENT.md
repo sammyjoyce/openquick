@@ -25,7 +25,7 @@ Current SDK artifact:
 
 | Artifact | Raw bytes | gzip `-n` bytes |
 | --- | ---: | ---: |
-| `sdk/js/dist/quick.js` built with `bun build src/index.ts --outfile dist/quick.js --format esm` | 17,516 | 4,619 |
+| `sdk/js/dist/quick.js` built with `bun build src/index.ts --outfile dist/quick.js --format esm` | 17,194 | 4,507 |
 
 The prototype comparison below predates path-fallback prefix support and is kept as a dependency-cost signal against the then-current no-dependency baseline.
 Runtime-package prototype was built in `/tmp/openquick-unjs-sdk-assessment` with
@@ -46,7 +46,7 @@ Build-system prototype was built in `/tmp/openquick-unbuild-assessment` with
 
 | Build path | JS artifact | JS raw bytes | JS gzip `-n` bytes | Types output | Observed build time | Install footprint |
 | --- | --- | ---: | ---: | --- | ---: | --- |
-| Current Bun build | `dist/quick.js` | 17,516 | 4,619 | none | 0.063s wall time | no `node_modules` required |
+| Current Bun build | `dist/quick.js` | 17,194 | 4,507 | none | 0.063s wall time | no `node_modules` required |
 | `unbuild` prototype | `dist-unbuild/quick.mjs` | 15,134 | 3,965 | `quick.d.ts` and `quick.d.mts`, 4,098 bytes each | 1.023s wall time | 68 MiB `node_modules`, 120 top-level dirs |
 
 The `unbuild` output was still a single zero-runtime-dependency ESM artifact and
