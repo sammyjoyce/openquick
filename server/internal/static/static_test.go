@@ -180,6 +180,20 @@ func TestStaticCrossSiteLibraryCORS(t *testing.T) {
 	}
 }
 
+func TestRootSDKServedWithoutSiteRoute(t *testing.T) {
+	h, _ := testStaticHandler(t)
+	rr := perform(h, "localhost:9366", "/_quick/sdk.js")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("sdk status=%d body=%q", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("Content-Type"); !strings.Contains(got, "text/javascript") {
+		t.Fatalf("sdk content-type=%q", got)
+	}
+	if !strings.Contains(rr.Body.String(), "OpenQuick request failed") {
+		t.Fatalf("sdk body missing expected SDK content: %q", rr.Body.String())
+	}
+}
+
 func TestSiteDirectoryRendersRows(t *testing.T) {
 	h, _ := testStaticHandler(t)
 	h.Config.PublicBaseDomain = "quick.example.com"

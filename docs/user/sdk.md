@@ -12,7 +12,7 @@ Hosted sites import the SDK from the same origin:
 </script>
 ```
 
-The SDK uses relative `/_quick/*` URLs only. It has no runtime dependencies.
+The SDK has no runtime dependencies. It calls same-origin `/_quick/*` APIs on wildcard site hosts and automatically switches to `/~/site/_quick/*` when the current page is served through OpenQuick's path fallback.
 
 ## Top-level API
 
@@ -225,7 +225,7 @@ const image = await quick.ai.image('A small launch badge in flat SVG style', {
   size: '1024x1024',
 });
 
-preview.src = image.url; // usually /_quick/uploads/<id>
+preview.src = image.url; // /_quick/uploads/<id> or /~/site/_quick/uploads/<id> on path fallback
 ```
 
 Types:

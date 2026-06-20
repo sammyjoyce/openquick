@@ -107,3 +107,129 @@ test('db.create preserves a data id when the parent envelope omits id', async ()
     globalThis.fetch = originalFetch;
   }
 });
+
+test('SDK uses path-fallback API routes when the page is under /~/site', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');
+  Object.defineProperty(globalThis, 'location', {
+    configurable: true,
+    value: {
+      href: 'https://quick.example.com/~/demo/app/',
+      pathname: '/~/demo/app/',
+      protocol: 'https:',
+      host: 'quick.example.com',
+    },
+  });
+
+  const seen = [];
+  globalThis.fetch = async (path) => {
+    seen.push(String(path));
+    if (String(path).includes('/uploads/')) {
+      return jsonResponse({ id: 'upload-1', url: '/_quick/uploads/upload-1' });
+    }
+    if (String(path).endsWith('/capabilities')) {
+      return jsonResponse({ ai: true });
+    }
+    if (String(path).endsWith('/ai/images')) {
+      return jsonResponse({ id: 'image-1', url: '/_quick/uploads/image-1' });
+    }
+    return jsonResponse({ authenticated: false, provider: 'anonymous', subject: 'anonymous' });
+  };
+
+  try {
+    const { quick: scopedQuick } = await import(`../dist/quick.js?path-fallback=${Date.now()}`);
+    await scopedQuick.identity.current();
+    const upload = await scopedQuick.uploads.get('upload-1');
+    const image = await scopedQuick.ai.image('draw a badge');
+
+    assert.equal(seen[0], '/~/demo/_quick/identity');
+    assert.equal(seen[1], '/~/demo/_quick/uploads/upload-1');
+    assert.equal(seen[2], '/~/demo/_quick/capabilities');
+    assert.equal(seen[3], '/~/demo/_quick/ai/images');
+    assert.equal(upload.url, '/~/demo/_quick/uploads/upload-1');
+    assert.equal(image.url, '/~/demo/_quick/uploads/image-1');
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalLocation) {
+      Object.defineProperty(globalThis, 'location', originalLocation);
+    } else {
+      delete globalThis.location;
+    }
+  }
+});
+
+test('SDK falls back to root API routes when location pathname is unavailable', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');
+  Object.defineProperty(globalThis, 'location', {
+    configurable: true,
+    value: {
+      href: 'https://quick.example.com/app/',
+      protocol: 'https:',
+      host: 'quick.example.com',
+    },
+  });
+
+  const seen = [];
+  globalThis.fetch = async (path) => {
+    seen.push(String(path));
+    return jsonResponse({ authenticated: false, provider: 'anonymous', subject: 'anonymous' });
+  };
+
+  try {
+    const { quick: scopedQuick } = await import(`../dist/quick.js?missing-pathname=${Date.now()}`);
+    await scopedQuick.identity.current();
+    assert.equal(seen[0], '/_quick/identity');
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalLocation) {
+      Object.defineProperty(globalThis, 'location', originalLocation);
+    } else {
+      delete globalThis.location;
+    }
+  }
+});
+
+test('SDK uses path-fallback WebSocket routes for realtime', async () => {
+  const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');
+  const originalWebSocket = globalThis.WebSocket;
+  Object.defineProperty(globalThis, 'location', {
+    configurable: true,
+    value: {
+      href: 'https://quick.example.com/~/demo/app/',
+      pathname: '/~/demo/app/',
+      protocol: 'https:',
+      host: 'quick.example.com',
+    },
+  });
+
+  const seen = [];
+  class FakeWebSocket {
+    static OPEN = 1;
+    static CLOSED = 3;
+
+    constructor(url) {
+      this.url = url;
+      this.readyState = 0;
+      seen.push(String(url));
+    }
+
+    addEventListener() {}
+    removeEventListener() {}
+    send() {}
+  }
+  globalThis.WebSocket = FakeWebSocket;
+
+  try {
+    const { quick: scopedQuick } = await import(`../dist/quick.js?realtime-path-fallback=${Date.now()}`);
+    scopedQuick.realtime.channel('room').send('cursor', { x: 1 });
+    assert.equal(seen[0], 'wss://quick.example.com/~/demo/_quick/realtime');
+  } finally {
+    globalThis.WebSocket = originalWebSocket;
+    if (originalLocation) {
+      Object.defineProperty(globalThis, 'location', originalLocation);
+    } else {
+      delete globalThis.location;
+    }
+  }
+});

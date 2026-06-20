@@ -134,7 +134,7 @@ Hosted sites import the SDK from the same origin:
 </script>
 ```
 
-The SDK calls only relative `/_quick/*` URLs with same-origin credentials.
+The SDK calls same-origin OpenQuick APIs with credentials, using `/_quick/*` on wildcard site hosts and `/~/site/_quick/*` automatically on path-fallback hosts.
 The stable surface is `quick.identity.current()`, `quick.identity.onChange()`, `quick.db.collection()`, `quick.realtime.channel()`, `quick.uploads.put/get/remove()`,
 `quick.ai.chat/image()`, `quick.warehouse.query()`, and `quick.capabilities()`.
 

@@ -60,6 +60,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.API.ServeHTTP(w, r)
 		return
 	}
+	if r.URL.Path == "/_quick/sdk.js" {
+		// The SDK is site-independent. Serve it at the root as well as under
+		// /~/site so examples using /_quick/sdk.js keep working on path-fallback
+		// hosts; the SDK discovers the active /~/site API prefix in the browser.
+		r = r.WithContext(identity.WithIdentity(api.WithSite(r.Context(), api.SiteContext{Name: "_sdk"}), identity.Anonymous()))
+		h.API.ServeHTTP(w, r)
+		return
+	}
 	if r.URL.Path == "/_quick/domains/ask" {
 		h.handleDomainAsk(w, r)
 		return

@@ -13,9 +13,9 @@ Status: assessed 2026-06-12; documented only; no UnJS runtime or build dependenc
 - OpenQuick should work self-hosted and air-gapped. CDN/package-registry access is
   acceptable for optional developer workflows, not for the default hosted-site
   runtime.
-- SDK requests intentionally use leading-slash paths such as `/_quick/identity`,
-  `/_quick/db/:collection`, and `/_quick/realtime` so they resolve against the
-  page's OpenQuick origin.
+- SDK requests intentionally stay same-origin: `/_quick/*` on wildcard site hosts,
+  and the detected `/~/site/_quick/*` prefix when a site is served through path
+  fallback.
 - Static JavaScript can be shared across sibling OpenQuick sites through the
   sibling-site CORS mechanism, but the `/_quick/*` API remains same-origin.
 
@@ -25,8 +25,9 @@ Current SDK artifact:
 
 | Artifact | Raw bytes | gzip `-n` bytes |
 | --- | ---: | ---: |
-| `sdk/js/dist/quick.js` built with `bun build src/index.ts --outfile dist/quick.js --format esm` | 14,968 | 3,925 |
+| `sdk/js/dist/quick.js` built with `bun build src/index.ts --outfile dist/quick.js --format esm` | 17,194 | 4,507 |
 
+The prototype comparison below predates path-fallback prefix support and is kept as a dependency-cost signal against the then-current no-dependency baseline.
 Runtime-package prototype was built in `/tmp/openquick-unjs-sdk-assessment` with
 `ofetch@1.5.1`, `ufo@1.6.4`, and `destr@2.0.5` installed. Each variant copied
 `sdk/js/src/index.ts` to the same scratch path, changed only the relevant hot
@@ -45,7 +46,7 @@ Build-system prototype was built in `/tmp/openquick-unbuild-assessment` with
 
 | Build path | JS artifact | JS raw bytes | JS gzip `-n` bytes | Types output | Observed build time | Install footprint |
 | --- | --- | ---: | ---: | --- | ---: | --- |
-| Current Bun build | `dist/quick.js` | 14,968 | 3,925 | none | 0.063s wall time | no `node_modules` required |
+| Current Bun build | `dist/quick.js` | 17,194 | 4,507 | none | 0.063s wall time | no `node_modules` required |
 | `unbuild` prototype | `dist-unbuild/quick.mjs` | 15,134 | 3,965 | `quick.d.ts` and `quick.d.mts`, 4,098 bytes each | 1.023s wall time | 68 MiB `node_modules`, 120 top-level dirs |
 
 The `unbuild` output was still a single zero-runtime-dependency ESM artifact and
