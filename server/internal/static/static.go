@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -1094,17 +1095,44 @@ func safeOpen(root, rel string) (*os.File, os.FileInfo, error) {
 }
 
 func acceptsEncoding(header, encoding string) bool {
+	specificSet := false
+	specificAllowed := false
+	wildcardAllowed := false
 	for _, part := range strings.Split(header, ",") {
 		part = strings.TrimSpace(strings.ToLower(part))
 		if part == "" {
 			continue
 		}
-		name := strings.TrimSpace(strings.Split(part, ";")[0])
-		if name == encoding || name == "*" {
-			return true
+		fields := strings.Split(part, ";")
+		name := strings.TrimSpace(fields[0])
+		allowed := acceptEncodingQ(fields) > 0
+		switch name {
+		case encoding:
+			specificSet = true
+			specificAllowed = allowed
+		case "*":
+			wildcardAllowed = allowed
 		}
 	}
-	return false
+	if specificSet {
+		return specificAllowed
+	}
+	return wildcardAllowed
+}
+
+func acceptEncodingQ(fields []string) float64 {
+	q := 1.0
+	for _, field := range fields[1:] {
+		field = strings.TrimSpace(field)
+		if !strings.HasPrefix(field, "q=") {
+			continue
+		}
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(strings.TrimPrefix(field, "q=")), 64)
+		if err == nil {
+			q = parsed
+		}
+	}
+	return q
 }
 
 func precompressedVariant(root, rel, acceptEncoding string) (string, string, bool) {

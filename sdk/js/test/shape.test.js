@@ -64,7 +64,9 @@ test('db.list unwraps the quickd documents envelope and data nesting', async () 
     assert.equal(requestedPath.includes('filter='), true);
     assert.equal(requestedPath.includes('sort=created_at%2Cid'), true);
     assert.equal(docs.length, 1);
-    assert.equal(docs.documents, docs);
+    assert.notEqual(docs.documents, docs);
+    assert.deepEqual(docs.documents, [...docs]);
+    assert.doesNotThrow(() => JSON.stringify(docs));
     assert.equal(docs.next_cursor, 'cursor-2');
     assert.equal(docs.nextCursor, 'cursor-2');
     assert.equal(docs[0].id, 'doc-1');
@@ -123,7 +125,9 @@ test('uploads.list unwraps envelope and pagination metadata', async () => {
     assert.equal(requestedPath.includes('limit=1'), true);
     assert.equal(requestedPath.includes('cursor=u0'), true);
     assert.equal(uploads.length, 1);
-    assert.equal(uploads.uploads, uploads);
+    assert.notEqual(uploads.uploads, uploads);
+    assert.deepEqual(uploads.uploads, [...uploads]);
+    assert.doesNotThrow(() => JSON.stringify(uploads));
     assert.equal(uploads.next_cursor, 'u2');
     assert.equal(uploads.nextCursor, 'u2');
     assert.equal(uploads[0].name, 'a.txt');

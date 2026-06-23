@@ -169,6 +169,22 @@ func TestPrecompressedAssetServing(t *testing.T) {
 	if rr.Code != http.StatusOK || strings.Contains(rr.Header().Get("Content-Encoding"), "br") || rr.Body.String() == "brotli-bytes" {
 		t.Fatalf("fallback status=%d encoding=%q body=%q", rr.Code, rr.Header().Get("Content-Encoding"), rr.Body.String())
 	}
+
+	req = httptest.NewRequest(http.MethodGet, "http://demo.localhost:9366/assets/app.12345678.js", nil)
+	req.Header.Set("Accept-Encoding", "br;q=0, gzip")
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK || rr.Header().Get("Content-Encoding") == "br" || rr.Body.String() == "brotli-bytes" {
+		t.Fatalf("q=0 fallback status=%d encoding=%q body=%q", rr.Code, rr.Header().Get("Content-Encoding"), rr.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "http://demo.localhost:9366/assets/app.12345678.js", nil)
+	req.Header.Set("Accept-Encoding", "br;q=0, *;q=1")
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK || rr.Header().Get("Content-Encoding") == "br" || rr.Body.String() == "brotli-bytes" {
+		t.Fatalf("specific q=0 fallback status=%d encoding=%q body=%q", rr.Code, rr.Header().Get("Content-Encoding"), rr.Body.String())
+	}
 }
 
 func TestPermissionDeniedFriendlyHTMLAndAPIJSON(t *testing.T) {

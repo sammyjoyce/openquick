@@ -269,6 +269,42 @@ static app_error serve_ssh_tee(const app_config_t *config, const char *host,
   return APP_SUCCESS;
 }
 
+static char *serve_trimmed_copy(const char *value) {
+  if (!value) return NULL;
+  const char *start = value;
+  while (*start == ' ' || *start == '\t' || *start == '\r' || *start == '\n') start++;
+  const char *end = start + strlen(start);
+  while (end > start && (end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\r' || end[-1] == '\n')) end--;
+  size_t len = (size_t)(end - start);
+  char *copy = malloc(len + 1U);
+  if (!copy) return NULL;
+  memcpy(copy, start, len);
+  copy[len] = '\0';
+  return copy;
+}
+
+static app_error serve_remote_mktemp_dir(const app_config_t *config,
+                                         const char *host, char **out) {
+  *out = NULL;
+  char *const argv[] = {"mktemp", "-d", "/tmp/openquick-install.XXXXXX", NULL};
+  quick_process_result_t res = {0};
+  app_error err = serve_ssh_capture(host, argv, NULL, &res);
+  if (err != APP_SUCCESS || res.exit_code != 0) {
+    quick_print_error(config, res.err && res.err[0] ? res.err : "remote mktemp failed");
+    quick_process_result_destroy(&res);
+    return err == APP_SUCCESS ? APP_ERROR_IO : err;
+  }
+  char *path = serve_trimmed_copy(res.out);
+  quick_process_result_destroy(&res);
+  if (!path || path[0] == '\0') {
+    free(path);
+    quick_print_error(config, "remote mktemp returned an empty path");
+    return APP_ERROR_IO;
+  }
+  *out = path;
+  return APP_SUCCESS;
+}
+
 static app_error serve_install_execute(const app_config_t *config,
                                        const char *profile_name,
                                        const char *host,
@@ -313,32 +349,31 @@ static app_error serve_install_execute(const app_config_t *config,
     return APP_ERROR_MEMORY;
   }
 
-  char tmp_remote[128];
-#ifndef _WIN32
-  snprintf(tmp_remote, sizeof(tmp_remote), "/tmp/openquick-quickd-%ld", (long)getpid());
-#else
-  snprintf(tmp_remote, sizeof(tmp_remote), "/tmp/openquick-quickd");
-#endif
-  char *scp_dest = malloc(strlen(host) + strlen(tmp_remote) + 2U);
-  if (!scp_dest) {
-    free(unit_for_root);
-    free(host_json);
-    free(quickd);
-    return APP_ERROR_MEMORY;
-  }
-  sprintf(scp_dest, "%s:%s", host, tmp_remote);
+  char *remote_tmp_dir = NULL;
+  char *tmp_remote = NULL;
+  char *scp_dest = NULL;
   char *sites_dir = NULL;
   char *data_dir = NULL;
   char *uploads_dir = NULL;
   char *logs_dir = NULL;
   char *config_dir = NULL;
-  char backup_dir[160];
-#ifndef _WIN32
-  snprintf(backup_dir, sizeof(backup_dir), "/tmp/openquick-install-backup-%ld", (long)getpid());
-#else
-  snprintf(backup_dir, sizeof(backup_dir), "/tmp/openquick-install-backup");
-#endif
+  char *backup_dir = NULL;
   bool backup_created = false;
+
+  err = serve_remote_mktemp_dir(config, host, &remote_tmp_dir);
+  if (err != APP_SUCCESS) goto done;
+  tmp_remote = quick_path_join_cli(remote_tmp_dir, "quickd");
+  backup_dir = quick_path_join_cli(remote_tmp_dir, "backup");
+  if (!tmp_remote || !backup_dir) {
+    err = APP_ERROR_MEMORY;
+    goto done;
+  }
+  scp_dest = malloc(strlen(host) + strlen(tmp_remote) + 2U);
+  if (!scp_dest) {
+    err = APP_ERROR_MEMORY;
+    goto done;
+  }
+  sprintf(scp_dest, "%s:%s", host, tmp_remote);
 
   char *const groupadd[] = {"sudo", "groupadd", "--system", "--force", "quick-deploy", NULL};
   err = serve_ssh_expect(config, host, groupadd);
@@ -483,6 +518,9 @@ done:
   free(uploads_dir);
   free(logs_dir);
   free(config_dir);
+  free(backup_dir);
+  free(tmp_remote);
+  free(remote_tmp_dir);
   free(scp_dest);
   free(unit_for_root);
   free(host_json);

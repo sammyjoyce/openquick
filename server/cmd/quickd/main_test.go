@@ -180,6 +180,35 @@ func TestDomainReadinessAssessment(t *testing.T) {
 	}
 }
 
+func TestDomainsWithReadinessRunsLookupsConcurrentlyAndPreservesOrder(t *testing.T) {
+	recs := []store.DomainRecord{{Domain: "slow-a.example", Site: "demo"}, {Domain: "slow-b.example", Site: "demo"}}
+	started := make(chan string, len(recs))
+	release := make(chan struct{})
+	lookup := func(context.Context, string) ([]string, error) {
+		started <- "started"
+		<-release
+		return []string{"127.0.0.1"}, nil
+	}
+	done := make(chan []domainListRecord, 1)
+	go func() { done <- domainsWithReadiness(context.Background(), recs, lookup) }()
+	for i := 0; i < len(recs); i++ {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatalf("lookup %d did not start before first lookup was released", i)
+		}
+	}
+	close(release)
+	select {
+	case out := <-done:
+		if len(out) != len(recs) || out[0].Domain != recs[0].Domain || out[1].Domain != recs[1].Domain {
+			t.Fatalf("domains order changed: %+v", out)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("domainsWithReadiness did not finish")
+	}
+}
+
 func TestServeDevPortInUseSuggestsRecovery(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

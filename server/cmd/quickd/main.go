@@ -692,9 +692,20 @@ func assessDomainReadiness(ctx context.Context, domain string, lookup domainLook
 }
 
 func domainsWithReadiness(ctx context.Context, recs []store.DomainRecord, lookup domainLookupFunc) []domainListRecord {
-	out := make([]domainListRecord, 0, len(recs))
-	for _, rec := range recs {
-		out = append(out, domainListRecord{DomainRecord: rec, Readiness: assessDomainReadiness(ctx, rec.Domain, lookup)})
+	type result struct {
+		index int
+		rec   domainListRecord
+	}
+	out := make([]domainListRecord, len(recs))
+	ch := make(chan result, len(recs))
+	for i, rec := range recs {
+		go func(index int, record store.DomainRecord) {
+			ch <- result{index: index, rec: domainListRecord{DomainRecord: record, Readiness: assessDomainReadiness(ctx, record.Domain, lookup)}}
+		}(i, rec)
+	}
+	for range recs {
+		res := <-ch
+		out[res.index] = res.rec
 	}
 	return out
 }

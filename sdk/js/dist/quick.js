@@ -161,7 +161,7 @@ function normalizeList(value) {
 }
 function normalizeListResult(value) {
   const docs = normalizeList(value).map((doc) => normalizeDocument(doc));
-  docs.documents = docs;
+  docs.documents = [...docs];
   if (value && typeof value === "object") {
     const next = value.next_cursor ?? value.nextCursor;
     if (typeof next === "string" && next.length > 0) {
@@ -564,7 +564,7 @@ async function listUploads(options = {}) {
     signal: options.signal
   });
   const uploads = (envelope.uploads || []).map(pathAwareURL);
-  uploads.uploads = uploads;
+  uploads.uploads = [...uploads];
   uploads.next_cursor = envelope.next_cursor || undefined;
   uploads.nextCursor = uploads.next_cursor;
   return uploads;

@@ -1025,6 +1025,11 @@ static bool test_serve_install_execute_rolls_back_on_doctor_failure(test_context
   snprintf(quickd_path, sizeof(quickd_path), "%s/quickd", bin_dir);
   const char *ssh_script =
       "#!/bin/sh\n"
+      "case \"$*\" in *mktemp*)\n"
+      "  printf '%s\\n' '/tmp/openquick-install.Abc123'\n"
+      "  exit 0\n"
+      "  ;;\n"
+      "esac\n"
       "if [ \"$2\" = quickd ] && [ \"$3\" = doctor ]; then\n"
       "  printf '%s\\n' '{\"checks\":[{\"status\":\"fail\",\"name\":\"config\"}]}'\n"
       "  exit 0\n"
@@ -1055,7 +1060,7 @@ static bool test_serve_install_execute_rolls_back_on_doctor_failure(test_context
                                        ARRAY_LEN(env));
   char *log = cc_read_text_file(log_path);
   bool ok = cc_expect_exit(&result, APP_ERROR_IO) &&
-            cc_expect_stdout_contains(&result, "backup") &&
+            cc_expect_stdout_contains(&result, "/tmp/openquick-install.Abc123/backup") &&
             cc_expect_stderr_contains(&result, "rollback") &&
             cc_expect_stderr_contains(&result, "previous quickd/config restored") &&
             log && strstr(log, "restore");

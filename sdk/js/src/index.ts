@@ -361,7 +361,7 @@ function normalizeList<T>(value: T[] | { items?: T[]; documents?: T[] }): T[] {
 
 function normalizeListResult<T>(value: unknown): ListResult<T> {
   const docs = normalizeList<unknown>(value as unknown[] | { items?: unknown[]; documents?: unknown[] }).map((doc) => normalizeDocument<T>(doc)) as ListResult<T>;
-  docs.documents = docs;
+  docs.documents = [...docs];
   if (value && typeof value === 'object') {
     const next = (value as { next_cursor?: unknown; nextCursor?: unknown }).next_cursor ?? (value as { nextCursor?: unknown }).nextCursor;
     if (typeof next === 'string' && next.length > 0) {
@@ -834,7 +834,7 @@ async function listUploads(options: UploadListOptions = {}): Promise<UploadListR
     signal: options.signal,
   });
   const uploads = (envelope.uploads || []).map(pathAwareURL) as UploadListResult;
-  uploads.uploads = uploads;
+  uploads.uploads = [...uploads];
   uploads.next_cursor = envelope.next_cursor || undefined;
   uploads.nextCursor = uploads.next_cursor;
   return uploads;
