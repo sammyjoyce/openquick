@@ -24,6 +24,7 @@ typedef struct {
   const char *name;
   quick_init_template_t template_kind;
   const char *profile;
+  bool adopt_existing;
 } quick_init_request_t;
 
 typedef struct {
@@ -80,6 +81,10 @@ typedef struct {
   char *last_deployer;
   char *last_release;
   char *last_deployed_at;
+  char *cleanup_path;
+  char *cleanup_message;
+  bool cleanup_attempted;
+  bool cleanup_ok;
   bool bootstrap_missing;
   bool publication_issue;
   bool overwrite_confirmation_required;
@@ -129,6 +134,9 @@ typedef struct {
   bool remote_ok;
   bool have_local;
   char *remote_json;
+  char *remote_error;
+  char *remote_phase;
+  char *remote_remediation;
   char *site;
   char *profile;
   char *url;
@@ -167,6 +175,7 @@ typedef struct {
   char *profile;
   char *ssh;
   char *delete_json;
+  char *archive;
   bool confirmation_required;
   bool deleted;
 } quick_delete_result_t;
@@ -175,6 +184,57 @@ void quick_delete_result_init(quick_delete_result_t *result);
 void quick_delete_result_destroy(quick_delete_result_t *result);
 app_error quick_op_delete(const quick_delete_request_t *request,
                           quick_delete_result_t *out);
+
+typedef struct {
+  const quick_profile_config_t *profiles;
+  const char *profile;
+  const char *site;
+  const char *archive;
+  bool assume_yes;
+  bool confirmed;
+} quick_restore_request_t;
+
+typedef struct {
+  char *profile;
+  char *ssh;
+  char *remote_json;
+  char *site;
+  char *archive;
+  char *release;
+  char *url;
+  bool confirmation_required;
+  bool restored;
+} quick_restore_result_t;
+
+void quick_restore_result_init(quick_restore_result_t *result);
+void quick_restore_result_destroy(quick_restore_result_t *result);
+app_error quick_op_restore(const quick_restore_request_t *request,
+                           quick_restore_result_t *out);
+
+typedef struct {
+  const quick_profile_config_t *profiles;
+  const char *profile;
+  const char *site;
+  const char *release;
+  bool assume_yes;
+  bool confirmed;
+} quick_rollback_request_t;
+
+typedef struct {
+  quick_remote_site_info_t site;
+  char *profile;
+  char *ssh;
+  char *remote_json;
+  char *release;
+  char *previous_release;
+  bool confirmation_required;
+  bool rolled_back;
+} quick_rollback_result_t;
+
+void quick_rollback_result_init(quick_rollback_result_t *result);
+void quick_rollback_result_destroy(quick_rollback_result_t *result);
+app_error quick_op_rollback(const quick_rollback_request_t *request,
+                            quick_rollback_result_t *out);
 
 typedef enum {
   QUICK_PUBLIC_STATUS = 0,

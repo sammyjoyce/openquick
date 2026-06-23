@@ -7,11 +7,13 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"openquick.dev/quickd/internal/api"
@@ -33,7 +35,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: quickd <serve|deploy|releases|list|sites|domains|admin|doctor>")
+		return errors.New("usage: quickd <serve|deploy|releases|list|sites|domains|audit|admin|doctor|config>")
 	}
 	switch args[0] {
 	case "serve":
@@ -48,12 +50,16 @@ func run(args []string) error {
 		return sitesCmd(args[1:])
 	case "domains":
 		return domainsCmd(args[1:])
+	case "audit":
+		return auditCmd(args[1:])
 	case "admin":
 		return adminCmd(args[1:])
 	case "doctor":
 		return doctorCmd(args[1:])
+	case "config":
+		return configCmd(args[1:])
 	case "help", "-h", "--help":
-		fmt.Println("usage: quickd <serve|deploy|releases|list|sites|domains|admin|doctor>")
+		fmt.Println("usage: quickd <serve|deploy|releases|list|sites|domains|audit|admin|doctor|config>")
 		return nil
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
@@ -84,6 +90,64 @@ func loadAdmin(root string) (config.Config, *store.Store, error) {
 	return cfg, st, nil
 }
 
+func configCmd(args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: quickd config <check|explain>")
+	}
+	fs := flag.NewFlagSet("quickd config "+args[0], flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	var af adminFlags
+	addAdminFlags(fs, &af)
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	path := filepath.Join(af.root, "config", "quickd.json")
+	cfg, err := config.LoadForRoot(af.root)
+	if err != nil {
+		return err
+	}
+	summary := map[string]any{
+		"format_version":    "1.0",
+		"ok":                true,
+		"path":              path,
+		"exists":            fileExists(path),
+		"listen":            cfg.Listen,
+		"remote_root":       cfg.RemoteRoot,
+		"data_dir":          cfg.DataDir,
+		"iap":               cfg.IAP.Type,
+		"viewer_anonymous":  cfg.Viewer.AllowAnonymous,
+		"directory_enabled": cfg.Directory.Enabled,
+		"public_static":     cfg.PublicStatic.Enabled,
+		"ai_enabled":        cfg.AI.Enabled,
+		"warehouse_enabled": cfg.Warehouse.Enabled,
+		"http_deploy":       cfg.HTTPDeploy.Enabled,
+		"retained_releases": cfg.RetainedReleases,
+		"max_upload_bytes":  cfg.MaxUploadBytes,
+	}
+	switch args[0] {
+	case "check":
+		return printResult(af.json, summary)
+	case "explain":
+		summary["defaults"] = map[string]any{
+			"listen":            "127.0.0.1:9366",
+			"data_dir":          "<remote_root>/data",
+			"remote_root":       af.root,
+			"iap":               "none",
+			"retained_releases": 10,
+			"max_upload_bytes":  100 << 20,
+		}
+		summary["secret_policy"] = "secret values are read from environment variables such as api_key_env and are not printed"
+		return printResult(af.json, summary)
+	default:
+		return fmt.Errorf("unknown config command %q", args[0])
+	}
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 func defaultDeployer() string {
 	for _, k := range []string{"QUICKD_DEPLOYER", "USER", "LOGNAME"} {
 		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
@@ -104,7 +168,7 @@ func defaultSSHUser() string {
 
 func deployCmd(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: quickd deploy <prepare|activate>")
+		return errors.New("usage: quickd deploy <prepare|activate|cleanup>")
 	}
 	switch args[0] {
 	case "prepare":
@@ -160,6 +224,30 @@ func deployCmd(args []string) error {
 		}
 		defer st.Close()
 		res, err := deploy.New(cfg, st).ActivateWithOptions(context.Background(), site, deployID, deploy.ActivateOptions{Subdomain: subdomain, Deployer: deployerName, SSHUser: sshUser, SSHKeyID: sshKeyID, SSHPrincipals: sshPrincipals})
+		if err != nil {
+			return err
+		}
+		return printResult(af.json, res)
+	case "cleanup":
+		fs := flag.NewFlagSet("quickd deploy cleanup", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		var af adminFlags
+		var site, deployID string
+		addAdminFlags(fs, &af)
+		fs.StringVar(&site, "site", "", "site slug")
+		fs.StringVar(&deployID, "deploy-id", "", "deploy id")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if site == "" || deployID == "" {
+			return errors.New("--site and --deploy-id are required")
+		}
+		cfg, st, err := loadAdmin(af.root)
+		if err != nil {
+			return err
+		}
+		defer st.Close()
+		res, err := deploy.New(cfg, st).CleanupIncoming(context.Background(), site, deployID)
 		if err != nil {
 			return err
 		}
@@ -292,9 +380,63 @@ func sitesCmd(args []string) error {
 		return printResult(af.json, res)
 	case "public":
 		return sitesPublicCmd(args[1:])
+	case "restore":
+		return sitesRestoreCmd(args[1:])
+	case "purge":
+		return sitesPurgeCmd(args[1:])
 	default:
 		return fmt.Errorf("unknown sites command %q", args[0])
 	}
+}
+
+func sitesRestoreCmd(args []string) error {
+	fs := flag.NewFlagSet("quickd sites restore", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	var af adminFlags
+	var archive string
+	addAdminFlags(fs, &af)
+	fs.StringVar(&archive, "from", "", "archive path returned by delete")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 || archive == "" {
+		return errors.New("usage: quickd sites restore <site> --from <archive> [--json]")
+	}
+	cfg, st, err := loadAdmin(af.root)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	res, err := deploy.New(cfg, st).RestoreSite(context.Background(), fs.Arg(0), archive)
+	if err != nil {
+		return err
+	}
+	return printResult(af.json, res)
+}
+
+func sitesPurgeCmd(args []string) error {
+	fs := flag.NewFlagSet("quickd sites purge", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	var af adminFlags
+	var archive string
+	addAdminFlags(fs, &af)
+	fs.StringVar(&archive, "from", "", "archive path returned by delete")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if archive == "" {
+		return errors.New("usage: quickd sites purge --from <archive> [--json]")
+	}
+	cfg, st, err := loadAdmin(af.root)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	res, err := deploy.New(cfg, st).PurgeArchive(context.Background(), archive)
+	if err != nil {
+		return err
+	}
+	return printResult(af.json, res)
 }
 
 func sitesPublicCmd(args []string) error {
@@ -354,7 +496,7 @@ func sitesPublicCmd(args []string) error {
 			return err
 		}
 		if !report.Static {
-			return fmt.Errorf("site %s is not static-only", siteName)
+			return fmt.Errorf("site %s is not static-only: %s", siteName, scan.FormatFindings(report.Findings, 5))
 		}
 	}
 	if err := st.SetSitePublic(context.Background(), siteName, on); err != nil {
@@ -364,32 +506,86 @@ func sitesPublicCmd(args []string) error {
 }
 
 func releasesCmd(args []string) error {
-	if len(args) == 0 || args[0] != "verify" {
-		return errors.New("usage: quickd releases verify --site <site> [--release <release>] [--json]")
+	if len(args) == 0 {
+		return errors.New("usage: quickd releases <list|verify|rollback>")
 	}
-	fs := flag.NewFlagSet("quickd releases verify", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	var af adminFlags
-	var siteName, release string
-	addAdminFlags(fs, &af)
-	fs.StringVar(&siteName, "site", "", "site slug")
-	fs.StringVar(&release, "release", "", "release id")
-	if err := fs.Parse(args[1:]); err != nil {
-		return err
+	switch args[0] {
+	case "list":
+		fs := flag.NewFlagSet("quickd releases list", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		var af adminFlags
+		var siteName string
+		addAdminFlags(fs, &af)
+		fs.StringVar(&siteName, "site", "", "site slug")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if siteName == "" {
+			return errors.New("--site is required")
+		}
+		cfg, st, err := loadAdmin(af.root)
+		if err != nil {
+			return err
+		}
+		defer st.Close()
+		res, err := deploy.New(cfg, st).ListReleases(context.Background(), siteName)
+		if err != nil {
+			return err
+		}
+		return printResult(af.json, res)
+	case "verify":
+		fs := flag.NewFlagSet("quickd releases verify", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		var af adminFlags
+		var siteName, release string
+		addAdminFlags(fs, &af)
+		fs.StringVar(&siteName, "site", "", "site slug")
+		fs.StringVar(&release, "release", "", "release id")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if siteName == "" {
+			return errors.New("--site is required")
+		}
+		cfg, st, err := loadAdmin(af.root)
+		if err != nil {
+			return err
+		}
+		defer st.Close()
+		res, err := deploy.New(cfg, st).VerifyReleases(context.Background(), siteName, release)
+		if err != nil {
+			return err
+		}
+		return printResult(af.json, res)
+	case "rollback":
+		fs := flag.NewFlagSet("quickd releases rollback", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		var af adminFlags
+		var siteName, release, deployerName string
+		addAdminFlags(fs, &af)
+		fs.StringVar(&siteName, "site", "", "site slug")
+		fs.StringVar(&release, "to", "", "release id to restore; defaults to previous")
+		fs.StringVar(&release, "release", "", "release id to restore; defaults to previous")
+		fs.StringVar(&deployerName, "deployer", defaultDeployer(), "deployer identity")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if siteName == "" {
+			return errors.New("--site is required")
+		}
+		cfg, st, err := loadAdmin(af.root)
+		if err != nil {
+			return err
+		}
+		defer st.Close()
+		res, err := deploy.New(cfg, st).Rollback(context.Background(), siteName, deploy.RollbackOptions{Release: release, Deployer: deployerName})
+		if err != nil {
+			return err
+		}
+		return printResult(af.json, res)
+	default:
+		return fmt.Errorf("unknown releases command %q", args[0])
 	}
-	if siteName == "" {
-		return errors.New("--site is required")
-	}
-	cfg, st, err := loadAdmin(af.root)
-	if err != nil {
-		return err
-	}
-	defer st.Close()
-	res, err := deploy.New(cfg, st).VerifyReleases(context.Background(), siteName, release)
-	if err != nil {
-		return err
-	}
-	return printResult(af.json, res)
 }
 
 func parseDomainAddArgs(args []string) (adminFlags, string, string, error) {
@@ -462,6 +658,47 @@ func parseDomainRemoveArgs(args []string) (adminFlags, string, error) {
 	return af, domainArg, nil
 }
 
+type domainReadiness struct {
+	Status      string   `json:"status"`
+	DNS         string   `json:"dns"`
+	TLS         string   `json:"tls"`
+	Addresses   []string `json:"addresses,omitempty"`
+	Remediation string   `json:"remediation,omitempty"`
+}
+
+type domainListRecord struct {
+	store.DomainRecord
+	Readiness domainReadiness `json:"readiness"`
+}
+
+type domainLookupFunc func(context.Context, string) ([]string, error)
+
+func assessDomainReadiness(ctx context.Context, domain string, lookup domainLookupFunc) domainReadiness {
+	if lookup == nil {
+		lookup = net.DefaultResolver.LookupHost
+	}
+	ctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	addrs, err := lookup(ctx, domain)
+	if err != nil || len(addrs) == 0 {
+		return domainReadiness{
+			Status:      "fail",
+			DNS:         "fail",
+			TLS:         "pending",
+			Remediation: "create A/AAAA or CNAME records that point this domain at the OpenQuick host, then retry after DNS propagates",
+		}
+	}
+	return domainReadiness{Status: "ok", DNS: "ok", TLS: "ok", Addresses: addrs}
+}
+
+func domainsWithReadiness(ctx context.Context, recs []store.DomainRecord, lookup domainLookupFunc) []domainListRecord {
+	out := make([]domainListRecord, 0, len(recs))
+	for _, rec := range recs {
+		out = append(out, domainListRecord{DomainRecord: rec, Readiness: assessDomainReadiness(ctx, rec.Domain, lookup)})
+	}
+	return out
+}
+
 func domainsCmd(args []string) error {
 	if len(args) == 0 {
 		return errors.New("usage: quickd domains <add|remove|list>")
@@ -520,14 +757,38 @@ func domainsCmd(args []string) error {
 			return err
 		}
 		defer st.Close()
-		recs, err := st.ListDomains(context.Background())
+		ctx := context.Background()
+		recs, err := st.ListDomains(ctx)
 		if err != nil {
 			return err
 		}
-		return printResult(af.json, map[string]any{"format_version": "1.0", "domains": recs})
+		return printResult(af.json, map[string]any{"format_version": "1.0", "domains": domainsWithReadiness(ctx, recs, nil)})
 	default:
 		return fmt.Errorf("unknown domains command %q", args[0])
 	}
+}
+
+func auditCmd(args []string) error {
+	if len(args) == 0 || args[0] != "export" {
+		return errors.New("usage: quickd audit export [--json]")
+	}
+	fs := flag.NewFlagSet("quickd audit export", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	var af adminFlags
+	addAdminFlags(fs, &af)
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	_, st, err := loadAdmin(af.root)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	events, err := st.ExportAudit(context.Background())
+	if err != nil {
+		return err
+	}
+	return printResult(af.json, map[string]any{"format_version": "1.0", "events": events})
 }
 
 func adminCmd(args []string) error {
@@ -833,8 +1094,38 @@ func serveCmd(args []string) error {
 	staticHandler.DevSite = devSite
 	staticHandler.RemoteAPI = remoteAPI
 	staticHandler.RemoteAPIToken = remoteAPIToken
+	ln, err := net.Listen("tcp", cfg.Listen)
+	if err != nil {
+		return listenError(cfg.Listen, err)
+	}
 	log.Printf("quickd listening on %s", cfg.Listen)
-	return http.ListenAndServe(cfg.Listen, staticHandler)
+	return http.Serve(ln, staticHandler)
+}
+
+func listenError(addr string, err error) error {
+	if errors.Is(err, syscall.EADDRINUSE) {
+		_, port, splitErr := net.SplitHostPort(addr)
+		if splitErr != nil || port == "" {
+			port = addr
+		}
+		if alt := freeLoopbackPort(); alt != "" {
+			return fmt.Errorf("listen %s failed: address already in use; port %s is occupied; retry with quick serve --dev --port %s or quickd serve --dev --listen 127.0.0.1:%s", addr, port, alt, alt)
+		}
+		return fmt.Errorf("listen %s failed: address already in use; port %s is occupied; retry with quick serve --dev --port <free-port>", addr, port)
+	}
+	return fmt.Errorf("listen %s failed: %w", addr, err)
+}
+
+func freeLoopbackPort() string {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return ""
+	}
+	defer ln.Close()
+	if tcp, ok := ln.Addr().(*net.TCPAddr); ok {
+		return fmt.Sprintf("%d", tcp.Port)
+	}
+	return ""
 }
 
 func printResult(jsonOut bool, v any) error {

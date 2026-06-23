@@ -70,6 +70,61 @@ type DeleteResult struct {
 	FormatVersion string `json:"format_version"`
 	Site          string `json:"site"`
 	Deleted       bool   `json:"deleted"`
+	Archive       string `json:"archive,omitempty"`
+}
+
+type RestoreResult struct {
+	FormatVersion string `json:"format_version"`
+	Site          string `json:"site"`
+	Archive       string `json:"archive"`
+	Release       string `json:"release,omitempty"`
+	URL           string `json:"url,omitempty"`
+	Restored      bool   `json:"restored"`
+}
+
+type PurgeResult struct {
+	FormatVersion string `json:"format_version"`
+	Archive       string `json:"archive"`
+	Purged        bool   `json:"purged"`
+}
+
+type CleanupResult struct {
+	FormatVersion string `json:"format_version"`
+	Site          string `json:"site"`
+	DeployID      string `json:"deploy_id"`
+	Path          string `json:"path"`
+	Cleaned       bool   `json:"cleaned"`
+}
+
+type RollbackOptions struct {
+	Release  string
+	Deployer string
+}
+
+type RollbackResult struct {
+	FormatVersion   string `json:"format_version"`
+	Site            string `json:"site"`
+	Release         string `json:"release"`
+	PreviousRelease string `json:"previous_release,omitempty"`
+	URL             string `json:"url,omitempty"`
+	Deployer        string `json:"deployer,omitempty"`
+	RolledBack      bool   `json:"rolled_back"`
+}
+
+type ReleaseRecord struct {
+	Release      string `json:"release"`
+	Current      bool   `json:"current"`
+	Previous     bool   `json:"previous"`
+	Deployer     string `json:"deployer,omitempty"`
+	CreatedAt    string `json:"created_at,omitempty"`
+	Verified     bool   `json:"verified"`
+	Verification string `json:"verification"`
+}
+
+type ReleaseListResult struct {
+	FormatVersion string          `json:"format_version"`
+	Site          string          `json:"site"`
+	Releases      []ReleaseRecord `json:"releases"`
 }
 
 type Manifest struct {
@@ -290,15 +345,28 @@ func (s *Service) DeleteSite(ctx context.Context, site string) (*DeleteResult, e
 	siteDir := sites.SiteDir(s.Config.RemoteRoot, site)
 	uploadsDir := sites.UploadsDir(s.Config.RemoteRoot, site)
 	deleted := false
+	archive := ""
 	if _, err := os.Stat(siteDir); err == nil {
 		deleted = true
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	if err := os.RemoveAll(siteDir); err != nil {
-		return nil, err
-	}
-	if err := os.RemoveAll(uploadsDir); err != nil {
+	if deleted {
+		archive = filepath.Join(s.Config.RemoteRoot, ".trash", "sites", fmt.Sprintf("%s-%s", site, time.Now().UTC().Format("20060102T150405.000000000Z")))
+		if err := os.MkdirAll(archive, 0o770); err != nil {
+			return nil, err
+		}
+		if err := os.Rename(siteDir, filepath.Join(archive, "site")); err != nil {
+			return nil, err
+		}
+		if _, err := os.Stat(uploadsDir); err == nil {
+			if err := os.Rename(uploadsDir, filepath.Join(archive, "uploads")); err != nil {
+				return nil, err
+			}
+		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+	} else if err := os.RemoveAll(uploadsDir); err != nil {
 		return nil, err
 	}
 	if s.Store != nil {
@@ -309,7 +377,220 @@ func (s *Service) DeleteSite(ctx context.Context, site string) (*DeleteResult, e
 			return nil, err
 		}
 	}
-	return &DeleteResult{FormatVersion: "1.0", Site: site, Deleted: deleted}, nil
+	return &DeleteResult{FormatVersion: "1.0", Site: site, Deleted: deleted, Archive: archive}, nil
+}
+
+func (s *Service) RestoreSite(ctx context.Context, site, archive string) (*RestoreResult, error) {
+	if err := sites.ValidateSiteName(site, s.Config.Deploy.ReservedNames); err != nil {
+		return nil, err
+	}
+	archive = strings.TrimSpace(archive)
+	if archive == "" {
+		return nil, fmt.Errorf("archive path is required")
+	}
+	trashRoot := filepath.Join(s.Config.RemoteRoot, ".trash")
+	if err := ensurePathUnder(trashRoot, archive); err != nil {
+		return nil, err
+	}
+	archivedSite := filepath.Join(archive, "site")
+	if info, err := os.Stat(archivedSite); err != nil {
+		return nil, err
+	} else if !info.IsDir() {
+		return nil, fmt.Errorf("archive site payload is not a directory")
+	}
+	siteDir := sites.SiteDir(s.Config.RemoteRoot, site)
+	if _, err := os.Stat(siteDir); err == nil {
+		return nil, fmt.Errorf("site %s already exists", site)
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(siteDir), 0o770); err != nil {
+		return nil, err
+	}
+	if err := os.Rename(archivedSite, siteDir); err != nil {
+		return nil, err
+	}
+	uploadsSrc := filepath.Join(archive, "uploads")
+	uploadsDir := sites.UploadsDir(s.Config.RemoteRoot, site)
+	if _, err := os.Stat(uploadsSrc); err == nil {
+		if err := os.MkdirAll(filepath.Dir(uploadsDir), 0o770); err != nil {
+			return nil, err
+		}
+		if err := os.Rename(uploadsSrc, uploadsDir); err != nil {
+			return nil, err
+		}
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	_ = os.Remove(archive)
+
+	subdomain := site
+	if cfg, err := sites.ReadSiteConfig(siteDir); err == nil && cfg.Subdomain != "" {
+		subdomain = cfg.Subdomain
+	}
+	release := linkBase(filepath.Join(siteDir, "current"))
+	if s.Store != nil {
+		if release != "" {
+			if err := s.Store.RecordDeploy(ctx, site, release, "restore", 0, 0, store.DeployAudit{Subdomain: subdomain}); err != nil {
+				return nil, err
+			}
+		} else if _, err := s.Store.EnsureSite(ctx, site, subdomain); err != nil {
+			return nil, err
+		}
+	}
+	return &RestoreResult{FormatVersion: "1.0", Site: site, Archive: archive, Release: release, URL: sites.URLForSubdomain(site, subdomain, s.Config), Restored: true}, nil
+}
+
+func (s *Service) PurgeArchive(ctx context.Context, archive string) (*PurgeResult, error) {
+	_ = ctx
+	archive = strings.TrimSpace(archive)
+	if archive == "" {
+		return nil, fmt.Errorf("archive path is required")
+	}
+	trashRoot := filepath.Join(s.Config.RemoteRoot, ".trash")
+	if err := ensurePathUnder(trashRoot, archive); err != nil {
+		return nil, err
+	}
+	if err := os.RemoveAll(archive); err != nil {
+		return nil, err
+	}
+	return &PurgeResult{FormatVersion: "1.0", Archive: archive, Purged: true}, nil
+}
+
+func (s *Service) CleanupIncoming(ctx context.Context, site, deployID string) (*CleanupResult, error) {
+	_ = ctx
+	if err := sites.ValidateSiteName(site, s.Config.Deploy.ReservedNames); err != nil {
+		return nil, err
+	}
+	if err := sites.ValidateDeployID(deployID); err != nil {
+		return nil, err
+	}
+	incoming := sites.IncomingDir(s.Config.RemoteRoot, site)
+	target := filepath.Join(incoming, deployID)
+	if err := ensurePathUnder(incoming, target); err != nil {
+		return nil, err
+	}
+	cleaned := true
+	if err := os.RemoveAll(target); err != nil {
+		return nil, err
+	}
+	return &CleanupResult{FormatVersion: "1.0", Site: site, DeployID: deployID, Path: target, Cleaned: cleaned}, nil
+}
+
+func (s *Service) Rollback(ctx context.Context, site string, opts RollbackOptions) (*RollbackResult, error) {
+	if err := sites.ValidateSiteName(site, s.Config.Deploy.ReservedNames); err != nil {
+		return nil, err
+	}
+	siteDir := sites.SiteDir(s.Config.RemoteRoot, site)
+	currentTarget, err := os.Readlink(filepath.Join(siteDir, "current"))
+	if err != nil {
+		return nil, fmt.Errorf("current release unavailable: %w", err)
+	}
+	currentRelease := filepath.Base(currentTarget)
+	target := strings.TrimSpace(opts.Release)
+	if target == "" {
+		target = linkBase(filepath.Join(siteDir, "previous"))
+		if target == "" {
+			return nil, fmt.Errorf("previous release unavailable")
+		}
+	}
+	if err := sites.ValidateDeployID(target); err != nil {
+		return nil, err
+	}
+	if target == currentRelease {
+		return nil, fmt.Errorf("release %s is already current", target)
+	}
+	targetDir := filepath.Join(siteDir, "releases", target)
+	if info, err := os.Stat(targetDir); err != nil {
+		return nil, fmt.Errorf("release %s unavailable: %w", target, err)
+	} else if !info.IsDir() {
+		return nil, fmt.Errorf("release %s is not a directory", target)
+	}
+	if err := verifyRelease(targetDir, s.Config.Deploy.Signing.Required); err != nil {
+		return nil, err
+	}
+	files, bytes, _, err := validateTreeAndHash(targetDir)
+	if err != nil {
+		return nil, err
+	}
+	if err := atomicSymlinkSwap(siteDir, "current", filepath.Join("releases", target)); err != nil {
+		return nil, err
+	}
+	if currentTarget != "" {
+		if err := atomicSymlinkSwap(siteDir, "previous", currentTarget); err != nil {
+			return nil, err
+		}
+	}
+	rollbackDeployer := strings.TrimSpace(opts.Deployer)
+	if rollbackDeployer == "" {
+		rollbackDeployer = deployer()
+	}
+	auditDeployer := "rollback:" + rollbackDeployer
+	subdomain := site
+	if s.Store != nil {
+		if rec, err := s.Store.GetSite(ctx, site); err == nil && rec.Subdomain != "" {
+			subdomain = rec.Subdomain
+		}
+		if err := s.Store.RecordDeploy(ctx, site, target, auditDeployer, bytes, files, store.DeployAudit{Subdomain: subdomain}); err != nil {
+			return nil, err
+		}
+	}
+	return &RollbackResult{FormatVersion: "1.0", Site: site, Release: target, PreviousRelease: currentRelease, URL: sites.URLForSubdomain(site, subdomain, s.Config), Deployer: auditDeployer, RolledBack: true}, nil
+}
+
+func (s *Service) ListReleases(ctx context.Context, site string) (*ReleaseListResult, error) {
+	if err := sites.ValidateSiteName(site, s.Config.Deploy.ReservedNames); err != nil {
+		return nil, err
+	}
+	siteDir := sites.SiteDir(s.Config.RemoteRoot, site)
+	releaseDir := filepath.Join(siteDir, "releases")
+	entries, err := os.ReadDir(releaseDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &ReleaseListResult{FormatVersion: "1.0", Site: site, Releases: []ReleaseRecord{}}, nil
+		}
+		return nil, err
+	}
+
+	current := linkBase(filepath.Join(siteDir, "current"))
+	previous := linkBase(filepath.Join(siteDir, "previous"))
+	var audits []store.DeployRecord
+	if s.Store != nil {
+		audits, err = s.Store.DeploysForSite(ctx, site)
+		if err != nil {
+			return nil, err
+		}
+	}
+	auditByRelease := make(map[string]store.DeployRecord, len(audits))
+	for _, audit := range audits {
+		if _, exists := auditByRelease[audit.Release]; !exists {
+			auditByRelease[audit.Release] = audit
+		}
+	}
+
+	releases := make([]ReleaseRecord, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		rec := ReleaseRecord{Release: name, Current: name == current, Previous: name == previous}
+		if audit, ok := auditByRelease[name]; ok {
+			rec.Deployer = audit.Deployer
+			rec.CreatedAt = audit.CreatedAt
+		}
+		if err := verifyRelease(filepath.Join(releaseDir, name), s.Config.Deploy.Signing.Required); err != nil {
+			rec.Verification = err.Error()
+		} else {
+			rec.Verified = true
+			rec.Verification = "ok"
+		}
+		releases = append(releases, rec)
+	}
+	sort.Slice(releases, func(i, j int) bool {
+		return releases[i].Release > releases[j].Release
+	})
+	return &ReleaseListResult{FormatVersion: "1.0", Site: site, Releases: releases}, nil
 }
 
 func (s *Service) Activate(ctx context.Context, site, deployID string) (*ActivateResult, error) {
@@ -610,7 +891,7 @@ func (s *Service) validatePublicRelease(ctx context.Context, site, root string) 
 		return err
 	}
 	if !report.Static {
-		return fmt.Errorf("public site deploy rejected: release uses /_quick APIs")
+		return fmt.Errorf("public site deploy rejected: release uses /_quick APIs: %s", scan.FormatFindings(report.Findings, 5))
 	}
 	return nil
 }
@@ -716,7 +997,7 @@ func (s *Service) VerifyReleases(ctx context.Context, site, release string) (*Ve
 	out := &VerifyResult{FormatVersion: "1.0", OK: true}
 	for _, rel := range releases {
 		out.Checked++
-		if err := verifyRelease(filepath.Join(siteDir, "releases", rel)); err != nil {
+		if err := verifyRelease(filepath.Join(siteDir, "releases", rel), s.Config.Deploy.Signing.Required); err != nil {
 			out.OK = false
 			out.Failures = append(out.Failures, fmt.Sprintf("%s: %v", rel, err))
 		}
@@ -724,7 +1005,7 @@ func (s *Service) VerifyReleases(ctx context.Context, site, release string) (*Ve
 	return out, nil
 }
 
-func verifyRelease(root string) error {
+func verifyRelease(root string, requireSignature bool) error {
 	b, err := os.ReadFile(filepath.Join(root, ".quick-release.json"))
 	if err != nil {
 		return err
@@ -734,22 +1015,25 @@ func verifyRelease(root string) error {
 		return err
 	}
 	if m.Signature == "" || m.PublicKey == "" {
-		return fmt.Errorf("manifest is unsigned")
-	}
-	pub, err := base64.StdEncoding.DecodeString(m.PublicKey)
-	if err != nil || len(pub) != ed25519.PublicKeySize {
-		return fmt.Errorf("invalid public key")
-	}
-	sig, err := base64.StdEncoding.DecodeString(m.Signature)
-	if err != nil || len(sig) != ed25519.SignatureSize {
-		return fmt.Errorf("invalid signature")
-	}
-	canonical, err := canonicalManifest(m)
-	if err != nil {
-		return err
-	}
-	if !ed25519.Verify(ed25519.PublicKey(pub), canonical, sig) {
-		return fmt.Errorf("signature verification failed")
+		if requireSignature {
+			return fmt.Errorf("manifest is unsigned")
+		}
+	} else {
+		pub, err := base64.StdEncoding.DecodeString(m.PublicKey)
+		if err != nil || len(pub) != ed25519.PublicKeySize {
+			return fmt.Errorf("invalid public key")
+		}
+		sig, err := base64.StdEncoding.DecodeString(m.Signature)
+		if err != nil || len(sig) != ed25519.SignatureSize {
+			return fmt.Errorf("invalid signature")
+		}
+		canonical, err := canonicalManifest(m)
+		if err != nil {
+			return err
+		}
+		if !ed25519.Verify(ed25519.PublicKey(pub), canonical, sig) {
+			return fmt.Errorf("signature verification failed")
+		}
 	}
 	files, bytes, hash, err := validateTreeAndHash(root)
 	if err != nil {

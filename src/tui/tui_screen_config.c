@@ -55,6 +55,7 @@ typedef struct {
   quick_tui_app_state_t *state;
   quick_profile_t *profile;
   char action;
+  bool dirty;
 } quick_tui_profile_panel_state_t;
 
 static void quick_tui_profile_panel_redraw(tui_window_t *window,
@@ -90,6 +91,12 @@ static void quick_tui_profile_panel_redraw(tui_window_t *window,
     mvwaddnstr(window->win, y, 3, rows[i].key, 24);
     tui_unset_color(window->win, TUI_COLOR_DIM);
     mvwaddnstr(window->win, y, 29, rows[i].value ? rows[i].value : "", window->width - 32);
+  }
+  if (panel->dirty) {
+    tui_set_color(window->win, TUI_COLOR_WARNING);
+    tui_print_centered(window->win, window->height - 3,
+                       "Unsaved changes - write, save on back, or discard");
+    tui_unset_color(window->win, TUI_COLOR_WARNING);
   }
   tui_set_color(window->win, TUI_COLOR_INFO);
   tui_print_centered(window->win, window->height - 2,
@@ -166,7 +173,7 @@ static void quick_tui_profile_apply_field(quick_profile_t *p,
   }
 }
 
-static void quick_tui_edit_profile_field(quick_profile_t *profile) {
+static bool quick_tui_edit_profile_field(quick_profile_t *profile) {
   static const char *const fields[] = {"ssh", "remote_root", "base_domain",
                                        "base_url", "iap.type", "iap.mode",
                                        "iap.team_domain", "iap.audience",
@@ -188,7 +195,7 @@ static void quick_tui_edit_profile_field(quick_profile_t *profile) {
                                  .show_numeric_keys = true});
   if (r.status != TUI_MENU_OK || r.selected_id < 1 ||
       (size_t)r.selected_id > sizeof(fields) / sizeof(fields[0])) {
-    return;
+    return false;
   }
   const char *field = fields[(size_t)r.selected_id - 1U];
   char scratch[32];
@@ -199,39 +206,109 @@ static void quick_tui_edit_profile_field(quick_profile_t *profile) {
   char value[512];
   if (tui_input_dialog("Edit profile", prompt, value, sizeof(value)) !=
       APP_SUCCESS) {
-    return;
+    return false;
   }
   char message[160];
   if (!quick_tui_validate_profile_field(field, value, message,
                                         sizeof(message))) {
     tui_show_message("Edit profile", message);
-    return;
+    return false;
   }
   quick_tui_profile_apply_field(profile, field, value);
+  return true;
+}
+
+typedef enum {
+  QUICK_TUI_UNSAVED_CANCEL = 0,
+  QUICK_TUI_UNSAVED_SAVE,
+  QUICK_TUI_UNSAVED_DISCARD,
+} quick_tui_unsaved_decision_t;
+
+static quick_tui_unsaved_decision_t quick_tui_profile_unsaved_decision(
+    const char *profile_name) {
+  const tui_menu_item_t items[] = {
+      {.label = "&Save changes",
+       .description = "Write config.json, then leave the profile editor",
+       .id = QUICK_TUI_UNSAVED_SAVE},
+      {.label = "&Discard changes",
+       .description = "Reload config.json and leave without saving edits",
+       .id = QUICK_TUI_UNSAVED_DISCARD},
+      {.label = "&Cancel",
+       .description = "Return to the profile editor with edits intact",
+       .id = QUICK_TUI_UNSAVED_CANCEL},
+  };
+  char subtitle[192];
+  snprintf(subtitle, sizeof(subtitle), "%s has changes not written to config.json",
+           profile_name ? profile_name : "Profile");
+  tui_menu_result_t r = tui_show_menu(
+      NULL, &(tui_menu_config_t){.title = "Unsaved profile changes",
+                                 .subtitle = subtitle,
+                                 .items = items,
+                                 .item_count = (int)(sizeof(items) / sizeof(items[0])),
+                                 .default_index = 2,
+                                 .frame_height = 12,
+                                 .frame_width = 72,
+                                 .show_numeric_keys = true});
+  if (r.status != TUI_MENU_OK) {
+    return QUICK_TUI_UNSAVED_CANCEL;
+  }
+  if (r.selected_id == QUICK_TUI_UNSAVED_SAVE) {
+    return QUICK_TUI_UNSAVED_SAVE;
+  }
+  if (r.selected_id == QUICK_TUI_UNSAVED_DISCARD) {
+    return QUICK_TUI_UNSAVED_DISCARD;
+  }
+  return QUICK_TUI_UNSAVED_CANCEL;
+}
+
+static bool quick_tui_write_profiles(quick_tui_app_state_t *state,
+                                     const char *title) {
+  app_error err = quick_profile_config_write_file(
+      quick_tui_profile_config_path(state), &state->profiles);
+  tui_show_message(title,
+                   err == APP_SUCCESS ? "Profile config written."
+                                      : app_strerror(err));
+  return err == APP_SUCCESS;
 }
 
 static void quick_tui_show_profile(quick_tui_app_state_t *state,
                                    quick_profile_t *profile) {
   bool open = true;
+  bool dirty = false;
   while (open && !tui_interrupted()) {
     quick_tui_profile_panel_state_t panel = {.state = state,
                                              .profile = profile,
-                                             .action = 0};
+                                             .action = 0,
+                                             .dirty = dirty};
     (void)tui_modal_run(18, 80, "Profile", quick_tui_profile_panel_redraw,
                         quick_tui_profile_panel_key, &panel);
     if (panel.action == 'e') {
-      quick_tui_edit_profile_field(profile);
+      if (quick_tui_edit_profile_field(profile)) {
+        dirty = true;
+      }
     } else if (panel.action == 's') {
       (void)quick_tui_set_string(&state->profiles.default_profile,
                                  profile->name);
+      dirty = true;
       tui_show_message("Profile", "Default profile updated in memory. Press w to write config.json.");
     } else if (panel.action == 'w') {
       if (tui_confirm("Write profiles", "Write profile config to disk?")) {
-        app_error err = quick_profile_config_write_file(
-            quick_tui_profile_config_path(state), &state->profiles);
-        tui_show_message("Write profiles",
-                         err == APP_SUCCESS ? "Profile config written."
-                                            : app_strerror(err));
+        if (quick_tui_write_profiles(state, "Write profiles")) {
+          dirty = false;
+        }
+      }
+    } else if (dirty) {
+      quick_tui_unsaved_decision_t decision =
+          quick_tui_profile_unsaved_decision(profile->name);
+      if (decision == QUICK_TUI_UNSAVED_SAVE) {
+        if (quick_tui_write_profiles(state, "Unsaved profile changes")) {
+          dirty = false;
+          open = false;
+        }
+      } else if (decision == QUICK_TUI_UNSAVED_DISCARD) {
+        (void)quick_tui_reload_profiles(state);
+        dirty = false;
+        open = false;
       }
     } else {
       open = false;

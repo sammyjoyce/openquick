@@ -332,6 +332,13 @@ static app_error serve_install_execute(const app_config_t *config,
   char *uploads_dir = NULL;
   char *logs_dir = NULL;
   char *config_dir = NULL;
+  char backup_dir[160];
+#ifndef _WIN32
+  snprintf(backup_dir, sizeof(backup_dir), "/tmp/openquick-install-backup-%ld", (long)getpid());
+#else
+  snprintf(backup_dir, sizeof(backup_dir), "/tmp/openquick-install-backup");
+#endif
+  bool backup_created = false;
 
   char *const groupadd[] = {"sudo", "groupadd", "--system", "--force", "quick-deploy", NULL};
   err = serve_ssh_expect(config, host, groupadd);
@@ -382,6 +389,20 @@ static app_error serve_install_execute(const app_config_t *config,
   err = serve_ssh_expect(config, host, mkdir_config);
 
 dirs_done:
+  if (err == APP_SUCCESS) {
+    char *const backup[] = {
+        "sh", "-c",
+        "set -e; b=$1; sudo install -d -m 0700 \"$b\"; "
+        "[ ! -e /usr/local/bin/quickd ] || sudo cp -p /usr/local/bin/quickd \"$b/quickd\"; "
+        "[ ! -e /etc/openquick/quickd.json ] || sudo cp -p /etc/openquick/quickd.json \"$b/quickd.json\"; "
+        "[ ! -e /etc/systemd/system/openquick.service ] || sudo cp -p /etc/systemd/system/openquick.service \"$b/openquick.service\"",
+        "sh", backup_dir, NULL};
+    err = serve_ssh_expect(config, host, backup);
+    if (err == APP_SUCCESS) {
+      backup_created = true;
+      app_output_format(config, false, "backup     %s", backup_dir);
+    }
+  }
   if (err == APP_SUCCESS) {
     char *const scp_argv[] = {"scp", quickd, scp_dest, NULL};
     quick_process_result_t scp_res = {0};
@@ -435,6 +456,23 @@ dirs_done:
         (doc_res.out && strstr(doc_res.out, "\"status\":\"fail\""))) {
       quick_print_error(config, doc_res.err && doc_res.err[0] ? doc_res.err : "quickd doctor --host --json failed after install");
       err = err == APP_SUCCESS ? APP_ERROR_IO : err;
+      if (backup_created) {
+        app_output_format(config, true, "rollback   restoring backup from %s", backup_dir);
+        char *const restore[] = {
+            "sh", "-c",
+            "set -e; b=$1; "
+            "[ ! -f \"$b/quickd\" ] || sudo cp -p \"$b/quickd\" /usr/local/bin/quickd; "
+            "[ ! -f \"$b/quickd.json\" ] || sudo cp -p \"$b/quickd.json\" /etc/openquick/quickd.json; "
+            "[ ! -f \"$b/openquick.service\" ] || sudo cp -p \"$b/openquick.service\" /etc/systemd/system/openquick.service; "
+            "sudo systemctl daemon-reload; sudo systemctl restart openquick.service || true",
+            "sh", backup_dir, NULL};
+        app_error restore_err = serve_ssh_expect(config, host, restore);
+        if (restore_err == APP_SUCCESS) {
+          app_output("rollback   previous quickd/config restored; inspect backup before removing it", config, true);
+        } else {
+          app_output_format(config, true, "rollback   restore failed; manual backup remains at %s", backup_dir);
+        }
+      }
     }
     quick_process_result_destroy(&doc_res);
   }

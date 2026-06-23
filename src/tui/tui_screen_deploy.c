@@ -282,6 +282,31 @@ static tui_modal_decision_t quick_tui_deploy_result_key(tui_window_t *window,
   return TUI_MODAL_CONTINUE;
 }
 
+static void quick_tui_show_deploy_cancelled(const quick_deploy_result_t *result) {
+  char msg[1200];
+  const char *cleanup = result && result->cleanup_message
+                            ? result->cleanup_message
+                            : (result && result->cleanup_ok
+                                   ? "remote staging cleaned"
+                                   : "remote cleanup status unavailable");
+  if (result && result->cleanup_attempted) {
+    if (result->cleanup_ok) {
+      snprintf(msg, sizeof(msg),
+               "Deploy was cancelled before completion.\n\nCleanup: %s.",
+               cleanup);
+    } else {
+      snprintf(msg, sizeof(msg),
+               "Deploy was cancelled before completion.\n\nCleanup failed: %s\n\nStaging remains: %s",
+               cleanup,
+               result->cleanup_path ? result->cleanup_path : "(unknown)");
+    }
+  } else {
+    snprintf(msg, sizeof(msg),
+             "Deploy was cancelled before completion.\n\nNo remote staging cleanup was needed.");
+  }
+  tui_show_message("Deploy cancelled", msg);
+}
+
 static void quick_tui_show_deploy_failure(app_error err,
                                           const quick_deploy_result_t *result) {
   char msg[1024];
@@ -389,7 +414,7 @@ static void quick_tui_run_deploy(quick_tui_app_state_t *state,
       (void)quick_op_open_url(result.url);
     }
   } else if (err == APP_ERROR_INTERRUPTED || cancelled) {
-    tui_show_message("Deploy cancelled", "Deploy was cancelled before completion.");
+    quick_tui_show_deploy_cancelled(&result);
   } else {
     quick_tui_show_deploy_failure(err, &result);
   }

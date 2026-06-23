@@ -231,7 +231,7 @@ func statusForBodyError(err error) int {
 
 func (s *Server) allowAIRequest(w http.ResponseWriter, r *http.Request, site string, id *identity.Identity) bool {
 	if s.RateLimiter != nil && !s.RateLimiter.Allow("ai:rpm", identity.SubjectKey(id), s.Config.AI.Limits.RequestsPerMinutePerIdentity, time.Minute) {
-		http.Error(w, "rate limited", http.StatusTooManyRequests)
+		writeAIRateLimit(w, "ai:rpm", "rate limited", s.Config.AI.Limits.RequestsPerMinutePerIdentity, time.Now().UTC().Add(time.Minute))
 		return false
 	}
 	if s.Store != nil {
@@ -243,11 +243,28 @@ func (s *Server) allowAIRequest(w http.ResponseWriter, r *http.Request, site str
 			return false
 		}
 		if !ok {
-			http.Error(w, "daily budget exceeded", http.StatusTooManyRequests)
+			writeAIRateLimit(w, "ai:daily", "daily budget exceeded", s.Config.AI.Limits.RequestsPerDayPerSite, time.Unix(dayStart, 0).UTC().Add(24*time.Hour))
 			return false
 		}
 	}
 	return true
+}
+
+func writeAIRateLimit(w http.ResponseWriter, scope, message string, limit int, reset time.Time) {
+	now := time.Now().UTC()
+	retryAfter := int(reset.Sub(now).Seconds())
+	if retryAfter < 1 {
+		retryAfter = 1
+	}
+	w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
+	writeJSON(w, http.StatusTooManyRequests, map[string]any{
+		"error":       message,
+		"code":        "rate_limited",
+		"scope":       scope,
+		"limit":       limit,
+		"reset":       reset.Format(time.RFC3339),
+		"retry_after": retryAfter,
+	})
 }
 
 func (s *Server) resolveAIProvider(requested string) (config.AIProviderConfig, string, error) {

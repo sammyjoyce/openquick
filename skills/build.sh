@@ -30,6 +30,19 @@ for file in $required_files; do
   fi
 done
 
+if ! grep -q "Agent deploy safety checklist" "$src_dir/SKILL.md"; then
+  echo "missing agent deploy safety checklist in SKILL.md" >&2
+  exit 1
+fi
+if ! grep -q "quick deploy --dry-run" "$src_dir/SKILL.md"; then
+  echo "skill checklist must require a dry-run before deploy" >&2
+  exit 1
+fi
+if ! grep -q "quick doctor --profile" "$src_dir/SKILL.md"; then
+  echo "skill checklist must require targeted doctor checks" >&2
+  exit 1
+fi
+
 tmp=$(mktemp "${TMPDIR:-/tmp}/openquick-deploy.XXXXXX.zip")
 trap 'rm -f "$tmp"' EXIT HUP INT TERM
 rm -f "$tmp"

@@ -7,10 +7,12 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -52,6 +54,16 @@ type DomainRecord struct {
 	CreatedAt string `json:"created_at"`
 }
 
+type AuditEvent struct {
+	ID        int64             `json:"id"`
+	Action    string            `json:"action"`
+	Site      string            `json:"site,omitempty"`
+	Subject   string            `json:"subject,omitempty"`
+	Target    string            `json:"target,omitempty"`
+	Metadata  map[string]string `json:"metadata,omitempty"`
+	CreatedAt string            `json:"created_at"`
+}
+
 type Document struct {
 	SiteID     int64
 	Collection string
@@ -61,6 +73,11 @@ type Document struct {
 	UpdatedBy  string `json:"updated_by,omitempty"`
 	CreatedAt  string `json:"created_at"`
 	UpdatedAt  string `json:"updated_at"`
+}
+
+type DocumentPage struct {
+	Documents  []Document
+	NextCursor string
 }
 
 type Upload struct {
@@ -74,6 +91,11 @@ type Upload struct {
 	Name        string `json:"name,omitempty"`
 }
 
+type UploadPage struct {
+	Uploads    []Upload
+	NextCursor string
+}
+
 type AIAudit struct {
 	Site             string
 	Subject          string
@@ -85,6 +107,7 @@ type AIAudit struct {
 }
 
 var ErrNotFound = errors.New("not found")
+var ErrInvalidCursor = errors.New("invalid cursor")
 
 func Open(dataDir string) (*Store, error) {
 	if err := os.MkdirAll(dataDir, 0o750); err != nil {
@@ -171,6 +194,7 @@ func (s *Store) init() error {
 			site_id INTEGER NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
 			id TEXT NOT NULL,
 			path TEXT NOT NULL,
+			name TEXT,
 			content_type TEXT NOT NULL,
 			size INTEGER NOT NULL,
 			created_by TEXT,
@@ -192,6 +216,15 @@ func (s *Store) init() error {
 			model TEXT NOT NULL,
 			prompt_tokens INTEGER NOT NULL,
 			completion_tokens INTEGER NOT NULL,
+			created_at TEXT NOT NULL
+		);`,
+		`CREATE TABLE IF NOT EXISTS audit_events (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			action TEXT NOT NULL,
+			site TEXT,
+			subject TEXT,
+			target TEXT,
+			metadata_json TEXT NOT NULL DEFAULT '{}',
 			created_at TEXT NOT NULL
 		);`,
 		`CREATE TABLE IF NOT EXISTS dev_tokens (
@@ -233,6 +266,9 @@ func (s *Store) init() error {
 		if err := s.ensureColumn("deploys", col.name, col.def); err != nil {
 			return err
 		}
+	}
+	if err := s.ensureColumn("uploads", "name", "TEXT"); err != nil {
+		return err
 	}
 	return nil
 }
@@ -340,6 +376,7 @@ func (s *Store) DeleteSite(ctx context.Context, name string) error {
 	if n == 0 {
 		return ErrNotFound
 	}
+	_ = s.RecordAudit(ctx, "site.delete", name, "quickd", name, nil)
 	return nil
 }
 
@@ -368,6 +405,7 @@ func (s *Store) SetSitePublic(ctx context.Context, site string, public bool) err
 	if n == 0 {
 		return ErrNotFound
 	}
+	_ = s.RecordAudit(ctx, "site.public", site, "quickd", site, map[string]string{"public": fmt.Sprintf("%t", public)})
 	return nil
 }
 
@@ -392,6 +430,23 @@ func (s *Store) LastDeploy(ctx context.Context, site string) (DeployRecord, erro
 		return DeployRecord{}, err
 	}
 	return rec, nil
+}
+
+func (s *Store) DeploysForSite(ctx context.Context, site string) ([]DeployRecord, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT s.name, d.release_id, COALESCE(d.deployer,''), d.created_at FROM deploys d JOIN sites s ON s.id=d.site_id WHERE s.name=? ORDER BY d.created_at DESC, d.id DESC`, site)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DeployRecord
+	for rows.Next() {
+		var rec DeployRecord
+		if err := rows.Scan(&rec.Site, &rec.Release, &rec.Deployer, &rec.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, rec)
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) RecordDeploy(ctx context.Context, site, release, deployer string, bytes int64, files int, opts ...DeployAudit) error {
@@ -434,7 +489,10 @@ func (s *Store) RecordDeploy(ctx context.Context, site, release, deployer string
 	if err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.RecordAudit(ctx, "deploy", site, deployer, release, map[string]string{"release": release, "ssh_key_id": audit.SSHKeyID, "ssh_principals": audit.SSHPrincipals})
 }
 
 func (s *Store) AddDomain(ctx context.Context, domain, site string) (DomainRecord, error) {
@@ -446,10 +504,13 @@ func (s *Store) AddDomain(ctx context.Context, domain, site string) (DomainRecor
 	if err != nil {
 		return DomainRecord{}, err
 	}
+	_ = s.RecordAudit(ctx, "domain.add", site, "quickd", domain, map[string]string{"domain": domain})
 	return DomainRecord{Domain: domain, Site: site, CreatedAt: t}, nil
 }
 
 func (s *Store) RemoveDomain(ctx context.Context, domain string) error {
+	var site string
+	_ = s.DB.QueryRowContext(ctx, `SELECT site FROM domains WHERE domain=?`, domain).Scan(&site)
 	res, err := s.DB.ExecContext(ctx, `DELETE FROM domains WHERE domain=?`, domain)
 	if err != nil {
 		return err
@@ -458,6 +519,7 @@ func (s *Store) RemoveDomain(ctx context.Context, domain string) error {
 	if n == 0 {
 		return ErrNotFound
 	}
+	_ = s.RecordAudit(ctx, "domain.remove", site, "quickd", domain, map[string]string{"domain": domain})
 	return nil
 }
 
@@ -474,6 +536,56 @@ func (s *Store) ListDomains(ctx context.Context) ([]DomainRecord, error) {
 			return nil, err
 		}
 		out = append(out, rec)
+	}
+	return out, rows.Err()
+}
+
+func redactAuditMetadata(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		lk := strings.ToLower(k)
+		if strings.Contains(lk, "secret") || strings.Contains(lk, "token") || strings.Contains(lk, "key") || strings.Contains(lk, "password") {
+			out[k] = "[redacted]"
+		} else {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+func (s *Store) RecordAudit(ctx context.Context, action, site, subject, target string, metadata map[string]string) error {
+	meta := redactAuditMetadata(metadata)
+	if meta == nil {
+		meta = map[string]string{}
+	}
+	body, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+	_, err = s.DB.ExecContext(ctx, `INSERT INTO audit_events(action, site, subject, target, metadata_json, created_at) VALUES(?,?,?,?,?,?)`, action, site, subject, target, string(body), now())
+	return err
+}
+
+func (s *Store) ExportAudit(ctx context.Context) ([]AuditEvent, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT id, action, COALESCE(site,''), COALESCE(subject,''), COALESCE(target,''), metadata_json, created_at FROM audit_events ORDER BY created_at, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AuditEvent
+	for rows.Next() {
+		var ev AuditEvent
+		var metadata string
+		if err := rows.Scan(&ev.ID, &ev.Action, &ev.Site, &ev.Subject, &ev.Target, &metadata, &ev.CreatedAt); err != nil {
+			return nil, err
+		}
+		if metadata != "" {
+			_ = json.Unmarshal([]byte(metadata), &ev.Metadata)
+		}
+		out = append(out, ev)
 	}
 	return out, rows.Err()
 }
@@ -589,6 +701,67 @@ func (s *Store) ListDocuments(ctx context.Context, site, collection string) ([]D
 	return out, rows.Err()
 }
 
+func (s *Store) ListDocumentsPage(ctx context.Context, site, collection string, limit int, cursor string) (DocumentPage, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	var afterCreated, afterID string
+	if cursor != "" {
+		created, id, err := decodeDocumentCursor(cursor)
+		if err != nil {
+			return DocumentPage{}, err
+		}
+		afterCreated, afterID = created, id
+	}
+	siteID, err := s.SiteID(ctx, site)
+	if err != nil {
+		return DocumentPage{}, err
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT id, data_json, COALESCE(created_by,''), COALESCE(updated_by,''), created_at, updated_at FROM documents WHERE site_id=? AND collection=? AND (?='' OR created_at > ? OR (created_at=? AND id > ?)) ORDER BY created_at, id LIMIT ?`, siteID, collection, afterCreated, afterCreated, afterCreated, afterID, limit+1)
+	if err != nil {
+		return DocumentPage{}, err
+	}
+	defer rows.Close()
+	out := make([]Document, 0, limit)
+	for rows.Next() {
+		var d Document
+		d.SiteID, d.Collection = siteID, collection
+		if err := rows.Scan(&d.ID, &d.DataJSON, &d.CreatedBy, &d.UpdatedBy, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			return DocumentPage{}, err
+		}
+		out = append(out, d)
+	}
+	if err := rows.Err(); err != nil {
+		return DocumentPage{}, err
+	}
+	page := DocumentPage{Documents: out}
+	if len(out) > limit {
+		last := out[limit-1]
+		page.NextCursor = encodeDocumentCursor(last.CreatedAt, last.ID)
+		page.Documents = out[:limit]
+	}
+	return page, nil
+}
+
+func encodeDocumentCursor(createdAt, id string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(createdAt + "\x00" + id))
+}
+
+func decodeDocumentCursor(cursor string) (string, string, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil {
+		return "", "", ErrInvalidCursor
+	}
+	parts := strings.SplitN(string(raw), "\x00", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", ErrInvalidCursor
+	}
+	return parts[0], parts[1], nil
+}
+
 func (s *Store) PutDocument(ctx context.Context, site, collection, id, dataJSON, actor string) (Document, error) {
 	siteID, err := s.SiteID(ctx, site)
 	if err != nil {
@@ -622,17 +795,17 @@ func (s *Store) DeleteDocument(ctx context.Context, site, collection, id string)
 	return nil
 }
 
-func (s *Store) CreateUpload(ctx context.Context, site, id, path, contentType string, size int64, actor string) (Upload, error) {
+func (s *Store) CreateUpload(ctx context.Context, site, id, path, name, contentType string, size int64, actor string) (Upload, error) {
 	siteID, err := s.SiteID(ctx, site)
 	if err != nil {
 		return Upload{}, err
 	}
 	t := now()
-	_, err = s.DB.ExecContext(ctx, `INSERT INTO uploads(site_id, id, path, content_type, size, created_by, created_at) VALUES(?,?,?,?,?,?,?)`, siteID, id, path, contentType, size, actor, t)
+	_, err = s.DB.ExecContext(ctx, `INSERT INTO uploads(site_id, id, path, name, content_type, size, created_by, created_at) VALUES(?,?,?,?,?,?,?,?)`, siteID, id, path, name, contentType, size, actor, t)
 	if err != nil {
 		return Upload{}, err
 	}
-	return Upload{SiteID: siteID, ID: id, Path: path, ContentType: contentType, Size: size, CreatedBy: actor, CreatedAt: t}, nil
+	return Upload{SiteID: siteID, ID: id, Path: path, Name: name, ContentType: contentType, Size: size, CreatedBy: actor, CreatedAt: t}, nil
 }
 
 func (s *Store) GetUpload(ctx context.Context, site, id string) (Upload, error) {
@@ -640,16 +813,61 @@ func (s *Store) GetUpload(ctx context.Context, site, id string) (Upload, error) 
 	if err != nil {
 		return Upload{}, err
 	}
-	row := s.DB.QueryRowContext(ctx, `SELECT path, content_type, size, COALESCE(created_by,''), created_at FROM uploads WHERE site_id=? AND id=?`, siteID, id)
+	row := s.DB.QueryRowContext(ctx, `SELECT path, COALESCE(name,''), content_type, size, COALESCE(created_by,''), created_at FROM uploads WHERE site_id=? AND id=?`, siteID, id)
 	var u Upload
 	u.SiteID, u.ID = siteID, id
-	if err := row.Scan(&u.Path, &u.ContentType, &u.Size, &u.CreatedBy, &u.CreatedAt); err != nil {
+	if err := row.Scan(&u.Path, &u.Name, &u.ContentType, &u.Size, &u.CreatedBy, &u.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Upload{}, ErrNotFound
 		}
 		return Upload{}, err
 	}
 	return u, nil
+}
+
+func (s *Store) ListUploadsPage(ctx context.Context, site string, limit int, cursor string) (UploadPage, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	var afterCreated, afterID string
+	if cursor != "" {
+		created, id, err := decodeDocumentCursor(cursor)
+		if err != nil {
+			return UploadPage{}, err
+		}
+		afterCreated, afterID = created, id
+	}
+	siteID, err := s.SiteID(ctx, site)
+	if err != nil {
+		return UploadPage{}, err
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT id, path, COALESCE(name,''), content_type, size, COALESCE(created_by,''), created_at FROM uploads WHERE site_id=? AND (?='' OR created_at > ? OR (created_at=? AND id > ?)) ORDER BY created_at, id LIMIT ?`, siteID, afterCreated, afterCreated, afterCreated, afterID, limit+1)
+	if err != nil {
+		return UploadPage{}, err
+	}
+	defer rows.Close()
+	out := make([]Upload, 0, limit)
+	for rows.Next() {
+		var u Upload
+		u.SiteID = siteID
+		if err := rows.Scan(&u.ID, &u.Path, &u.Name, &u.ContentType, &u.Size, &u.CreatedBy, &u.CreatedAt); err != nil {
+			return UploadPage{}, err
+		}
+		out = append(out, u)
+	}
+	if err := rows.Err(); err != nil {
+		return UploadPage{}, err
+	}
+	page := UploadPage{Uploads: out}
+	if len(out) > limit {
+		last := out[limit-1]
+		page.NextCursor = encodeDocumentCursor(last.CreatedAt, last.ID)
+		page.Uploads = out[:limit]
+	}
+	return page, nil
 }
 
 func (s *Store) DeleteUpload(ctx context.Context, site, id string) (Upload, error) {

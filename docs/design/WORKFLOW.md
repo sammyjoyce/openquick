@@ -15,7 +15,7 @@ bucket or a specific provider.
 The default operating model is:
 
 1. One host runs `quickd`, the OpenQuick host-side daemon.
-2. Users deploy static assets with `quick deploy`, which wraps `rsync over SSH`.
+2. Users deploy static assets with `quick deploy`, which wraps `rsync over SSH`; quickd serves precompressed `.br`/`.gz` variants when clients advertise matching `Accept-Encoding`.
 3. Sites are addressed by deterministic subdomains, usually
    `https://<site>.<base-domain>`.
 4. Every request passes through an identity-aware edge before it reaches the
@@ -73,18 +73,30 @@ Current top-level commands:
 | Command | Purpose |
 | --- | --- |
 | `quick init [dir]` | Scaffold a static site and the local OpenQuick metadata. |
-| `quick deploy [path]` | Build if needed, transfer a folder or ZIP to the selected host, and atomically publish it. |
+| `quick templates` | List bundled templates, generated files, and SDK API demos. |
+| `quick deploy [path]` | Build if needed, transfer a folder or ZIP to the selected host, and atomically publish it. `--dry-run` includes added/changed/deleted/excluded transfer categories and calls out destructive deletes; transfer failures report the phase, cleanup status, and retry guidance. |
 | `quick serve ...` | Install, start, or run the host-side server; also supports local dev mode and remote API proxy mode. |
 | `quick open [site]` | Open or print the resolved URL for a site. |
-| `quick list` | List sites known locally or on a remote host. |
-| `quick delete SITE` | Delete a remote site after typed confirmation or `--yes`. |
+| `quick list` | List sites known locally or on a remote host, with `--filter` and deterministic `--sort` metadata in JSON. |
+| `quick config show` | Show resolved config, profile, target, URL, and source precedence. |
+| `quick delete SITE` | Delete a remote site after typed confirmation or `--yes`, archiving it for recovery. |
+| `quick restore SITE` | Restore a recently deleted site from the archive path printed by delete. |
 | `quick public SITE [on/off]` | Show or change a site's public-static flag. |
-| `quick domain add/remove/list` | Manage custom domains in the host catalog. |
+| `quick domain add/remove/list` | Manage custom domains in the host catalog; list includes DNS/TLS readiness status and remediation. |
 | `quick doctor` | Validate local tooling, config, SSH, host health, IAP, DNS, and TLS. |
 | `quick opencli` | Existing machine-readable command contract. |
+| `quick rollback SITE` | Restore the previous or selected release for a site after confirmation. |
 
 Do not add a command per backend feature. Backend APIs belong in the JS SDK and
 `quickd`; the CLI should stay focused on site lifecycle and host operations.
+Host-side mutation commands append audit events that can be exported with
+`quickd audit export --json`; metadata redacts secret-like keys. The
+TUI wraps the same workflows; main-menu descriptions and Help must expose the
+matching CLI commands for users who prefer non-fullscreen or screen-reader
+workflows. Settings/profile edits must warn on Back when changes are still in
+memory and offer save, discard, or cancel so users do not lose work by
+navigation alone. Deploy cancellation must surface cleanup status: remote staging
+cleaned, or the exact staging path and cleanup guidance when it remains.
 
 ## `quick init`
 

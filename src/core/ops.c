@@ -362,9 +362,14 @@ static const char *quick_init_agents_md(void) {
          "## Deploy loop\n\n"
          "Edit files, then run:\n\n"
          "```bash\n"
+         "quick serve --dev      # local preview before a host exists\n"
          "quick deploy --dry-run  # when uncertain\n"
          "quick deploy\n"
          "quick open --plain\n"
+         "```\n\n"
+         "If this is your first OpenQuick site and no deployment profile exists yet, install or connect a host first:\n\n"
+         "```bash\n"
+         "quick serve install --profile <profile> --host <user@host> --remote-root /srv/quick --domain quick.example.com --iap tailscale\n"
          "```\n\n"
          "## Names and URLs\n\n"
          "- Site names and subdomains are DNS labels: lowercase `a-z0-9-`, no leading or trailing hyphen, max 63 chars.\n"
@@ -460,38 +465,63 @@ app_error quick_op_init(const quick_init_request_t *request,
     return APP_ERROR_MEMORY;
   }
 
+  const char *targets[] = {index_path, quick_json, agents, api, ignore};
+  if (!request->adopt_existing) {
+    for (size_t i = 0; i < sizeof(targets) / sizeof(targets[0]); i++) {
+      if (quick_ops_path_exists(targets[i])) {
+        free(docs_dir);
+        free(index_path);
+        free(quick_json);
+        free(agents);
+        free(api);
+        free(ignore);
+        return APP_ERROR_CONFIG_INVALID;
+      }
+    }
+  }
+
   err = quick_ops_mkdir_p(docs_dir, 0755);
-  if (err == APP_SUCCESS) {
+  if (err == APP_SUCCESS && !(request->adopt_existing && quick_ops_path_exists(index_path))) {
     err = quick_ops_write_text_file(
         index_path,
         request->template_kind == QUICK_INIT_TEMPLATE_REALTIME
             ? quick_init_realtime_html()
             : quick_init_blank_html(slug),
         true);
+    if (err == APP_SUCCESS) {
+      (void)quick_ops_append_string(&out->files_created, &out->file_count,
+                                    index_path);
+    }
   }
-  if (err == APP_SUCCESS) {
-    (void)quick_ops_append_string(&out->files_created, &out->file_count,
-                                  index_path);
+  if (err == APP_SUCCESS && !(request->adopt_existing && quick_ops_path_exists(quick_json))) {
     err = quick_init_write_quick_json(quick_json, slug, request->profile);
+    if (err == APP_SUCCESS) {
+      (void)quick_ops_append_string(&out->files_created, &out->file_count,
+                                    quick_json);
+    }
   }
-  if (err == APP_SUCCESS) {
-    (void)quick_ops_append_string(&out->files_created, &out->file_count,
-                                  quick_json);
+  if (err == APP_SUCCESS && !(request->adopt_existing && quick_ops_path_exists(agents))) {
     err = quick_ops_write_text_file(agents, quick_init_agents_md(), true);
+    if (err == APP_SUCCESS) {
+      (void)quick_ops_append_string(&out->files_created, &out->file_count,
+                                    agents);
+    }
   }
-  if (err == APP_SUCCESS) {
-    (void)quick_ops_append_string(&out->files_created, &out->file_count,
-                                  agents);
+  if (err == APP_SUCCESS && !(request->adopt_existing && quick_ops_path_exists(api))) {
     err = quick_ops_write_text_file(api, quick_init_api_md(), true);
+    if (err == APP_SUCCESS) {
+      (void)quick_ops_append_string(&out->files_created, &out->file_count, api);
+    }
   }
-  if (err == APP_SUCCESS) {
-    (void)quick_ops_append_string(&out->files_created, &out->file_count, api);
+  if (err == APP_SUCCESS && !(request->adopt_existing && quick_ops_path_exists(ignore))) {
     err = quick_ops_write_text_file(
         ignore, ".git/\n.quick/\nnode_modules/\n.DS_Store\n.env\n.env.*\n", true);
+    if (err == APP_SUCCESS) {
+      (void)quick_ops_append_string(&out->files_created, &out->file_count,
+                                    ignore);
+    }
   }
   if (err == APP_SUCCESS) {
-    (void)quick_ops_append_string(&out->files_created, &out->file_count,
-                                  ignore);
     out->site = quick_ops_strdup(slug);
     out->path = quick_ops_strdup(dir);
     out->profile = quick_ops_strdup(request->profile ? request->profile : "");
@@ -529,6 +559,8 @@ void quick_deploy_result_destroy(quick_deploy_result_t *result) {
   free(result->last_deployer);
   free(result->last_release);
   free(result->last_deployed_at);
+  free(result->cleanup_path);
+  free(result->cleanup_message);
   *result = (quick_deploy_result_t){0};
 }
 
@@ -568,6 +600,45 @@ static app_error quick_deploy_set_failure(quick_deploy_result_t *out,
     return APP_ERROR_MEMORY;
   }
   return APP_SUCCESS;
+}
+
+static void quick_deploy_cleanup_staging(const quick_deploy_plan_t *plan,
+                                         const char *deploy_id,
+                                         const char *staging,
+                                         quick_deploy_result_t *out) {
+  if (!plan || !deploy_id || !staging || !out || !plan->ssh ||
+      plan->ssh[0] == '\0') {
+    return;
+  }
+  out->cleanup_attempted = true;
+  (void)quick_ops_set_string(&out->cleanup_path, staging);
+  char *const argv[] = {"ssh", (char *)plan->ssh, "quickd", "deploy",
+                        "cleanup", "--site", (char *)plan->site,
+                        "--deploy-id", (char *)deploy_id, "--json", NULL};
+  quick_process_result_t res = {0};
+  app_error err = quick_process_capture(argv, NULL, &res);
+  if (err == APP_SUCCESS && res.exit_code == 0) {
+    out->cleanup_ok = true;
+    (void)quick_ops_set_string(&out->cleanup_message, "remote staging cleaned");
+  } else {
+    out->cleanup_ok = false;
+    const char *detail = res.err && res.err[0] != '\0'
+                             ? res.err
+                             : (res.out && res.out[0] != '\0'
+                                    ? res.out
+                                    : "remote cleanup command failed");
+    size_t len = strlen(detail) + strlen(staging) + strlen(plan->ssh) +
+                 strlen(plan->site) + strlen(deploy_id) + 160U;
+    char *message = malloc(len);
+    if (message) {
+      snprintf(message, len,
+               "%s; staging remains at %s; cleanup command: ssh %s quickd deploy cleanup --site %s --deploy-id %s",
+               detail, staging, plan->ssh, plan->site, deploy_id);
+      (void)quick_ops_set_string(&out->cleanup_message, message);
+      free(message);
+    }
+  }
+  quick_process_result_destroy(&res);
 }
 
 static bool quick_deploy_cancelled(const quick_deploy_options_t *options) {
@@ -1237,6 +1308,7 @@ app_error quick_op_deploy_execute(const app_config_t *config,
                plan->site, last_deployer);
     }
     err = quick_deploy_set_failure(out, QUICK_DEPLOY_PHASE_PREPARE, msg);
+    quick_deploy_cleanup_staging(plan, deploy_id, staging, out);
     free(deploy_id);
     free(staging);
     free(link_dest);
@@ -1252,6 +1324,7 @@ app_error quick_op_deploy_execute(const app_config_t *config,
 
   err = quick_deploy_check_cancelled(options, out, QUICK_DEPLOY_PHASE_PREPARE);
   if (err != APP_SUCCESS) {
+    quick_deploy_cleanup_staging(plan, deploy_id, staging, out);
     free(deploy_id);
     free(staging);
     free(link_dest);
@@ -1292,6 +1365,7 @@ app_error quick_op_deploy_execute(const app_config_t *config,
           out, QUICK_DEPLOY_PHASE_TRANSFER,
           scp.err && scp.err[0] ? scp.err : "scp failed");
       quick_process_result_destroy(&scp);
+      quick_deploy_cleanup_staging(plan, deploy_id, staging, out);
       free(remote_zip);
       free(scp_dest);
       free(deploy_id);
@@ -1319,6 +1393,7 @@ app_error quick_op_deploy_execute(const app_config_t *config,
           extract.err && extract.err[0] ? extract.err
                                         : "quickd extract-zip failed");
       quick_process_result_destroy(&extract);
+      quick_deploy_cleanup_staging(plan, deploy_id, staging, out);
       free(remote_zip);
       free(scp_dest);
       free(deploy_id);
@@ -1339,6 +1414,7 @@ app_error quick_op_deploy_execute(const app_config_t *config,
     quick_ignore_init(&ignore);
     err = quick_ignore_load_for_site(plan->site_root, &ignore);
     if (err != APP_SUCCESS) {
+      quick_deploy_cleanup_staging(plan, deploy_id, staging, out);
       free(deploy_id);
       free(staging);
       free(link_dest);
@@ -1445,10 +1521,16 @@ app_error quick_op_deploy_execute(const app_config_t *config,
     quick_op_deploy_parse_rsync_counts(rsync.out, &out->changed, &out->reused,
                                        &out->deleted);
     if (err != APP_SUCCESS || rsync.exit_code != 0) {
+      const bool transfer_cancelled =
+          err == APP_ERROR_INTERRUPTED || rsync.exit_code == 130 ||
+          rsync.exit_code == 143;
       app_error set_err = quick_deploy_set_failure(
           out, QUICK_DEPLOY_PHASE_TRANSFER,
-          rsync.err && rsync.err[0] ? rsync.err : "rsync failed");
+          transfer_cancelled
+              ? "operation cancelled"
+              : (rsync.err && rsync.err[0] ? rsync.err : "rsync failed"));
       quick_process_result_destroy(&rsync);
+      quick_deploy_cleanup_staging(plan, deploy_id, staging, out);
       free(source);
       free(dest);
       free(link_arg);
@@ -1462,7 +1544,8 @@ app_error quick_op_deploy_execute(const app_config_t *config,
       if (set_err != APP_SUCCESS) {
         return set_err;
       }
-      return err == APP_SUCCESS ? APP_ERROR_IO : err;
+      return transfer_cancelled ? APP_ERROR_INTERRUPTED
+                                : (err == APP_SUCCESS ? APP_ERROR_IO : err);
     }
     quick_process_result_destroy(&rsync);
     free(source);
@@ -1475,6 +1558,7 @@ app_error quick_op_deploy_execute(const app_config_t *config,
 
   err = quick_deploy_check_cancelled(options, out, QUICK_DEPLOY_PHASE_TRANSFER);
   if (err != APP_SUCCESS) {
+    quick_deploy_cleanup_staging(plan, deploy_id, staging, out);
     free(deploy_id);
     free(staging);
     free(link_dest);
@@ -1520,6 +1604,7 @@ app_error quick_op_deploy_execute(const app_config_t *config,
         activate.err && activate.err[0] ? activate.err
                                         : "quickd activate failed");
     quick_process_result_destroy(&activate);
+    quick_deploy_cleanup_staging(plan, deploy_id, staging, out);
     free(deploy_id);
     free(staging);
     free(link_dest);
@@ -1599,6 +1684,9 @@ void quick_list_result_destroy(quick_list_result_t *result) {
   }
   free(result->items);
   free(result->remote_json);
+  free(result->remote_error);
+  free(result->remote_phase);
+  free(result->remote_remediation);
   free(result->site);
   free(result->profile);
   free(result->url);
@@ -1721,8 +1809,9 @@ app_error quick_op_list(const quick_list_request_t *request,
     char *const ssh_argv[] = {"ssh", plan.ssh, "quickd", "list", "--json",
                               NULL};
     quick_process_result_t res = {0};
-    if (quick_process_capture(ssh_argv, NULL, &res) == APP_SUCCESS &&
-        res.exit_code == 0 && res.out && res.out[0] != '\0') {
+    app_error remote_err = quick_process_capture(ssh_argv, NULL, &res);
+    if (remote_err == APP_SUCCESS && res.exit_code == 0 && res.out &&
+        res.out[0] != '\0') {
       out->remote_json = quick_ops_strdup(res.out);
       if (!out->remote_json) {
         quick_process_result_destroy(&res);
@@ -1732,8 +1821,33 @@ app_error quick_op_list(const quick_list_request_t *request,
       }
       out->remote_ok = true;
       quick_list_parse_remote_items(out->remote_json, out);
+    } else {
+      const char *detail = res.err && res.err[0] != '\0'
+                               ? res.err
+                               : (res.out && res.out[0] != '\0' ? res.out
+                                                                 : "remote list failed");
+      out->remote_error = quick_ops_strdup(detail);
+      out->remote_phase = quick_ops_strdup("ssh");
+      out->remote_remediation = quick_ops_strdup(
+          "check the profile SSH host, run `quick doctor --remote`, or retry later");
+      if (!out->remote_error || !out->remote_phase || !out->remote_remediation) {
+        quick_process_result_destroy(&res);
+        quick_deployment_record_destroy(&local);
+        quick_deploy_plan_destroy(&plan);
+        return APP_ERROR_MEMORY;
+      }
     }
     quick_process_result_destroy(&res);
+  } else if (out->remote_requested) {
+    out->remote_error = quick_ops_strdup("remote host is not configured");
+    out->remote_phase = quick_ops_strdup("resolve");
+    out->remote_remediation = quick_ops_strdup(
+        "set QUICK_REMOTE or configure profiles.<name>.ssh, then run `quick config show`");
+    if (!out->remote_error || !out->remote_phase || !out->remote_remediation) {
+      quick_deployment_record_destroy(&local);
+      quick_deploy_plan_destroy(&plan);
+      return APP_ERROR_MEMORY;
+    }
   }
 
   if (out->have_local) {
@@ -1851,6 +1965,7 @@ void quick_delete_result_destroy(quick_delete_result_t *result) {
   free(result->profile);
   free(result->ssh);
   free(result->delete_json);
+  free(result->archive);
   *result = (quick_delete_result_t){0};
 }
 
@@ -1895,8 +2010,168 @@ app_error quick_op_delete(const quick_delete_request_t *request,
   }
   if (err == APP_SUCCESS) {
     out->delete_json = quick_ops_strdup(res.out ? res.out : "");
+    out->archive = quick_ops_json_get_string_field(res.out, "archive");
     out->deleted = true;
     if (!out->delete_json) {
+      err = APP_ERROR_MEMORY;
+    }
+  }
+  quick_process_result_destroy(&res);
+  quick_deploy_plan_destroy(&plan);
+  return err;
+}
+
+void quick_restore_result_init(quick_restore_result_t *result) {
+  if (result) {
+    *result = (quick_restore_result_t){0};
+  }
+}
+
+void quick_restore_result_destroy(quick_restore_result_t *result) {
+  if (!result) {
+    return;
+  }
+  free(result->profile);
+  free(result->ssh);
+  free(result->remote_json);
+  free(result->site);
+  free(result->archive);
+  free(result->release);
+  free(result->url);
+  *result = (quick_restore_result_t){0};
+}
+
+app_error quick_op_restore(const quick_restore_request_t *request,
+                           quick_restore_result_t *out) {
+  if (!request || !out || !request->site || request->site[0] == '\0' ||
+      !request->archive || request->archive[0] == '\0') {
+    return APP_ERROR_INVALID_ARG;
+  }
+  quick_restore_result_destroy(out);
+  quick_restore_result_init(out);
+  quick_deploy_plan_t plan;
+  quick_deploy_plan_init(&plan);
+  app_error err = quick_ops_resolve_remote_plan(request->profiles,
+                                                request->profile,
+                                                request->site, &plan);
+  if (err != APP_SUCCESS) {
+    quick_deploy_plan_destroy(&plan);
+    return err;
+  }
+  out->profile = quick_ops_strdup(plan.profile);
+  out->ssh = quick_ops_strdup(plan.ssh);
+  out->site = quick_ops_strdup(plan.site);
+  out->archive = quick_ops_strdup(request->archive);
+  if (!out->profile || !out->ssh || !out->site || !out->archive) {
+    quick_deploy_plan_destroy(&plan);
+    return APP_ERROR_MEMORY;
+  }
+  if (!request->assume_yes && !request->confirmed) {
+    out->confirmation_required = true;
+    quick_deploy_plan_destroy(&plan);
+    return APP_SUCCESS;
+  }
+  char *const argv[] = {"ssh", plan.ssh, "quickd", "sites", "restore",
+                        plan.site, "--from", (char *)request->archive,
+                        "--json", NULL};
+  quick_process_result_t res = {0};
+  err = quick_process_capture(argv, NULL, &res);
+  if (err == APP_SUCCESS && res.exit_code != 0) {
+    err = APP_ERROR_IO;
+  }
+  if (err == APP_SUCCESS) {
+    out->remote_json = quick_ops_strdup(res.out ? res.out : "");
+    out->release = quick_ops_json_get_string_field(res.out, "release");
+    out->url = quick_ops_json_get_string_field(res.out, "url");
+    out->restored = true;
+    if (!out->remote_json) {
+      err = APP_ERROR_MEMORY;
+    }
+  }
+  quick_process_result_destroy(&res);
+  quick_deploy_plan_destroy(&plan);
+  return err;
+}
+
+void quick_rollback_result_init(quick_rollback_result_t *result) {
+  if (result) {
+    *result = (quick_rollback_result_t){0};
+    quick_remote_site_info_init(&result->site);
+  }
+}
+
+void quick_rollback_result_destroy(quick_rollback_result_t *result) {
+  if (!result) {
+    return;
+  }
+  quick_remote_site_info_destroy(&result->site);
+  free(result->profile);
+  free(result->ssh);
+  free(result->remote_json);
+  free(result->release);
+  free(result->previous_release);
+  *result = (quick_rollback_result_t){0};
+}
+
+app_error quick_op_rollback(const quick_rollback_request_t *request,
+                            quick_rollback_result_t *out) {
+  if (!request || !out || !request->site || request->site[0] == '\0') {
+    return APP_ERROR_INVALID_ARG;
+  }
+  quick_rollback_result_destroy(out);
+  quick_rollback_result_init(out);
+  quick_deploy_plan_t plan;
+  quick_deploy_plan_init(&plan);
+  app_error err = quick_ops_resolve_remote_plan(request->profiles,
+                                                request->profile,
+                                                request->site, &plan);
+  if (err != APP_SUCCESS) {
+    quick_deploy_plan_destroy(&plan);
+    return err;
+  }
+  out->profile = quick_ops_strdup(plan.profile);
+  out->ssh = quick_ops_strdup(plan.ssh);
+  if (!out->profile || !out->ssh) {
+    quick_deploy_plan_destroy(&plan);
+    return APP_ERROR_MEMORY;
+  }
+  err = quick_ops_fetch_site(&plan, &out->site);
+  if (err != APP_SUCCESS) {
+    quick_deploy_plan_destroy(&plan);
+    return err;
+  }
+  if (!request->assume_yes && !request->confirmed) {
+    out->confirmation_required = true;
+    quick_deploy_plan_destroy(&plan);
+    return APP_SUCCESS;
+  }
+  char *deployer_name = quick_op_default_deployer_identity();
+  if (!deployer_name) {
+    quick_deploy_plan_destroy(&plan);
+    return APP_ERROR_MEMORY;
+  }
+  quick_process_result_t res = {0};
+  if (request->release && request->release[0] != '\0') {
+    char *const argv[] = {"ssh", plan.ssh, "quickd", "releases", "rollback",
+                          "--site", plan.site, "--to", (char *)request->release,
+                          "--deployer", deployer_name, "--json", NULL};
+    err = quick_process_capture(argv, NULL, &res);
+  } else {
+    char *const argv[] = {"ssh", plan.ssh, "quickd", "releases", "rollback",
+                          "--site", plan.site, "--deployer", deployer_name,
+                          "--json", NULL};
+    err = quick_process_capture(argv, NULL, &res);
+  }
+  free(deployer_name);
+  if (err == APP_SUCCESS && res.exit_code != 0) {
+    err = APP_ERROR_IO;
+  }
+  if (err == APP_SUCCESS) {
+    out->remote_json = quick_ops_strdup(res.out ? res.out : "");
+    out->release = quick_ops_json_get_string_field(res.out, "release");
+    out->previous_release = quick_ops_json_get_string_field(res.out, "previous_release");
+    out->rolled_back = true;
+    if (!out->remote_json) {
       err = APP_ERROR_MEMORY;
     }
   }

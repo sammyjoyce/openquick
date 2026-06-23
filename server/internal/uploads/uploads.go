@@ -57,7 +57,7 @@ func (m *Manager) SaveRaw(ctx context.Context, site, actor, name, contentType st
 	if err := os.WriteFile(path, data, 0o640); err != nil {
 		return store.Upload{}, err
 	}
-	u, err := m.Store.CreateUpload(ctx, site, id, path, contentType, int64(len(data)), actor)
+	u, err := m.Store.CreateUpload(ctx, site, id, path, name, contentType, int64(len(data)), actor)
 	if err != nil {
 		_ = os.Remove(path)
 		return store.Upload{}, err

@@ -177,8 +177,8 @@ func TestAIStreamingAnthropicAndAnonymousRateLimits(t *testing.T) {
 		t.Fatalf("openai stream status=%d body=%s", rr.Code, rr.Body.String())
 	}
 	rr = doReq(app.h, http.MethodPost, "a.localhost:9366", "/_quick/ai/chat", []byte(`{"messages":[{"role":"user","content":"ping"}],"model":"claude-test","stream":true}`))
-	if rr.Code != http.StatusTooManyRequests {
-		t.Fatalf("rpm status=%d body=%s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusTooManyRequests || rr.Header().Get("Retry-After") == "" || !strings.Contains(rr.Body.String(), `"code":"rate_limited"`) || !strings.Contains(rr.Body.String(), `"scope":"ai:rpm"`) || !strings.Contains(rr.Body.String(), `"reset"`) {
+		t.Fatalf("rpm status=%d retry=%q body=%s", rr.Code, rr.Header().Get("Retry-After"), rr.Body.String())
 	}
 
 	app = newConfiguredApp(t, func(cfg *config.Config) {
@@ -203,8 +203,8 @@ func TestAIStreamingAnthropicAndAnonymousRateLimits(t *testing.T) {
 		t.Fatalf("budget first status=%d body=%s", rr.Code, rr.Body.String())
 	}
 	rr = doReq(budget.h, http.MethodPost, "a.localhost:9366", "/_quick/ai/chat", []byte(`{"messages":[{"role":"user","content":"ping"}]}`))
-	if rr.Code != http.StatusTooManyRequests {
-		t.Fatalf("daily budget status=%d body=%s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusTooManyRequests || rr.Header().Get("Retry-After") == "" || !strings.Contains(rr.Body.String(), `"code":"rate_limited"`) || !strings.Contains(rr.Body.String(), `"scope":"ai:daily"`) || !strings.Contains(rr.Body.String(), `"reset"`) {
+		t.Fatalf("daily budget status=%d retry=%q body=%s", rr.Code, rr.Header().Get("Retry-After"), rr.Body.String())
 	}
 
 	anon := newConfiguredApp(t, func(cfg *config.Config) {
@@ -242,7 +242,11 @@ func TestWarehouseQueriesParamsTruncationAndQueryOnly(t *testing.T) {
 	if _, err := app.st.CreateDocument(context.Background(), "a", "posts", "one", `{"title":"one"}`, "test"); err != nil {
 		t.Fatal(err)
 	}
-	rr := doReq(app.h, http.MethodPost, "a.localhost:9366", "/_quick/warehouse/echo", []byte(`{"name":"sam","n":7}`))
+	rr := doReq(app.h, http.MethodGet, "a.localhost:9366", "/_quick/warehouse", nil)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"name":"echo"`) || !strings.Contains(rr.Body.String(), `"max_rows":1000`) || !strings.Contains(rr.Body.String(), `"columns":["name","n"]`) || strings.Contains(rr.Body.String(), "SELECT ?") || strings.Contains(rr.Body.String(), "database") {
+		t.Fatalf("metadata status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	rr = doReq(app.h, http.MethodPost, "a.localhost:9366", "/_quick/warehouse/echo", []byte(`{"name":"sam","n":7}`))
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"columns":["name","n"]`) || !strings.Contains(rr.Body.String(), `"rows":[["sam",7]]`) {
 		t.Fatalf("echo status=%d body=%s", rr.Code, rr.Body.String())
 	}

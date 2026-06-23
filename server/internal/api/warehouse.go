@@ -14,6 +14,13 @@ import (
 	"openquick.dev/quickd/internal/identity"
 )
 
+type warehouseQueryMetadata struct {
+	Name    string                          `json:"name"`
+	Params  []config.WarehouseParamConfig   `json:"params"`
+	MaxRows int                             `json:"max_rows"`
+	Columns []string                        `json:"columns"`
+}
+
 type warehouseResult struct {
 	Name      string   `json:"name"`
 	Columns   []string `json:"columns"`
@@ -35,8 +42,21 @@ func (s *Server) handleWarehouse(w http.ResponseWriter, r *http.Request, site st
 		methodNotAllowed(w)
 		return
 	}
-	name := strings.Trim(strings.TrimPrefix(r.URL.Path, "/_quick/warehouse/"), "/")
-	if name == "" || !idRE.MatchString(name) {
+	name := strings.Trim(strings.TrimPrefix(r.URL.Path, "/_quick/warehouse"), "/")
+	if name == "" {
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w)
+			return
+		}
+		meta, err := s.warehouseMetadata(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"queries": meta})
+		return
+	}
+	if !idRE.MatchString(name) {
 		http.NotFound(w, r)
 		return
 	}
@@ -71,6 +91,45 @@ func (s *Server) warehouseQuery(name string) (config.WarehouseQueryConfig, bool)
 		}
 	}
 	return config.WarehouseQueryConfig{}, false
+}
+
+func (s *Server) warehouseMetadata(r *http.Request) ([]warehouseQueryMetadata, error) {
+	out := make([]warehouseQueryMetadata, 0, len(s.Config.Warehouse.Queries))
+	for _, q := range s.Config.Warehouse.Queries {
+		cols, err := s.warehouseColumns(r, q)
+		if err != nil {
+			cols = []string{}
+		}
+		out = append(out, warehouseQueryMetadata{Name: q.Name, Params: q.Params, MaxRows: q.MaxRows, Columns: cols})
+	}
+	return out, nil
+}
+
+func (s *Server) warehouseColumns(r *http.Request, q config.WarehouseQueryConfig) ([]string, error) {
+	if s.Store == nil || s.Store.DB == nil {
+		return nil, errors.New("store unavailable")
+	}
+	sqlText, err := config.CleanWarehouseSQL(q.SQL)
+	if err != nil {
+		return nil, err
+	}
+	args := make([]any, 0, len(q.Params))
+	for _, p := range q.Params {
+		switch p.Type {
+		case "int":
+			args = append(args, 0)
+		case "float":
+			args = append(args, 0.0)
+		default:
+			args = append(args, "")
+		}
+	}
+	rows, err := s.Store.DB.QueryContext(r.Context(), "SELECT * FROM ("+sqlText+") LIMIT 0", args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return rows.Columns()
 }
 
 func warehouseParams(r *http.Request) (map[string]any, error) {

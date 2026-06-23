@@ -2,6 +2,7 @@ package scan
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -104,6 +105,23 @@ func Scan(dir string, limits Limits) (Report, error) {
 		return Report{}, err
 	}
 	return report, nil
+}
+
+func FormatFindings(findings []Finding, limit int) string {
+	if len(findings) == 0 {
+		return "no findings"
+	}
+	if limit <= 0 || limit > len(findings) {
+		limit = len(findings)
+	}
+	parts := make([]string, 0, limit+1)
+	for i := 0; i < limit; i++ {
+		parts = append(parts, fmt.Sprintf("%s matched %q", findings[i].File, findings[i].Pattern))
+	}
+	if len(findings) > limit {
+		parts = append(parts, fmt.Sprintf("and %d more", len(findings)-limit))
+	}
+	return strings.Join(parts, "; ")
 }
 
 func binary(b []byte) bool {

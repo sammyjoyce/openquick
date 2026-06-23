@@ -123,6 +123,7 @@ int main(int argc, char **argv) {
   run_tui_doctor_local_results(&stats, binary, tui_enabled);
   run_tui_settings_profiles_from_xdg(&stats, binary, tui_enabled);
   run_tui_deploy_plan_panel(&stats, binary, tui_enabled);
+  run_tui_deploy_cancel_cleanup_status(&stats, binary, tui_enabled);
   run_tui_serve_install_guide(&stats, binary, tui_enabled);
   run_tui_menu_sigint(&stats, binary, tui_enabled);
   run_tui_menu_sigterm(&stats, binary, tui_enabled);
