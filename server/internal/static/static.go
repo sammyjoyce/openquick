@@ -21,6 +21,8 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -83,7 +85,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		id, err := h.authenticateViewer(r)
 		if err != nil {
-			api.ErrorFromIdentity(w, err)
+			h.servePermissionDenied(w, r, err, false)
 			return
 		}
 		h.serveDirectory(w, r.WithContext(identity.WithIdentity(r.Context(), id)), id)
@@ -114,7 +116,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if isQuick && devProxyToken != "" && h.Config.DevProxy.Enabled {
 		id, err = h.devProxyIdentity(r.Context(), site, devProxyToken)
 		if err != nil {
-			api.ErrorFromIdentity(w, err)
+			h.servePermissionDenied(w, r, err, true)
 			return
 		}
 	} else if publicStatic {
@@ -122,11 +124,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	} else {
 		id, err = h.authenticateViewer(r)
 		if err != nil {
-			api.ErrorFromIdentity(w, err)
+			h.servePermissionDenied(w, r, err, isQuick)
 			return
 		}
 		if isQuick && h.sitePublic(site) && (id == nil || !id.Authenticated) {
-			api.ErrorFromIdentity(w, identity.ErrAnonymousNotAllowed)
+			h.servePermissionDenied(w, r, identity.ErrAnonymousNotAllowed, true)
 			return
 		}
 	}
@@ -137,6 +139,25 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.serveStatic(w, r, site, stripped)
+}
+
+func (h *Handler) servePermissionDenied(w http.ResponseWriter, r *http.Request, err error, forceJSON bool) {
+	if forceJSON || strings.Contains(r.Header.Get("Accept"), "application/json") {
+		api.ErrorFromIdentity(w, err)
+		return
+	}
+	status := identity.StatusForError(err)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(status)
+	message := "You do not have access to this OpenQuick site."
+	if status == http.StatusUnauthorized {
+		message = "Sign in with an allowed identity to view this OpenQuick site."
+	}
+	fmt.Fprintf(w, `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>OpenQuick access required</title>
+<style>body{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;min-height:100vh;display:grid;place-items:center;background:#f8fafc;color:#0f172a}.card{max-width:34rem;margin:2rem;padding:2rem;border:1px solid #cbd5e1;border-radius:18px;background:white;box-shadow:0 18px 50px rgba(15,23,42,.12)}.eyebrow{font-size:.78rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#64748b}h1{margin:.4rem 0 1rem;font-size:1.6rem}p{line-height:1.55;color:#334155}</style></head>
+<body><main class="card"><div class="eyebrow">OpenQuick</div><h1>Access required</h1><p>%s</p><p>If you expected access, check the host identity policy or ask the host operator to allow your account.</p></main></body></html>`, template.HTMLEscapeString(message))
 }
 
 func stripQuickHeaders(r *http.Request) {
@@ -837,16 +858,29 @@ func (h *Handler) serveStatic(w http.ResponseWriter, r *http.Request, site, urlP
 		http.NotFound(w, r)
 		return
 	}
+	if rel != "." {
+		if encodedRel, encoding, ok := precompressedVariant(root, rel, r.Header.Get("Accept-Encoding")); ok {
+			file, stat, err := safeOpen(root, encodedRel)
+			if err == nil && !stat.IsDir() {
+				defer file.Close()
+				serveEncodedOpened(w, r, rel, encoding, file, stat)
+				return
+			}
+			if file != nil {
+				file.Close()
+			}
+		}
+	}
 	file, stat, err := safeOpen(root, rel)
 	if err != nil && errors.Is(err, os.ErrNotExist) {
 		if h.trySPAFallback(w, r, site, root) {
 			return
 		}
-		http.NotFound(w, r)
+		h.serveSiteNotFound(w, r, root)
 		return
 	}
 	if err != nil {
-		http.Error(w, "forbidden", http.StatusForbidden)
+		h.serveSiteForbidden(w, r, root)
 		return
 	}
 	defer file.Close()
@@ -873,10 +907,53 @@ func (h *Handler) serveStatic(w http.ResponseWriter, r *http.Request, site, urlP
 		if h.trySPAFallback(w, r, site, root) {
 			return
 		}
-		http.NotFound(w, r)
+		h.serveSiteNotFound(w, r, root)
 		return
 	}
 	serveOpened(w, r, rel, file, stat)
+}
+
+func (h *Handler) serveSiteNotFound(w http.ResponseWriter, r *http.Request, root string) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.NotFound(w, r)
+		return
+	}
+	file, stat, err := safeOpen(root, "404.html")
+	if err != nil || stat.IsDir() {
+		if file != nil {
+			file.Close()
+		}
+		http.NotFound(w, r)
+		return
+	}
+	defer file.Close()
+	serveOpenedStatus(w, r, "404.html", file, stat, http.StatusNotFound)
+}
+
+func (h *Handler) serveSiteForbidden(w http.ResponseWriter, r *http.Request, root string) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	file, stat, err := safeOpen(root, "403.html")
+	if err == nil && !stat.IsDir() {
+		defer file.Close()
+		serveOpenedStatus(w, r, "403.html", file, stat, http.StatusForbidden)
+		return
+	}
+	if file != nil {
+		file.Close()
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusForbidden)
+	if r.Method == http.MethodHead {
+		return
+	}
+	_, _ = io.WriteString(w, `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>OpenQuick content unavailable</title>
+<style>body{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;min-height:100vh;display:grid;place-items:center;background:#f8fafc;color:#0f172a}.card{max-width:34rem;margin:2rem;padding:2rem;border:1px solid #cbd5e1;border-radius:18px;background:white;box-shadow:0 18px 50px rgba(15,23,42,.12)}.eyebrow{font-size:.78rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#64748b}h1{margin:.4rem 0 1rem;font-size:1.6rem}p{line-height:1.55;color:#334155}a{color:#0369a1;font-weight:700}</style></head>
+<body><main class="card"><div class="eyebrow">OpenQuick</div><h1>Content unavailable</h1><p>This content cannot be served by this OpenQuick site.</p><p><a href="/">Return to the site home</a> or contact the site publisher if you expected this page to work.</p></main></body></html>`)
 }
 
 func (h *Handler) trySPAFallback(w http.ResponseWriter, r *http.Request, site, root string) bool {
@@ -968,6 +1045,12 @@ func (h *Handler) serveDirectoryListing(w http.ResponseWriter, r *http.Request, 
 		}
 		data.Entries = append(data.Entries, listingEntry{Name: name, URL: urlName, Dir: e.IsDir()})
 	}
+	sort.Slice(data.Entries, func(i, j int) bool {
+		if data.Entries[i].Dir != data.Entries[j].Dir {
+			return data.Entries[i].Dir
+		}
+		return strings.ToLower(data.Entries[i].Name) < strings.ToLower(data.Entries[j].Name)
+	})
 	var buf bytes.Buffer
 	if err := listingTemplate.Execute(&buf, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1011,12 +1094,103 @@ func safeOpen(root, rel string) (*os.File, os.FileInfo, error) {
 	return f, info, nil
 }
 
+func acceptsEncoding(header, encoding string) bool {
+	specificSet := false
+	specificAllowed := false
+	wildcardAllowed := false
+	for _, part := range strings.Split(header, ",") {
+		part = strings.TrimSpace(strings.ToLower(part))
+		if part == "" {
+			continue
+		}
+		fields := strings.Split(part, ";")
+		name := strings.TrimSpace(fields[0])
+		allowed := acceptEncodingQ(fields) > 0
+		switch name {
+		case encoding:
+			specificSet = true
+			specificAllowed = allowed
+		case "*":
+			wildcardAllowed = allowed
+		}
+	}
+	if specificSet {
+		return specificAllowed
+	}
+	return wildcardAllowed
+}
+
+func acceptEncodingQ(fields []string) float64 {
+	q := 1.0
+	for _, field := range fields[1:] {
+		field = strings.TrimSpace(field)
+		if !strings.HasPrefix(field, "q=") {
+			continue
+		}
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(strings.TrimPrefix(field, "q=")), 64)
+		if err == nil {
+			q = parsed
+		}
+	}
+	return q
+}
+
+func precompressedVariant(root, rel, acceptEncoding string) (string, string, bool) {
+	candidates := []struct {
+		suffix   string
+		encoding string
+	}{
+		{".br", "br"},
+		{".gz", "gzip"},
+	}
+	for _, candidate := range candidates {
+		if !acceptsEncoding(acceptEncoding, candidate.encoding) {
+			continue
+		}
+		encodedRel := rel + candidate.suffix
+		file, stat, err := safeOpen(root, encodedRel)
+		if err == nil && !stat.IsDir() {
+			file.Close()
+			return encodedRel, candidate.encoding, true
+		}
+		if file != nil {
+			file.Close()
+		}
+	}
+	return "", "", false
+}
+
+func serveEncodedOpened(w http.ResponseWriter, r *http.Request, rel, encoding string, f *os.File, info os.FileInfo) {
+	w.Header().Set("Content-Encoding", encoding)
+	addVary(w.Header(), "Accept-Encoding")
+	if ct := mime.TypeByExtension(filepath.Ext(rel)); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	serveOpenedStatus(w, r, rel, f, info, http.StatusOK)
+}
+
 func serveOpened(w http.ResponseWriter, r *http.Request, rel string, f *os.File, info os.FileInfo) {
+	serveOpenedStatus(w, r, rel, f, info, http.StatusOK)
+}
+
+func serveOpenedStatus(w http.ResponseWriter, r *http.Request, rel string, f *os.File, info os.FileInfo, status int) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if strings.EqualFold(filepath.Ext(rel), ".html") || strings.EqualFold(filepath.Base(rel), "index.html") {
 		w.Header().Set("Cache-Control", "no-cache")
 	} else if hashedAsset(rel) {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	}
+	if status != http.StatusOK {
+		if ct := mime.TypeByExtension(filepath.Ext(rel)); ct != "" {
+			w.Header().Set("Content-Type", ct)
+		}
+		w.Header().Set("Last-Modified", info.ModTime().UTC().Format(http.TimeFormat))
+		w.WriteHeader(status)
+		if r.Method == http.MethodHead {
+			return
+		}
+		_, _ = io.Copy(w, f)
+		return
 	}
 	http.ServeContent(w, r, filepath.Base(rel), info.ModTime(), f)
 }

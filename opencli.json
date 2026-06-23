@@ -161,6 +161,13 @@
               }
             ],
             "description": "Deployment profile to record in quick.json"
+          },
+          {
+            "name": "adopt",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Adopt an existing folder by writing only missing OpenQuick metadata"
           }
         ],
         "arguments": [
@@ -177,6 +184,16 @@
         "examples": [
           "quick init lunch-vote",
           "quick init --template realtime --name lunch-vote --profile lab"
+        ]
+      },
+      {
+        "name": "templates",
+        "description": "List bundled OpenQuick site templates.",
+        "options": [],
+        "arguments": [],
+        "examples": [
+          "quick templates",
+          "quick init --template list"
         ]
       },
       {
@@ -568,6 +585,40 @@
             "description": "Query quickd over SSH"
           },
           {
+            "name": "filter",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "query",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "Text to match against site rows"
+              }
+            ],
+            "description": "Only show rows matching text"
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "name|updated|source",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "Site list sort key"
+              }
+            ],
+            "description": "Sort rows by name, updated, or source"
+          },
+          {
             "name": "json",
             "required": false,
             "aliases": [],
@@ -578,7 +629,87 @@
         "arguments": [],
         "examples": [
           "quick list",
-          "quick list --profile lab --json"
+          "quick list --profile lab --json",
+          "quick list --remote --filter demo --sort updated"
+        ]
+      },
+      {
+        "name": "config",
+        "description": "Show resolved OpenQuick config, profile, and target details.",
+        "options": [
+          {
+            "name": "profile",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "profile",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "Deployment profile"
+              }
+            ],
+            "description": "Profile used for resolution"
+          },
+          {
+            "name": "site",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "site",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "Site slug"
+              }
+            ],
+            "description": "Override the site slug"
+          },
+          {
+            "name": "subdomain",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "subdomain",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "URL subdomain"
+              }
+            ],
+            "description": "Override the URL subdomain"
+          },
+          {
+            "name": "json",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Print JSON output"
+          }
+        ],
+        "arguments": [
+          {
+            "name": "action",
+            "required": true,
+            "arity": {
+              "minimum": 1,
+              "maximum": 1
+            },
+            "description": "show"
+          }
+        ],
+        "examples": [
+          "quick config show",
+          "quick config show --profile lab --json"
         ]
       },
       {
@@ -717,6 +848,144 @@
         "examples": [
           "quick delete demo",
           "quick delete demo --profile lab --yes --json"
+        ]
+      },
+      {
+        "name": "restore",
+        "description": "Restore a recently deleted OpenQuick site archive.",
+        "options": [
+          {
+            "name": "profile",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "profile",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "Deployment profile"
+              }
+            ],
+            "description": "Deployment profile"
+          },
+          {
+            "name": "from",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "path",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "Filesystem path"
+              }
+            ],
+            "description": "Archive path returned by quick delete"
+          },
+          {
+            "name": "yes",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Skip typed restore confirmation"
+          },
+          {
+            "name": "json",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Print JSON output"
+          }
+        ],
+        "arguments": [
+          {
+            "name": "site",
+            "required": true,
+            "arity": {
+              "minimum": 1,
+              "maximum": 1
+            },
+            "description": "Site slug to restore"
+          }
+        ],
+        "examples": [
+          "quick restore demo --from /srv/quick/.trash/sites/demo-20260612T000000.000000000Z",
+          "quick restore demo --from /srv/quick/.trash/sites/demo-20260612T000000.000000000Z --yes --json"
+        ]
+      },
+      {
+        "name": "rollback",
+        "description": "Roll a remote OpenQuick site back to a previous release.",
+        "options": [
+          {
+            "name": "profile",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "profile",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "Deployment profile"
+              }
+            ],
+            "description": "Deployment profile"
+          },
+          {
+            "name": "to",
+            "required": false,
+            "aliases": [],
+            "arguments": [
+              {
+                "name": "release",
+                "required": true,
+                "arity": {
+                  "minimum": 1,
+                  "maximum": 1
+                },
+                "description": "Release id"
+              }
+            ],
+            "description": "Release id to restore; defaults to previous"
+          },
+          {
+            "name": "yes",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Skip typed rollback confirmation"
+          },
+          {
+            "name": "json",
+            "required": false,
+            "aliases": [],
+            "arguments": [],
+            "description": "Print JSON output"
+          }
+        ],
+        "arguments": [
+          {
+            "name": "site",
+            "required": true,
+            "arity": {
+              "minimum": 1,
+              "maximum": 1
+            },
+            "description": "Site slug to roll back"
+          }
+        ],
+        "examples": [
+          "quick rollback demo",
+          "quick rollback demo --to 20260612T000000Z-abcdef --yes --json"
         ]
       },
       {
@@ -977,6 +1246,8 @@
     "examples": [
       "quick init lunch-vote",
       "quick init --template realtime --name lunch-vote --profile lab",
+      "quick templates",
+      "quick init --template list",
       "quick deploy",
       "quick deploy --dry-run",
       "quick deploy ./dist --site demo --profile lab",
@@ -987,12 +1258,19 @@
       "quick open lunch-vote --plain",
       "quick list",
       "quick list --profile lab --json",
+      "quick list --remote --filter demo --sort updated",
+      "quick config show",
+      "quick config show --profile lab --json",
       "quick info",
       "quick --json info",
       "quick doctor",
       "quick doctor --json",
       "quick delete demo",
       "quick delete demo --profile lab --yes --json",
+      "quick restore demo --from /srv/quick/.trash/sites/demo-20260612T000000.000000000Z",
+      "quick restore demo --from /srv/quick/.trash/sites/demo-20260612T000000.000000000Z --yes --json",
+      "quick rollback demo",
+      "quick rollback demo --to 20260612T000000Z-abcdef --yes --json",
       "quick public demo",
       "quick public demo on --yes",
       "quick public demo off",

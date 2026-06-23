@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { quick } from '../dist/quick.js';
+import { OpenQuickError, quick } from '../dist/quick.js';
 
 test('OpenQuick SDK surface shape', () => {
   assert.equal(typeof quick, 'object');
@@ -9,11 +9,14 @@ test('OpenQuick SDK surface shape', () => {
   assert.equal(typeof quick.db.collection, 'function');
   assert.equal(typeof quick.uploads.put, 'function');
   assert.equal(typeof quick.uploads.get, 'function');
+  assert.equal(typeof quick.uploads.list, 'function');
   assert.equal(typeof quick.uploads.remove, 'function');
   assert.equal(typeof quick.realtime.channel, 'function');
+  assert.equal(typeof quick.realtime.onStateChange, 'function');
   assert.equal(typeof quick.capabilities, 'function');
   assert.equal(typeof quick.ai.chat, 'function');
   assert.equal(typeof quick.ai.image, 'function');
+  assert.equal(typeof quick.warehouse.metadata, 'function');
   assert.equal(typeof quick.warehouse.query, 'function');
 
   const votes = quick.db.collection('votes');
@@ -38,8 +41,10 @@ function jsonResponse(body) {
 
 test('db.list unwraps the quickd documents envelope and data nesting', async () => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () =>
-    jsonResponse({
+  let requestedPath = '';
+  globalThis.fetch = async (path) => {
+    requestedPath = String(path);
+    return jsonResponse({
       documents: [
         {
           id: 'doc-1',
@@ -49,10 +54,21 @@ test('db.list unwraps the quickd documents envelope and data nesting', async () 
           updated_at: '2026-01-01T00:00:00Z',
         },
       ],
+      next_cursor: 'cursor-2',
     });
+  };
   try {
-    const docs = await quick.db.collection('notes').list();
+    const docs = await quick.db.collection('notes').list({ limit: 1, cursor: 'cursor-1', filter: { tag: 'work' }, sort: ['created_at', 'id'] });
+    assert.equal(requestedPath.includes('limit=1'), true);
+    assert.equal(requestedPath.includes('cursor=cursor-1'), true);
+    assert.equal(requestedPath.includes('filter='), true);
+    assert.equal(requestedPath.includes('sort=created_at%2Cid'), true);
     assert.equal(docs.length, 1);
+    assert.notEqual(docs.documents, docs);
+    assert.deepEqual(docs.documents, [...docs]);
+    assert.doesNotThrow(() => JSON.stringify(docs));
+    assert.equal(docs.next_cursor, 'cursor-2');
+    assert.equal(docs.nextCursor, 'cursor-2');
     assert.equal(docs[0].id, 'doc-1');
     assert.equal(docs[0].text, 'hello');
     assert.equal(docs[0].by, 'sam@example.com');
@@ -70,6 +86,51 @@ test('db.list still accepts a bare array of flat documents', async () => {
     assert.equal(docs.length, 1);
     assert.equal(docs[0].id, 'doc-2');
     assert.equal(docs[0].text, 'flat');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('warehouse.metadata returns configured query metadata', async () => {
+  const originalFetch = globalThis.fetch;
+  const seen = [];
+  globalThis.fetch = async (path) => {
+    seen.push(String(path));
+    if (String(path).includes('/capabilities')) return jsonResponse({ warehouse: true });
+    return jsonResponse({ queries: [{ name: 'recent', params: [], max_rows: 100, columns: ['id'] }] });
+  };
+  try {
+    const meta = await quick.warehouse.metadata();
+    assert.equal(seen.some((p) => p.endsWith('/warehouse')), true);
+    assert.equal(meta.queries[0].name, 'recent');
+    assert.deepEqual(meta.queries[0].columns, ['id']);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('uploads.list unwraps envelope and pagination metadata', async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedPath = '';
+  globalThis.fetch = async (path) => {
+    requestedPath = String(path);
+    return jsonResponse({
+      uploads: [{ id: 'u1', url: '/_quick/uploads/u1', name: 'a.txt', size: 3 }],
+      next_cursor: 'u2',
+    });
+  };
+  try {
+    const uploads = await quick.uploads.list({ limit: 1, cursor: 'u0' });
+    assert.equal(requestedPath.includes('/uploads?'), true);
+    assert.equal(requestedPath.includes('limit=1'), true);
+    assert.equal(requestedPath.includes('cursor=u0'), true);
+    assert.equal(uploads.length, 1);
+    assert.notEqual(uploads.uploads, uploads);
+    assert.deepEqual(uploads.uploads, [...uploads]);
+    assert.doesNotThrow(() => JSON.stringify(uploads));
+    assert.equal(uploads.next_cursor, 'u2');
+    assert.equal(uploads.nextCursor, 'u2');
+    assert.equal(uploads[0].name, 'a.txt');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -103,6 +164,92 @@ test('db.create preserves a data id when the parent envelope omits id', async ()
     const doc = await quick.db.collection('votes').create({ choice: 'tea' });
     assert.equal(doc.id, 'doc-4');
     assert.equal(doc.choice, 'tea');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('aborted requests throw typed OpenQuickError', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    const err = new Error('cancelled');
+    err.name = 'AbortError';
+    throw err;
+  };
+  try {
+    await assert.rejects(
+      () => quick.ai.chat([{ role: 'user', content: 'stop' }], { signal: new AbortController().signal }),
+      (err) => err instanceof OpenQuickError && err.code === 'aborted'
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('request failures throw OpenQuickError with status code details and retry metadata', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ error: 'rate limited', code: 'rate_limited', scope: 'ai:rpm', reset: '2026-01-01T00:01:00Z' }), {
+      status: 429,
+      headers: { 'content-type': 'application/json', 'retry-after': '30' },
+    });
+  try {
+    await assert.rejects(
+      () => quick.db.collection('notes').list(),
+      (error) => {
+        assert.equal(error instanceof OpenQuickError, true);
+        assert.equal(error.status, 429);
+        assert.equal(error.code, 'rate_limited');
+        assert.equal(error.retryAfter, 30);
+        assert.equal(error.details.scope, 'ai:rpm');
+        return true;
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('uploads.put reports progress and passes abort signal', async () => {
+  const originalFetch = globalThis.fetch;
+  const controller = new AbortController();
+  const progress = [];
+  let sawSignal = false;
+  let sawRawUpload = false;
+  globalThis.fetch = async (path, init = {}) => {
+    sawSignal = init.signal === controller.signal;
+    sawRawUpload = String(path).includes('/uploads?name=progress.txt');
+    const reader = init.body?.getReader?.();
+    if (reader) {
+      while (!(await reader.read()).done) {}
+    }
+    return jsonResponse({ id: 'upload-progress', url: '/_quick/uploads/upload-progress', name: 'progress.txt' });
+  };
+  try {
+    const blob = new Blob(['hello'], { type: 'text/plain' });
+    const upload = await quick.uploads.put(blob, { name: 'progress.txt', signal: controller.signal, onProgress: (p) => progress.push(p) });
+    assert.equal(upload.id, 'upload-progress');
+    assert.equal(sawSignal, true);
+    assert.equal(sawRawUpload, true);
+    assert.equal(progress.length > 0, true);
+    assert.equal(progress.at(-1).loaded, 5);
+    assert.equal(progress.at(-1).total, 5);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('SDK request methods pass AbortSignal through fetch', async () => {
+  const originalFetch = globalThis.fetch;
+  const controller = new AbortController();
+  const seen = [];
+  globalThis.fetch = async (_path, init = {}) => {
+    seen.push(init.signal);
+    return jsonResponse({ documents: [] });
+  };
+  try {
+    await quick.db.collection('notes').list({ signal: controller.signal });
+    assert.equal(seen[0], controller.signal);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -226,6 +373,116 @@ test('SDK uses path-fallback WebSocket routes for realtime', async () => {
     assert.equal(seen[0], 'wss://quick.example.com/~/demo/_quick/realtime');
   } finally {
     globalThis.WebSocket = originalWebSocket;
+    if (originalLocation) {
+      Object.defineProperty(globalThis, 'location', originalLocation);
+    } else {
+      delete globalThis.location;
+    }
+  }
+});
+
+test('SDK realtime reconnects with backoff and resubscribes without duplicate handlers', async () => {
+  const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');
+  const originalWebSocket = globalThis.WebSocket;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  Object.defineProperty(globalThis, 'location', {
+    configurable: true,
+    value: {
+      href: 'https://demo.quick.example.com/',
+      pathname: '/',
+      protocol: 'https:',
+      host: 'demo.quick.example.com',
+    },
+  });
+
+  const sockets = [];
+  let scheduled = null;
+  let scheduledDelay = null;
+  class FakeWebSocket {
+    static OPEN = 1;
+    static CLOSED = 3;
+
+    constructor(url) {
+      this.url = url;
+      this.readyState = 0;
+      this.sent = [];
+      this.listeners = new Map();
+      sockets.push(this);
+    }
+
+    addEventListener(event, cb) {
+      const listeners = this.listeners.get(event) || new Set();
+      listeners.add(cb);
+      this.listeners.set(event, listeners);
+    }
+
+    removeEventListener(event, cb) {
+      this.listeners.get(event)?.delete(cb);
+    }
+
+    send(value) {
+      this.sent.push(String(value));
+    }
+
+    dispatch(event, payload = {}) {
+      for (const cb of Array.from(this.listeners.get(event) || [])) {
+        cb(payload);
+      }
+    }
+
+    open() {
+      this.readyState = FakeWebSocket.OPEN;
+      this.dispatch('open');
+    }
+
+    closeAbnormally() {
+      this.readyState = FakeWebSocket.CLOSED;
+      this.dispatch('close', { code: 1006 });
+    }
+
+    message(data) {
+      this.dispatch('message', { data });
+    }
+  }
+
+  globalThis.WebSocket = FakeWebSocket;
+  globalThis.setTimeout = (cb, delay) => {
+    scheduled = cb;
+    scheduledDelay = delay;
+    return 1;
+  };
+  globalThis.clearTimeout = () => {};
+
+  try {
+    const { quick: scopedQuick } = await import(`../dist/quick.js?reconnect=${Date.now()}`);
+    const states = [];
+    const received = [];
+    scopedQuick.realtime.onStateChange((state) => states.push(state));
+    scopedQuick.realtime.channel('room').on('update', (data) => received.push(data));
+
+    assert.equal(sockets.length, 1);
+    sockets[0].open();
+    assert.equal(sockets[0].sent.filter((msg) => msg.includes('"type":"subscribe"')).length, 1);
+
+    sockets[0].closeAbnormally();
+    assert.equal(typeof scheduled, 'function');
+    assert.equal(scheduledDelay >= 1000, true);
+    scheduled();
+    assert.equal(sockets.length, 2);
+    sockets[1].open();
+    assert.equal(sockets[1].sent.filter((msg) => msg.includes('"type":"subscribe"')).length, 1);
+
+    sockets[1].message(JSON.stringify({ channel: 'room', event: 'update', data: { n: 1 } }));
+    assert.equal(received.length, 1);
+    assert.deepEqual(received[0], { n: 1 });
+    assert.equal(states.includes('connected'), true);
+    assert.equal(states.includes('disconnected'), true);
+    assert.equal(states.includes('reconnecting'), true);
+  } finally {
+    globalThis.WebSocket = originalWebSocket;
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
     if (originalLocation) {
       Object.defineProperty(globalThis, 'location', originalLocation);
     } else {

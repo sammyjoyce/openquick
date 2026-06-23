@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,21 +87,113 @@ func TestDocumentCRUDAndSiteIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := created["id"].(string)
-	rr = doReq(app.h, http.MethodPatch, "a.localhost:9366", "/_quick/db/posts/"+id, []byte(`{"status":"published"}`))
+	revision := created["revision"].(string)
+	etag := rr.Header().Get("ETag")
+	if revision == "" || etag == "" {
+		t.Fatalf("missing revision/etag created=%v etag=%q", created, etag)
+	}
+	req := httptest.NewRequest(http.MethodPatch, "http://a.localhost:9366/_quick/db/posts/"+id, strings.NewReader(`{"status":"published"}`))
+	req.RemoteAddr = "127.0.0.1:1"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("If-Match", etag)
+	rr = httptest.NewRecorder()
+	app.h.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "published") {
 		t.Fatalf("patch status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var patched map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &patched); err != nil {
+		t.Fatal(err)
+	}
+	currentRevision := patched["revision"].(string)
+	req = httptest.NewRequest(http.MethodPatch, "http://a.localhost:9366/_quick/db/posts/"+id, strings.NewReader(`{"status":"stale"}`))
+	req.RemoteAddr = "127.0.0.1:1"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("If-Match", revision)
+	rr = httptest.NewRecorder()
+	app.h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "revision_mismatch") {
+		t.Fatalf("stale patch status=%d body=%s", rr.Code, rr.Body.String())
 	}
 	rr = doReq(app.h, http.MethodGet, "a.localhost:9366", "/_quick/db/posts", nil)
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), id) {
 		t.Fatalf("list a status=%d body=%s", rr.Code, rr.Body.String())
 	}
+	for _, title := range []string{"second", "third"} {
+		rr = doReq(app.h, http.MethodPost, "a.localhost:9366", "/_quick/db/posts", []byte(`{"title":"`+title+`"}`))
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("create %s status=%d body=%s", title, rr.Code, rr.Body.String())
+		}
+	}
+	rr = doReq(app.h, http.MethodGet, "a.localhost:9366", "/_quick/db/posts?limit=1", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("paged list status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var page struct {
+		Documents  []map[string]any `json:"documents"`
+		NextCursor string           `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Documents) != 1 || page.NextCursor == "" {
+		t.Fatalf("page=%+v", page)
+	}
+	rr = doReq(app.h, http.MethodGet, "a.localhost:9366", "/_quick/db/posts?limit=2&cursor="+url.QueryEscape(page.NextCursor), nil)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "second") || !strings.Contains(rr.Body.String(), "third") {
+		t.Fatalf("second page status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	rr = doReq(app.h, http.MethodGet, "a.localhost:9366", "/_quick/db/posts?cursor=bogus", nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("bad cursor status=%d body=%s", rr.Code, rr.Body.String())
+	}
 	rr = doReq(app.h, http.MethodGet, "b.localhost:9366", "/_quick/db/posts", nil)
 	if rr.Code != http.StatusOK || strings.Contains(rr.Body.String(), id) {
 		t.Fatalf("cross-site leak status=%d body=%s", rr.Code, rr.Body.String())
 	}
-	rr = doReq(app.h, http.MethodDelete, "a.localhost:9366", "/_quick/db/posts/"+id, nil)
+	rr = doReq(app.h, http.MethodDelete, "a.localhost:9366", "/_quick/db/posts/"+id+"?revision="+url.QueryEscape(currentRevision), nil)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("delete status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestDocumentFilterAndSortQueries(t *testing.T) {
+	app := newApp(t, 1024)
+	for _, body := range []string{
+		`{"title":"first","status":"closed"}`,
+		`{"title":"second","status":"open"}`,
+		`{"title":"third","status":"open"}`,
+	} {
+		rr := doReq(app.h, http.MethodPost, "a.localhost:9366", "/_quick/db/tasks", []byte(body))
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("create status=%d body=%s", rr.Code, rr.Body.String())
+		}
+	}
+	rr := doReq(app.h, http.MethodGet, "a.localhost:9366", "/_quick/db/tasks?filter="+url.QueryEscape(`{"status":"open"}`)+"&sort=-created_at", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("filter status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var res struct {
+		Documents []map[string]any `json:"documents"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Documents) != 2 {
+		t.Fatalf("documents=%+v", res.Documents)
+	}
+	for _, doc := range res.Documents {
+		data := doc["data"].(map[string]any)
+		if data["status"] != "open" {
+			t.Fatalf("unexpected filtered doc: %+v", doc)
+		}
+	}
+	if res.Documents[0]["created_at"].(string) < res.Documents[1]["created_at"].(string) {
+		t.Fatalf("not sorted descending: %+v", res.Documents)
+	}
+	rr = doReq(app.h, http.MethodGet, "a.localhost:9366", "/_quick/db/tasks?filter="+url.QueryEscape(`{"status":{"$ne":"open"}}`), nil)
+	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "unsupported filter operator") {
+		t.Fatalf("unsupported filter status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
 
@@ -122,6 +215,60 @@ func TestAPIOriginAndUploadLimit(t *testing.T) {
 	app.h.ServeHTTP(rr, req)
 	if rr.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("upload status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestUploadHeadChecksStoredObject(t *testing.T) {
+	app := newApp(t, 1024)
+	req := httptest.NewRequest(http.MethodPost, "http://a.localhost:9366/_quick/uploads?name=x.txt", strings.NewReader("hello"))
+	req.RemoteAddr = "127.0.0.1:1"
+	req.Header.Set("Content-Type", "text/plain")
+	rr := httptest.NewRecorder()
+	app.h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("upload status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var uploaded map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &uploaded); err != nil {
+		t.Fatal(err)
+	}
+	id, _ := uploaded["id"].(string)
+	if id == "" {
+		t.Fatalf("missing upload id: %#v", uploaded)
+	}
+	rr = doReq(app.h, http.MethodHead, "a.localhost:9366", "/_quick/uploads/"+id, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("head status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if rr.Body.Len() != 0 {
+		t.Fatalf("HEAD returned body %q", rr.Body.String())
+	}
+	if got := rr.Header().Get("Content-Type"); !strings.Contains(got, "text/plain") {
+		t.Fatalf("content-type=%q", got)
+	}
+	req = httptest.NewRequest(http.MethodPost, "http://a.localhost:9366/_quick/uploads?name=y.txt", strings.NewReader("bye"))
+	req.RemoteAddr = "127.0.0.1:1"
+	req.Header.Set("Content-Type", "text/plain")
+	rr = httptest.NewRecorder()
+	app.h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("second upload status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	rr = doReq(app.h, http.MethodGet, "a.localhost:9366", "/_quick/uploads?limit=10", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list uploads status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var list struct {
+		Uploads []map[string]any `json:"uploads"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Uploads) != 2 {
+		t.Fatalf("uploads=%+v", list.Uploads)
+	}
+	if list.Uploads[0]["name"] == "" || list.Uploads[0]["size"] == nil || list.Uploads[0]["created_by"] == nil || list.Uploads[0]["content_type"] == nil {
+		t.Fatalf("upload metadata missing: %+v", list.Uploads[0])
 	}
 }
 

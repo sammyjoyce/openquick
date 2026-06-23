@@ -41,3 +41,10 @@ func TestScanStaticFindingsBinaryAndCaps(t *testing.T) {
 		})
 	}
 }
+
+func TestFormatFindings(t *testing.T) {
+	got := FormatFindings([]Finding{{File: "app.js", Pattern: "/_quick/"}, {File: "index.html", Pattern: "quick.identity"}}, 1)
+	if got != `app.js matched "/_quick/"; and 1 more` {
+		t.Fatalf("FormatFindings=%q", got)
+	}
+}

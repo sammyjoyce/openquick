@@ -29,16 +29,51 @@ export interface DbSubscriptionHandlers<T = DocumentRecord> {
 }
 
 export interface Collection<T = DocumentRecord> {
-  create(data: Record<string, unknown>): Promise<T>;
-  get(id: string): Promise<T>;
-  update(id: string, patch: Record<string, unknown>): Promise<T>;
-  remove(id: string): Promise<void>;
-  list(): Promise<T[]>;
+  create(data: Record<string, unknown>, options?: RequestOptions): Promise<T>;
+  get(id: string, options?: RequestOptions): Promise<T>;
+  update(id: string, patch: Record<string, unknown>, options?: RequestOptions): Promise<T>;
+  remove(id: string, options?: RequestOptions): Promise<void>;
+  list(options?: DbListOptions): Promise<ListResult<T>>;
   subscribe(handlers: DbSubscriptionHandlers<T>): Promise<() => void>;
 }
 
-export interface UploadOptions {
+export interface RequestOptions {
+  signal?: AbortSignal;
+}
+
+export interface DbListOptions extends RequestOptions {
+  limit?: number;
+  cursor?: string;
+  filter?: Record<string, unknown> | string;
+  sort?: string | string[];
+}
+
+export interface ListResult<T = DocumentRecord> extends Array<T> {
+  documents: T[];
+  next_cursor?: string;
+  nextCursor?: string;
+}
+
+export interface UploadProgress {
+  loaded: number;
+  total?: number;
+  percent?: number;
+}
+
+export interface UploadOptions extends RequestOptions {
   name?: string;
+  onProgress?: (progress: UploadProgress) => void;
+}
+
+export interface UploadListOptions extends RequestOptions {
+  limit?: number;
+  cursor?: string;
+}
+
+export interface UploadListResult extends Array<Upload> {
+  uploads: Upload[];
+  next_cursor?: string;
+  nextCursor?: string;
 }
 
 export interface Upload {
@@ -64,6 +99,10 @@ export interface Channel {
   send(event: string, data?: unknown): void;
 }
 
+export type RealtimeConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
+
+export type RealtimeStateCallback = (state: RealtimeConnectionState) => void;
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | string;
   content: string;
@@ -73,6 +112,7 @@ export interface ChatMessage {
 export interface ChatOptions {
   model?: string;
   stream?: boolean;
+  signal?: AbortSignal;
   onDelta?: (delta: string, event: unknown) => void;
   [key: string]: unknown;
 }
@@ -94,6 +134,7 @@ export interface ChatResponse {
 export interface ImageOptions {
   model?: string;
   size?: string;
+  signal?: AbortSignal;
   [key: string]: unknown;
 }
 
@@ -113,6 +154,17 @@ export interface WarehouseQueryResult {
   row_count: number;
   truncated?: boolean;
   [key: string]: unknown;
+}
+
+export interface WarehouseMetadataQuery {
+  name: string;
+  params: Array<{ name: string; type: string }>;
+  max_rows: number;
+  columns: string[];
+}
+
+export interface WarehouseMetadataResult {
+  queries: WarehouseMetadataQuery[];
 }
 
 type RealtimeCallback = (data: unknown, envelope: RealtimeEnvelope) => void;
@@ -164,6 +216,22 @@ function detectApiBase(): string {
 
 const apiBase = detectApiBase();
 
+export class OpenQuickError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  readonly details?: unknown;
+  readonly retryAfter?: number;
+
+  constructor(message: string, options: { status: number; code?: string; details?: unknown; retryAfter?: number; cause?: unknown }) {
+    super(message, options.cause !== undefined ? { cause: options.cause } : undefined);
+    this.name = 'OpenQuickError';
+    this.status = options.status;
+    this.code = options.code;
+    this.details = options.details;
+    this.retryAfter = options.retryAfter;
+  }
+}
+
 function apiPath(...parts: string[]): string {
   const suffix = parts.map((part) => encodeURIComponent(part)).join('/');
   return suffix ? `${apiBase}/${suffix}` : apiBase;
@@ -208,18 +276,44 @@ async function parseResponse<T>(response: Response): Promise<T> {
 }
 
 async function throwRequestError(response: Response): Promise<never> {
-  let details = response.statusText;
+  let details: unknown = response.statusText;
+  let code: string | undefined;
   try {
     const body = await parseResponse<unknown>(response);
     if (typeof body === 'string' && body.length > 0) {
       details = body;
-    } else if (body && typeof body === 'object' && 'error' in body) {
-      details = String((body as { error: unknown }).error);
+    } else if (isRecord(body)) {
+      details = body;
+      if (typeof body.code === 'string') {
+        code = body.code;
+      } else if (typeof body.error === 'string') {
+        code = body.error;
+      }
     }
   } catch {
     // Keep the HTTP status text when the error body cannot be parsed.
   }
-  throw new Error(`OpenQuick request failed: ${response.status} ${details}`);
+
+  const retryAfterHeader = response.headers.get('retry-after');
+  const retryAfter = retryAfterHeader ? Number.parseInt(retryAfterHeader, 10) : undefined;
+  const messageDetail = isRecord(details) && typeof details.error === 'string' ? details.error : String(details);
+  throw new OpenQuickError(`OpenQuick request failed: ${response.status} ${messageDetail}`, {
+    status: response.status,
+    code,
+    details,
+    retryAfter: Number.isFinite(retryAfter) ? retryAfter : undefined,
+  });
+}
+
+function isAbortError(err: unknown): boolean {
+  return Boolean(err && typeof err === 'object' && ((err as { name?: string }).name === 'AbortError' || (err as { code?: string }).code === 'ABORT_ERR'));
+}
+
+function throwAbortError(err: unknown): never {
+  throw new OpenQuickError('OpenQuick request aborted', {
+    code: 'aborted',
+    details: { error: 'aborted', cause: err instanceof Error ? err.message : String(err) },
+  });
 }
 
 async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -231,11 +325,17 @@ async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> 
     headers.set('content-type', 'application/json');
   }
 
-  const response = await fetch(path, {
-    ...init,
-    headers,
-    credentials: 'same-origin',
-  });
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      ...init,
+      headers,
+      credentials: 'same-origin',
+    });
+  } catch (err) {
+    if (isAbortError(err)) throwAbortError(err);
+    throw err;
+  }
 
   if (!response.ok) {
     await throwRequestError(response);
@@ -257,6 +357,37 @@ function normalizeList<T>(value: T[] | { items?: T[]; documents?: T[] }): T[] {
     }
   }
   return [];
+}
+
+function normalizeListResult<T>(value: unknown): ListResult<T> {
+  const docs = normalizeList<unknown>(value as unknown[] | { items?: unknown[]; documents?: unknown[] }).map((doc) => normalizeDocument<T>(doc)) as ListResult<T>;
+  docs.documents = [...docs];
+  if (value && typeof value === 'object') {
+    const next = (value as { next_cursor?: unknown; nextCursor?: unknown }).next_cursor ?? (value as { nextCursor?: unknown }).nextCursor;
+    if (typeof next === 'string' && next.length > 0) {
+      docs.next_cursor = next;
+      docs.nextCursor = next;
+    }
+  }
+  return docs;
+}
+
+function dbListPath(base: string, options: DbListOptions): string {
+  const params = new URLSearchParams();
+  if (options.limit !== undefined) {
+    params.set('limit', String(options.limit));
+  }
+  if (options.cursor) {
+    params.set('cursor', options.cursor);
+  }
+  if (options.filter !== undefined) {
+    params.set('filter', typeof options.filter === 'string' ? options.filter : JSON.stringify(options.filter));
+  }
+  if (options.sort !== undefined) {
+    params.set('sort', Array.isArray(options.sort) ? options.sort.join(',') : options.sort);
+  }
+  const qs = params.toString();
+  return qs ? `${base}?${qs}` : base;
 }
 
 // quickd wraps document fields in a `data` envelope alongside server
@@ -319,9 +450,25 @@ function onIdentityChange(cb: (identity: Identity) => void): () => void {
 class RealtimeClient {
   private socket: WebSocket | null = null;
   private openPromise: Promise<void> | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttempt = 0;
+  private state: RealtimeConnectionState = 'disconnected';
   private readonly queued: RealtimeEnvelope[] = [];
   private readonly channelSince = new Map<string, string | undefined>();
   private readonly listeners = new Map<string, RealtimeListenerMap>();
+  private readonly stateListeners = new Set<RealtimeStateCallback>();
+
+  onStateChange(cb: RealtimeStateCallback): () => void {
+    this.stateListeners.add(cb);
+    queueMicrotask(() => {
+      if (this.stateListeners.has(cb)) {
+        cb(this.state);
+      }
+    });
+    return () => {
+      this.stateListeners.delete(cb);
+    };
+  }
 
   on(channel: string, event: string, cb: RealtimeCallback, since?: string): () => void {
     requireId(channel, 'channel');
@@ -349,6 +496,10 @@ class RealtimeClient {
       }
       if (events?.size === 0) {
         this.listeners.delete(channel);
+        this.channelSince.delete(channel);
+      }
+      if (!this.hasActiveWork()) {
+        this.clearReconnectTimer();
       }
     };
   }
@@ -414,8 +565,12 @@ class RealtimeClient {
     const socket = new WebSocket(realtimeURL('realtime'));
     this.socket = socket;
     this.openPromise = null;
+    this.setState(this.state === 'reconnecting' ? 'reconnecting' : 'connecting');
 
     socket.addEventListener('open', () => {
+      this.reconnectAttempt = 0;
+      this.clearReconnectTimer();
+      this.setState('connected');
       for (const [channel, since] of this.channelSince) {
         this.sendNow({ type: 'subscribe', channel, since });
       }
@@ -432,10 +587,56 @@ class RealtimeClient {
       if (this.socket === socket) {
         this.socket = null;
         this.openPromise = null;
+        this.setState('disconnected');
+        if (this.hasActiveWork()) {
+          this.scheduleReconnect();
+        }
       }
     });
 
     return socket;
+  }
+
+  private hasActiveWork(): boolean {
+    return this.listeners.size > 0 || this.queued.length > 0 || this.channelSince.size > 0;
+  }
+
+  private setState(state: RealtimeConnectionState): void {
+    if (this.state === state) {
+      return;
+    }
+    this.state = state;
+    for (const listener of Array.from(this.stateListeners)) {
+      listener(state);
+    }
+  }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer !== null) {
+      return;
+    }
+    this.setState('reconnecting');
+    const delay = Math.min(30_000, 1_000 * 2 ** Math.min(this.reconnectAttempt, 5));
+    this.reconnectAttempt += 1;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (!this.hasActiveWork()) {
+        this.setState('disconnected');
+        return;
+      }
+      try {
+        this.ensureSocket();
+      } catch {
+        this.scheduleReconnect();
+      }
+    }, delay);
   }
 
   private sendEnvelope(envelope: RealtimeEnvelope): void {
@@ -487,39 +688,42 @@ function collection<T = DocumentRecord>(name: string): Collection<T> {
   const channel = `db:${name}`;
 
   return {
-    async create(data: Record<string, unknown>): Promise<T> {
+    async create(data: Record<string, unknown>, options: RequestOptions = {}): Promise<T> {
       return normalizeDocument<T>(
         await requestJson<unknown>(base, {
           method: 'POST',
           headers: jsonHeaders,
           body: JSON.stringify(data),
+          signal: options.signal,
         }),
       );
     },
 
-    async get(id: string): Promise<T> {
-      return normalizeDocument<T>(await requestJson<unknown>(`${base}/${encodeURIComponent(requireId(id, 'document id'))}`));
+    async get(id: string, options: RequestOptions = {}): Promise<T> {
+      return normalizeDocument<T>(await requestJson<unknown>(`${base}/${encodeURIComponent(requireId(id, 'document id'))}`, { signal: options.signal }));
     },
 
-    async update(id: string, patch: Record<string, unknown>): Promise<T> {
+    async update(id: string, patch: Record<string, unknown>, options: RequestOptions = {}): Promise<T> {
       return normalizeDocument<T>(
         await requestJson<unknown>(`${base}/${encodeURIComponent(requireId(id, 'document id'))}`, {
           method: 'PATCH',
           headers: jsonHeaders,
           body: JSON.stringify(patch),
+          signal: options.signal,
         }),
       );
     },
 
-    async remove(id: string): Promise<void> {
+    async remove(id: string, options: RequestOptions = {}): Promise<void> {
       await requestJson<void>(`${base}/${encodeURIComponent(requireId(id, 'document id'))}`, {
         method: 'DELETE',
+        signal: options.signal,
       });
     },
 
-    async list(): Promise<T[]> {
-      const raw = await requestJson<unknown[] | { items?: unknown[]; documents?: unknown[] }>(base);
-      return normalizeList<unknown>(raw).map((doc) => normalizeDocument<T>(doc));
+    async list(options: DbListOptions = {}): Promise<ListResult<T>> {
+      const raw = await requestJson<unknown[] | { items?: unknown[]; documents?: unknown[]; next_cursor?: string; nextCursor?: string }>(dbListPath(base, options), { signal: options.signal });
+      return normalizeListResult<T>(raw);
     },
 
     async subscribe(handlers: DbSubscriptionHandlers<T>): Promise<() => void> {
@@ -554,12 +758,49 @@ function collection<T = DocumentRecord>(name: string): Collection<T> {
   };
 }
 
+function progressBody(file: Blob, onProgress: (progress: UploadProgress) => void): BodyInit | null {
+  if (typeof ReadableStream === 'undefined' || typeof file.stream !== 'function') {
+    return null;
+  }
+  const total = typeof file.size === 'number' ? file.size : undefined;
+  let loaded = 0;
+  const reader = file.stream().getReader();
+  return new ReadableStream({
+    async pull(controller) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        controller.close();
+        return;
+      }
+      loaded += chunk.value.byteLength || chunk.value.length || 0;
+      onProgress({ loaded, total, percent: total ? loaded / total : undefined });
+      controller.enqueue(chunk.value);
+    },
+    cancel(reason) {
+      return reader.cancel(reason);
+    },
+  }) as unknown as BodyInit;
+}
+
 async function putUpload(file: File | Blob, options: UploadOptions = {}): Promise<Upload> {
+  const name = options.name || ('name' in file && typeof file.name === 'string' ? file.name : 'upload');
+  if (options.onProgress) {
+    const body = progressBody(file, options.onProgress);
+    if (body) {
+      const upload = await requestJson<Upload>(`${apiPath('uploads')}?name=${encodeURIComponent(name)}`, {
+        method: 'POST',
+        headers: { 'content-type': file.type || 'application/octet-stream' },
+        body,
+        signal: options.signal,
+        ...(typeof navigator === 'undefined' ? { duplex: 'half' } : {}),
+      } as RequestInit);
+      return pathAwareURL(upload);
+    }
+  }
   if (typeof FormData === 'undefined') {
     throw new Error('OpenQuick uploads require FormData support');
   }
 
-  const name = options.name || ('name' in file && typeof file.name === 'string' ? file.name : 'upload');
   const form = new FormData();
   form.append('file', file, name);
   form.append('name', name);
@@ -567,19 +808,36 @@ async function putUpload(file: File | Blob, options: UploadOptions = {}): Promis
   const upload = await requestJson<Upload>(apiPath('uploads'), {
     method: 'POST',
     body: form,
+    signal: options.signal,
   });
   return pathAwareURL(upload);
 }
 
-async function getUpload(id: string): Promise<Upload> {
-  const upload = await requestJson<Upload>(apiPath('uploads', requireId(id, 'upload id')));
+async function getUpload(id: string, options: RequestOptions = {}): Promise<Upload> {
+  const upload = await requestJson<Upload>(apiPath('uploads', requireId(id, 'upload id')), { signal: options.signal });
   return pathAwareURL(upload);
 }
 
-async function removeUpload(id: string): Promise<void> {
+async function removeUpload(id: string, options: RequestOptions = {}): Promise<void> {
   await requestJson<void>(apiPath('uploads', requireId(id, 'upload id')), {
     method: 'DELETE',
+    signal: options.signal,
   });
+}
+
+async function listUploads(options: UploadListOptions = {}): Promise<UploadListResult> {
+  const params = new URLSearchParams();
+  if (options.limit !== undefined) params.set('limit', String(options.limit));
+  if (options.cursor) params.set('cursor', options.cursor);
+  const url = apiPath('uploads') + (params.toString() ? `?${params}` : '');
+  const envelope = await requestJson<{ uploads?: Upload[]; next_cursor?: string }>(url, {
+    signal: options.signal,
+  });
+  const uploads = (envelope.uploads || []).map(pathAwareURL) as UploadListResult;
+  uploads.uploads = [...uploads];
+  uploads.next_cursor = envelope.next_cursor || undefined;
+  uploads.nextCursor = uploads.next_cursor;
+  return uploads;
 }
 
 function realtimeChannel(name: string): Channel {
@@ -595,15 +853,18 @@ function realtimeChannel(name: string): Channel {
   };
 }
 
-function fetchCapabilities(): Promise<Capabilities> {
-  return requestJson<Capabilities>(apiPath('capabilities'));
+function fetchCapabilities(options: RequestOptions = {}): Promise<Capabilities> {
+  return requestJson<Capabilities>(apiPath('capabilities'), { signal: options.signal });
 }
 
-async function requireCapability(apiName: string, capability: string): Promise<void> {
+async function requireCapability(apiName: string, capability: string, options: RequestOptions = {}): Promise<void> {
   let capabilities: Capabilities;
   try {
-    capabilities = await fetchCapabilities();
+    capabilities = await fetchCapabilities(options);
   } catch (error) {
+    if (error instanceof OpenQuickError && error.code === 'aborted') {
+      throw error;
+    }
     throw new Error(`${apiName} is not available on this host (capabilities check failed: ${errorMessage(error)})`);
   }
 
@@ -699,16 +960,23 @@ function buildStreamChatResponse(state: ChatStreamState, fallbackModel: unknown)
   return response as ChatResponse;
 }
 
-async function requestChatStream(body: Record<string, unknown>, fallbackModel: unknown, onDelta?: (delta: string, event: unknown) => void): Promise<ChatResponse> {
-  const response = await fetch(apiPath('ai', 'chat'), {
-    method: 'POST',
-    headers: {
-      accept: 'text/event-stream, application/json',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify(body),
-    credentials: 'same-origin',
-  });
+async function requestChatStream(body: Record<string, unknown>, fallbackModel: unknown, onDelta?: (delta: string, event: unknown) => void, signal?: AbortSignal): Promise<ChatResponse> {
+  let response: Response;
+  try {
+    response = await fetch(apiPath('ai', 'chat'), {
+      method: 'POST',
+      headers: {
+        accept: 'text/event-stream, application/json',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(body),
+      credentials: 'same-origin',
+      signal,
+    });
+  } catch (err) {
+    if (isAbortError(err)) throwAbortError(err);
+    throw err;
+  }
 
   if (!response.ok) {
     await throwRequestError(response);
@@ -762,9 +1030,9 @@ async function requestChatStream(body: Record<string, unknown>, fallbackModel: u
 }
 
 async function chat(messages: ChatMessage[], options: ChatOptions = {}): Promise<ChatResponse> {
-  await requireCapability('quick.ai.chat', 'ai');
+  await requireCapability('quick.ai.chat', 'ai', { signal: options.signal });
 
-  const { model, stream, onDelta, ...rest } = options;
+  const { model, stream, signal, onDelta, ...rest } = options;
   const useStream = stream === true || typeof onDelta === 'function';
   const body: Record<string, unknown> = {
     ...rest,
@@ -776,21 +1044,22 @@ async function chat(messages: ChatMessage[], options: ChatOptions = {}): Promise
   }
 
   if (useStream) {
-    return requestChatStream(body, model, onDelta);
+    return requestChatStream(body, model, onDelta, signal);
   }
 
   return requestJson<ChatResponse>(apiPath('ai', 'chat'), {
     method: 'POST',
     headers: jsonHeaders,
     body: JSON.stringify(body),
+    signal,
   });
 }
 
 async function image(prompt: string, options: ImageOptions = {}): Promise<ImageResponse> {
   requireId(prompt, 'prompt');
-  await requireCapability('quick.ai.image', 'ai');
+  await requireCapability('quick.ai.image', 'ai', { signal: options.signal });
 
-  const { model, size, ...rest } = options;
+  const { model, size, signal, ...rest } = options;
   const body: Record<string, unknown> = { ...rest, prompt };
   if (model !== undefined) {
     body.model = model;
@@ -803,18 +1072,25 @@ async function image(prompt: string, options: ImageOptions = {}): Promise<ImageR
     method: 'POST',
     headers: jsonHeaders,
     body: JSON.stringify(body),
+    signal,
   });
   return pathAwareURL(image);
 }
 
-async function warehouseQuery(name: string, params: WarehouseParams = {}): Promise<WarehouseQueryResult> {
+async function warehouseMetadata(options: RequestOptions = {}): Promise<WarehouseMetadataResult> {
+  await requireCapability('quick.warehouse.metadata', 'warehouse', options);
+  return requestJson<WarehouseMetadataResult>(apiPath('warehouse'), { signal: options.signal });
+}
+
+async function warehouseQuery(name: string, params: WarehouseParams = {}, options: RequestOptions = {}): Promise<WarehouseQueryResult> {
   requireId(name, 'warehouse query name');
-  await requireCapability('quick.warehouse.query', 'warehouse');
+  await requireCapability('quick.warehouse.query', 'warehouse', options);
 
   return requestJson<WarehouseQueryResult>(apiPath('warehouse', name), {
     method: 'POST',
     headers: jsonHeaders,
     body: JSON.stringify(params),
+    signal: options.signal,
   });
 }
 
@@ -829,16 +1105,19 @@ export const quick = {
   uploads: {
     put: putUpload,
     get: getUpload,
+    list: listUploads,
     remove: removeUpload,
   },
   realtime: {
     channel: realtimeChannel,
+    onStateChange: (cb: RealtimeStateCallback): (() => void) => realtimeClient.onStateChange(cb),
   },
   ai: {
     chat,
     image,
   },
   warehouse: {
+    metadata: warehouseMetadata,
     query: warehouseQuery,
   },
   capabilities: fetchCapabilities,

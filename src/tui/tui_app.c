@@ -27,22 +27,22 @@ typedef enum {
 
 static const tui_menu_item_t main_menu[] = {
     {.label = "&Sites",
-     .description = "Explore and manage deployed sites",
+     .description = "CLI: quick list --remote / quick delete / quick public",
      .id = APP_MENU_SITES},
     {.label = "&Deploy",
-     .description = "Resolve a plan and deploy the current or selected site",
+     .description = "CLI: quick deploy [path]",
      .id = APP_MENU_DEPLOY},
     {.label = "&New site",
-     .description = "Scaffold a static OpenQuick site",
+     .description = "CLI: quick init [dir]",
      .id = APP_MENU_NEW_SITE},
     {.label = "Do&ctor",
-     .description = "Run local, remote, and edge diagnostics",
+     .description = "CLI: quick doctor",
      .id = APP_MENU_DOCTOR},
     {.label = "Ser&ve",
-     .description = "Local dev server and host install guide",
+     .description = "CLI: quick serve --dev / quick serve install",
      .id = APP_MENU_SERVE},
     {.label = "Sett&ings",
-     .description = "Edit profiles and site configuration",
+     .description = "CLI: quick config show / edit config.json",
      .id = APP_MENU_SETTINGS},
     {.kind = TUI_MENU_ITEM_SEPARATOR},
     {.label = "&Help/About",
@@ -68,7 +68,9 @@ static void app_show_keybindings(void) {
                    "/                    Incremental search\n"
                    "Enter                Select\n"
                    "Esc                  Open this menu / go back\n"
-                   "q                    Quit or go back");
+                   "q                    Quit or go back\n\n"
+                   "CLI equivalents: quick list --remote, quick deploy, quick init,\n"
+                   "quick doctor, quick serve --dev, quick serve install, quick config show");
 }
 
 static void app_show_about(void) {

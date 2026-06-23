@@ -143,7 +143,12 @@ quick deploy --site lunch-vote --profile lab --yes
 A deploy never rsyncs into the live directory. The host stages files under `.incoming`, writes an immutable release under `releases/<release-id>`, and atomically swaps the `current` symlink.
 
 Hosts retain old releases according to `retained_releases`, default 10. The host also maintains a `previous` symlink when there is a prior release.
-There is no top-level `quick rollback` command in the current OpenCLI surface. Treat rollback as an operator action that swaps symlinks and records audit until a command exists.
+Use the audited rollback command after explicit confirmation:
+
+```bash
+quick rollback lunch-vote --profile lab
+quick rollback lunch-vote --profile lab --to 20260623T120000Z-abcd12 --yes
+```
 
 A failed activation leaves the previous complete release live. Browsers see either the old release or the new release, never a partial transfer.
 

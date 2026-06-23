@@ -6,12 +6,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"openquick.dev/quickd/internal/config"
+	"openquick.dev/quickd/internal/deploy"
 	"openquick.dev/quickd/internal/store"
 )
 
@@ -84,6 +87,214 @@ func TestServeRemoteAPIValidation(t *testing.T) {
 	}
 	if err := serveCmd([]string{"--dev", "--remote-api", "http://example.com", "--remote-api-token", "tok"}); err == nil || !strings.Contains(err.Error(), "https") {
 		t.Fatalf("remote http err=%v", err)
+	}
+}
+
+func TestConfigCheckAndExplain(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "config"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "config", "quickd.json"), []byte(`{"listen":"127.0.0.1:9876","remote_root":"`+root+`","iap":{"type":"none"},"ai":{"enabled":true,"providers":[{"type":"openai","api_key_env":"OPENAI_KEY"}]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out := captureStdout(t, func() {
+		if err := configCmd([]string{"check", "--root", root, "--json"}); err != nil {
+			t.Fatalf("config check: %v", err)
+		}
+	})
+	if !strings.Contains(out, `"ok":true`) || !strings.Contains(out, `"listen":"127.0.0.1:9876"`) || strings.Contains(out, "OPENAI_KEY_VALUE") {
+		t.Fatalf("unexpected config check output: %s", out)
+	}
+	out = captureStdout(t, func() {
+		if err := configCmd([]string{"explain", "--root", root, "--json"}); err != nil {
+			t.Fatalf("config explain: %v", err)
+		}
+	})
+	if !strings.Contains(out, `"defaults"`) || !strings.Contains(out, "secret values") {
+		t.Fatalf("unexpected config explain output: %s", out)
+	}
+}
+
+func TestAuditExportChronologicalAndRedacted(t *testing.T) {
+	root := t.TempDir()
+	st, err := store.Open(filepath.Join(root, "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := st.RecordDeploy(ctx, "demo", "rel1", "alice", 0, 1, store.DeployAudit{SSHKeyID: "secret-key-value"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSitePublic(ctx, "demo", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddDomain(ctx, "app.example.org", "demo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DeleteSite(ctx, "demo"); err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+
+	out := captureStdout(t, func() {
+		if err := auditCmd([]string{"export", "--root", root, "--json"}); err != nil {
+			t.Fatalf("audit export: %v", err)
+		}
+	})
+	if strings.Contains(out, "secret-key-value") {
+		t.Fatalf("audit leaked secret-like metadata: %s", out)
+	}
+	var res struct {
+		Events []store.AuditEvent `json:"events"`
+	}
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("decode audit: %v\n%s", err, out)
+	}
+	want := []string{"deploy", "site.public", "domain.add", "site.delete"}
+	if len(res.Events) != len(want) {
+		t.Fatalf("events len=%d want %d: %+v", len(res.Events), len(want), res.Events)
+	}
+	for i, action := range want {
+		if res.Events[i].Action != action {
+			t.Fatalf("event %d action=%q want %q; events=%+v", i, res.Events[i].Action, action, res.Events)
+		}
+	}
+	if got := res.Events[0].Metadata["ssh_key_id"]; got != "[redacted]" {
+		t.Fatalf("ssh_key_id metadata=%q", got)
+	}
+}
+
+func TestDomainReadinessAssessment(t *testing.T) {
+	ok := assessDomainReadiness(context.Background(), "mapped.example.test", func(context.Context, string) ([]string, error) {
+		return []string{"127.0.0.1"}, nil
+	})
+	if ok.Status != "ok" || ok.DNS != "ok" || ok.TLS != "ok" || len(ok.Addresses) != 1 {
+		t.Fatalf("mapped readiness = %+v", ok)
+	}
+	fail := assessDomainReadiness(context.Background(), "missing.example.test", func(context.Context, string) ([]string, error) {
+		return nil, &net.DNSError{Err: "no such host", Name: "missing.example.test"}
+	})
+	if fail.Status != "fail" || fail.DNS != "fail" || fail.Remediation == "" {
+		t.Fatalf("missing readiness = %+v", fail)
+	}
+}
+
+func TestDomainsWithReadinessRunsLookupsConcurrentlyAndPreservesOrder(t *testing.T) {
+	recs := []store.DomainRecord{{Domain: "slow-a.example", Site: "demo"}, {Domain: "slow-b.example", Site: "demo"}}
+	started := make(chan string, len(recs))
+	release := make(chan struct{})
+	lookup := func(context.Context, string) ([]string, error) {
+		started <- "started"
+		<-release
+		return []string{"127.0.0.1"}, nil
+	}
+	done := make(chan []domainListRecord, 1)
+	go func() { done <- domainsWithReadiness(context.Background(), recs, lookup) }()
+	for i := 0; i < len(recs); i++ {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatalf("lookup %d did not start before first lookup was released", i)
+		}
+	}
+	close(release)
+	select {
+	case out := <-done:
+		if len(out) != len(recs) || out[0].Domain != recs[0].Domain || out[1].Domain != recs[1].Domain {
+			t.Fatalf("domains order changed: %+v", out)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("domainsWithReadiness did not finish")
+	}
+}
+
+func TestServeDevPortInUseSuggestsRecovery(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	err = serveCmd([]string{"--dev", "--listen", ln.Addr().String()})
+	if err == nil || !strings.Contains(err.Error(), "address already in use") || !strings.Contains(err.Error(), "--port") {
+		t.Fatalf("expected port recovery hint, got %v", err)
+	}
+}
+
+func TestSitesPublicReportsScanFindings(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "config"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	configJSON := `{"remote_root":"` + root + `","public_static":{"enabled":true},"viewer":{"allow_anonymous":true}}`
+	if err := os.WriteFile(filepath.Join(root, "config", "quickd.json"), []byte(configJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	release := filepath.Join(root, "sites", "demo", "releases", "20260611T000000Z-abcdef")
+	if err := os.MkdirAll(release, 0o770); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(release, "index.html"), []byte(`<script>fetch('/_quick/identity')</script>`), 0o660); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("releases", "20260611T000000Z-abcdef"), filepath.Join(root, "sites", "demo", "current")); err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Open(filepath.Join(root, "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.EnsureSite(context.Background(), "demo", "demo"); err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+
+	err = sitesPublicCmd([]string{"demo", "--on", "--root", root})
+	if err == nil || !strings.Contains(err.Error(), "index.html matched") || !strings.Contains(err.Error(), "/_quick/") {
+		t.Fatalf("expected scan findings error, got %v", err)
+	}
+}
+
+func TestReleasesListCommandReportsHistory(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Default(root)
+	st, err := store.Open(cfg.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := deploy.New(cfg, st)
+	ctx := context.Background()
+
+	first, err := svc.Prepare(ctx, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(first.StagingPath, "index.html"), []byte("one"), 0o660); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ActivateWithOptions(ctx, "demo", first.DeployID, deploy.ActivateOptions{Deployer: "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	second, err := svc.Prepare(ctx, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(second.StagingPath, "index.html"), []byte("two"), 0o660); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ActivateWithOptions(ctx, "demo", second.DeployID, deploy.ActivateOptions{Deployer: "bob"}); err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+
+	out := captureStdout(t, func() {
+		if err := releasesCmd([]string{"list", "--site", "demo", "--root", root, "--json"}); err != nil {
+			t.Fatalf("releases list: %v", err)
+		}
+	})
+	if !strings.Contains(out, `"releases"`) || !strings.Contains(out, `"current":true`) || !strings.Contains(out, `"previous":true`) || !strings.Contains(out, `"deployer":"bob"`) {
+		t.Fatalf("unexpected releases output: %s", out)
 	}
 }
 

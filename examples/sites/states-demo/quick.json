@@ -1,0 +1,6 @@
+{
+  "name": "states-demo",
+  "routing": {
+    "spa_fallback": "/index.html"
+  }
+}

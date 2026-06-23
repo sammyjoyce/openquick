@@ -452,6 +452,203 @@ static void site_admin_print_site_human(const app_config_t *config,
   }
 }
 
+static bool quick_nonempty(const char *value) {
+  return value && value[0] != '\0';
+}
+
+static const char *quick_config_profile_source(
+    const quick_plan_overrides_t *overrides,
+    const quick_profile_config_t *profiles, const quick_deploy_plan_t *plan) {
+  if (quick_nonempty(overrides ? overrides->profile : NULL)) {
+    return "flag:--profile";
+  }
+  if (quick_nonempty(getenv("QUICK_PROFILE"))) {
+    return "env:QUICK_PROFILE";
+  }
+  if (plan && quick_nonempty(plan->site_config.profile)) {
+    return "quick.json:profile";
+  }
+  if (profiles && quick_nonempty(profiles->default_profile)) {
+    return "profile-config:default_profile";
+  }
+  return "default:local";
+}
+
+static const char *quick_config_site_source(
+    const quick_plan_overrides_t *overrides, const quick_deploy_plan_t *plan) {
+  if (quick_nonempty(overrides ? overrides->site : NULL)) {
+    return "flag:--site";
+  }
+  if (quick_nonempty(getenv("QUICK_SITE"))) {
+    return "env:QUICK_SITE";
+  }
+  if (plan && quick_nonempty(plan->site_config.name)) {
+    return "quick.json:name";
+  }
+  return "directory-name";
+}
+
+static const char *quick_config_subdomain_source(
+    const quick_plan_overrides_t *overrides, const quick_deploy_plan_t *plan) {
+  if (quick_nonempty(overrides ? overrides->subdomain : NULL)) {
+    return "flag:--subdomain";
+  }
+  if (plan && quick_nonempty(plan->site_config.subdomain)) {
+    return "quick.json:subdomain";
+  }
+  return "site";
+}
+
+static char *quick_config_path_for_display(const char **source_out) {
+  const char *override = getenv("QUICK_CONFIG_PATH");
+  if (quick_nonempty(override)) {
+    if (source_out) {
+      *source_out = "env:QUICK_CONFIG_PATH";
+    }
+    return quick_strdup_cli(override);
+  }
+  if (source_out) {
+    *source_out = "default";
+  }
+  return quick_profile_config_default_path();
+}
+
+static void quick_config_show_json(const quick_deploy_plan_t *plan,
+                                   const quick_profile_t *profile,
+                                   const char *config_path,
+                                   const char *config_path_source,
+                                   const char *profile_source,
+                                   const char *site_source,
+                                   const char *subdomain_source) {
+  bool comma = false;
+  app_json_begin_object(stdout);
+  app_json_write_string_field(stdout, "format_version", "1.0", &comma);
+  app_json_write_string_field(stdout, "config_path", config_path, &comma);
+  app_json_write_string_field(stdout, "site", plan->site, &comma);
+  app_json_write_string_field(stdout, "subdomain", plan->subdomain, &comma);
+  app_json_write_string_field(stdout, "profile", plan->profile, &comma);
+  app_json_write_string_field(stdout, "ssh", plan->ssh, &comma);
+  app_json_write_string_field(stdout, "remote_root", plan->remote_root, &comma);
+  app_json_write_string_field(stdout, "base_domain", plan->base_domain, &comma);
+  app_json_write_string_field(stdout, "base_url", plan->base_url, &comma);
+  app_json_write_string_field(stdout, "url", plan->url, &comma);
+  app_json_write_string_field(stdout, "site_root", plan->site_root, &comma);
+  app_json_write_string_field(stdout, "quick_json_path", plan->quick_json_path,
+                              &comma);
+  app_json_write_string_field(stdout, "source_dir", plan->source_dir, &comma);
+  app_json_write_string_field(stdout, "output_dir", plan->output_dir, &comma);
+  app_json_write_string_field(stdout, "iap_mode",
+                              profile && profile->iap.mode ? profile->iap.mode
+                                                            : NULL,
+                              &comma);
+  app_json_write_raw_field(stdout, "sources", "{", &comma);
+  bool source_comma = false;
+  app_json_write_string_field(stdout, "config_path", config_path_source,
+                              &source_comma);
+  app_json_write_string_field(stdout, "profile", profile_source,
+                              &source_comma);
+  app_json_write_string_field(stdout, "site", site_source, &source_comma);
+  app_json_write_string_field(stdout, "subdomain", subdomain_source,
+                              &source_comma);
+  app_json_write_string_field(stdout, "ssh",
+                              quick_nonempty(getenv("QUICK_REMOTE"))
+                                  ? "env:QUICK_REMOTE"
+                                  : (profile && profile->ssh ? "profile:ssh"
+                                                            : "unset"),
+                              &source_comma);
+  app_json_write_string_field(stdout, "remote_root",
+                              profile && profile->remote_root
+                                  ? "profile:remote_root"
+                                  : "default:/srv/quick",
+                              &source_comma);
+  app_json_write_string_field(stdout, "base_domain",
+                              quick_nonempty(getenv("QUICK_BASE_DOMAIN"))
+                                  ? "env:QUICK_BASE_DOMAIN"
+                                  : (profile && profile->base_domain
+                                         ? "profile:base_domain"
+                                         : "unset"),
+                              &source_comma);
+  app_json_write_string_field(stdout, "base_url",
+                              profile && profile->base_url ? "profile:base_url"
+                                                           : "derived",
+                              &source_comma);
+  app_json_end_object(stdout);
+  app_json_end_object(stdout);
+  app_json_end_line(stdout);
+}
+
+app_error app_cmd_config_show(const app_config_t *config, int argc,
+                              char *const argv[]) {
+  const char *value_opts[] = {"--profile", "--site", "--subdomain"};
+  const char *action = quick_cmd_first_positional(argc, argv, value_opts,
+                                                  APP_COUNTOF(value_opts));
+  if (!action || strcmp(action, "show") != 0) {
+    quick_print_error(config, "config requires action 'show'");
+    return APP_ERROR_MISSING_ARG;
+  }
+
+  quick_profile_config_t profiles;
+  app_error err = quick_cmd_load_profiles(&profiles);
+  if (err != APP_SUCCESS) {
+    quick_print_error(config, "failed to read OpenQuick profile config");
+    return err;
+  }
+
+  quick_plan_overrides_t overrides = {
+      .profile = quick_cmd_value(argc, argv, "--profile"),
+      .site = quick_cmd_value(argc, argv, "--site"),
+      .subdomain = quick_cmd_value(argc, argv, "--subdomain")};
+  quick_deploy_plan_t plan;
+  quick_deploy_plan_init(&plan);
+  err = quick_deploy_plan_resolve(&overrides, &profiles, &plan);
+  if (err != APP_SUCCESS) {
+    quick_print_error(config, "failed to resolve OpenQuick config");
+    quick_profile_config_destroy(&profiles);
+    return err;
+  }
+
+  const char *config_path_source = "default";
+  char *config_path = quick_config_path_for_display(&config_path_source);
+  const quick_profile_t *profile =
+      quick_profile_config_find(&profiles, plan.profile);
+  const char *profile_source =
+      quick_config_profile_source(&overrides, &profiles, &plan);
+  const char *site_source = quick_config_site_source(&overrides, &plan);
+  const char *subdomain_source =
+      quick_config_subdomain_source(&overrides, &plan);
+
+  if (site_admin_wants_json(config, argc, argv)) {
+    quick_config_show_json(&plan, profile, config_path, config_path_source,
+                           profile_source, site_source, subdomain_source);
+  } else {
+    app_output_format(config, false, "OpenQuick config");
+    app_output_format(config, false, "  config     %s (%s)",
+                      config_path ? config_path : "(none)",
+                      config_path_source);
+    app_output_format(config, false, "  profile    %s (%s)", plan.profile,
+                      profile_source);
+    app_output_format(config, false, "  site       %s (%s)", plan.site,
+                      site_source);
+    app_output_format(config, false, "  subdomain  %s (%s)", plan.subdomain,
+                      subdomain_source);
+    app_output_format(config, false, "  host       %s",
+                      plan.ssh ? plan.ssh : "(none)");
+    app_output_format(config, false, "  root       %s", plan.remote_root);
+    app_output_format(config, false, "  domain     %s",
+                      plan.base_domain ? plan.base_domain : "(path fallback)");
+    app_output_format(config, false, "  base url   %s",
+                      plan.base_url ? plan.base_url : "(derived)");
+    app_output_format(config, false, "  url        %s", plan.url);
+    app_output_format(config, false, "  iap        %s",
+                      profile && profile->iap.mode ? profile->iap.mode
+                                                   : "(none)");
+  }
+  free(config_path);
+  quick_deploy_plan_destroy(&plan);
+  quick_profile_config_destroy(&profiles);
+  return APP_SUCCESS;
+}
+
 app_error app_cmd_delete(const app_config_t *config, int argc,
                          char *const argv[]) {
   const char *value_opts[] = {"--profile"};
@@ -498,11 +695,158 @@ app_error app_cmd_delete(const app_config_t *config, int argc,
                                             result.deleted);
     } else {
       site_admin_print_site_human(config, "deleted", &result.site);
+      if (result.archive) {
+        app_output_format(config, false, "  archive    %s", result.archive);
+        app_output_format(config, false, "  restore    quick restore %s --from %s", site, result.archive);
+      }
     }
   } else if (err != APP_ERROR_VALIDATION) {
     quick_print_error(config, "failed to delete remote site");
   }
   quick_delete_result_destroy(&result);
+  quick_profile_config_destroy(&profiles);
+  return err;
+}
+
+app_error app_cmd_restore(const app_config_t *config, int argc,
+                          char *const argv[]) {
+  const char *value_opts[] = {"--profile", "--from"};
+  const char *site = site_admin_nth_positional(argc, argv, 0, value_opts,
+                                               APP_COUNTOF(value_opts));
+  const char *archive = quick_cmd_value(argc, argv, "--from");
+  if (!site || !archive) {
+    quick_print_error(config, "restore requires a site and --from archive path");
+    return APP_ERROR_MISSING_ARG;
+  }
+  quick_profile_config_t profiles;
+  app_error err = quick_cmd_load_profiles(&profiles);
+  if (err != APP_SUCCESS) {
+    quick_print_error(config, "failed to read OpenQuick profile config");
+    return err;
+  }
+  quick_restore_result_t result;
+  quick_restore_result_init(&result);
+  quick_restore_request_t request = {.profiles = &profiles,
+                                     .profile = quick_cmd_value(argc, argv, "--profile"),
+                                     .site = site,
+                                     .archive = archive,
+                                     .assume_yes = quick_cmd_flag(argc, argv, "--yes")};
+  err = quick_op_restore(&request, &result);
+  if (err == APP_SUCCESS && result.confirmation_required) {
+    char prompt[640];
+    snprintf(prompt, sizeof(prompt),
+             "Restoring site '%s' will replace the deleted site from archive '%s'.",
+             site, archive);
+    if (quick_cmd_prompt_site_confirmation(config, site, prompt)) {
+      request.confirmed = true;
+      quick_restore_result_destroy(&result);
+      quick_restore_result_init(&result);
+      err = quick_op_restore(&request, &result);
+    } else {
+      quick_print_error(config,
+                        "Restore requires typing the site name to confirm; pass --yes for non-interactive use.");
+      err = APP_ERROR_VALIDATION;
+    }
+  }
+  if (err == APP_SUCCESS) {
+    if (site_admin_wants_json(config, argc, argv)) {
+      if (result.remote_json && result.remote_json[0] != '\0') {
+        fputs(result.remote_json, stdout);
+        if (result.remote_json[strlen(result.remote_json) - 1U] != '\n') {
+          fputc('\n', stdout);
+        }
+      } else {
+        bool comma = false;
+        app_json_begin_object(stdout);
+        app_json_write_string_field(stdout, "format_version", "1.0", &comma);
+        app_json_write_string_field(stdout, "site", site, &comma);
+        app_json_write_bool_field(stdout, "restored", result.restored, &comma);
+        app_json_end_object(stdout);
+        app_json_end_line(stdout);
+      }
+    } else {
+      app_output_format(config, false, "restored %s", site);
+      if (result.release) {
+        app_output_format(config, false, "  release    %s", result.release);
+      }
+      if (result.url) {
+        app_output_format(config, false, "  url        %s", result.url);
+      }
+    }
+  } else if (err != APP_ERROR_VALIDATION) {
+    quick_print_error(config, "failed to restore remote site");
+  }
+  quick_restore_result_destroy(&result);
+  quick_profile_config_destroy(&profiles);
+  return err;
+}
+
+app_error app_cmd_rollback(const app_config_t *config, int argc,
+                           char *const argv[]) {
+  const char *value_opts[] = {"--profile", "--to"};
+  const char *site = site_admin_nth_positional(argc, argv, 0, value_opts,
+                                               APP_COUNTOF(value_opts));
+  if (!site) {
+    quick_print_error(config, "rollback requires a site");
+    return APP_ERROR_MISSING_ARG;
+  }
+  quick_profile_config_t profiles;
+  app_error err = quick_cmd_load_profiles(&profiles);
+  if (err != APP_SUCCESS) {
+    quick_print_error(config, "failed to read OpenQuick profile config");
+    return err;
+  }
+  quick_rollback_result_t result;
+  quick_rollback_result_init(&result);
+  quick_rollback_request_t request = {.profiles = &profiles,
+                                      .profile = quick_cmd_value(argc, argv, "--profile"),
+                                      .site = site,
+                                      .release = quick_cmd_value(argc, argv, "--to"),
+                                      .assume_yes = quick_cmd_flag(argc, argv, "--yes")};
+  err = quick_op_rollback(&request, &result);
+  if (err == APP_SUCCESS && result.confirmation_required) {
+    if (!site_admin_wants_json(config, argc, argv)) {
+      site_admin_print_site_human(config, "rollback", &result.site);
+    }
+    char prompt[640];
+    if (request.release && request.release[0] != '\0') {
+      snprintf(prompt, sizeof(prompt),
+               "Rolling back site '%s' will restore release '%s'.",
+               site, request.release);
+    } else {
+      snprintf(prompt, sizeof(prompt),
+               "Rolling back site '%s' will restore the previous release.",
+               site);
+    }
+    if (quick_cmd_prompt_site_confirmation(config, site, prompt)) {
+      request.confirmed = true;
+      quick_rollback_result_destroy(&result);
+      quick_rollback_result_init(&result);
+      err = quick_op_rollback(&request, &result);
+    } else {
+      quick_print_error(config,
+                        "Rollback requires typing the site name to confirm; pass --yes for non-interactive use.");
+      err = APP_ERROR_VALIDATION;
+    }
+  }
+  if (err == APP_SUCCESS) {
+    if (site_admin_wants_json(config, argc, argv)) {
+      site_admin_print_raw_json_or_fallback(result.remote_json, site,
+                                            "rolled_back",
+                                            result.rolled_back);
+    } else {
+      site_admin_print_site_human(config, "rolled back", &result.site);
+      if (result.release) {
+        app_output_format(config, false, "  restored    %s", result.release);
+      }
+      if (result.previous_release) {
+        app_output_format(config, false, "  previous    %s", result.previous_release);
+      }
+    }
+  } else if (err != APP_ERROR_VALIDATION) {
+    quick_print_error(config, "failed to roll back remote site");
+  }
+  quick_rollback_result_destroy(&result);
   quick_profile_config_destroy(&profiles);
   return err;
 }

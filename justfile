@@ -71,6 +71,7 @@ run-tui *args:
     zig build test
     cd server && go test ./...
     cd sdk/js && bun test
+    scripts/validate-examples-states.py
 
 # Run end-to-end terminal scenario tests (uses current build default)
 terminal-test:

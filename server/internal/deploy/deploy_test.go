@@ -176,8 +176,11 @@ func TestDeleteSiteRemovesCatalogAndFilesystem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !deleted.Deleted {
-		t.Fatalf("DeleteSite reported deleted=false")
+	if !deleted.Deleted || deleted.Archive == "" {
+		t.Fatalf("DeleteSite result=%+v", deleted)
+	}
+	if _, err := os.Stat(filepath.Join(deleted.Archive, "site", "current")); err != nil {
+		t.Fatalf("archive missing site payload: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "sites", "demo")); !os.IsNotExist(err) {
 		t.Fatalf("site directory still exists: %v", err)
@@ -187,6 +190,115 @@ func TestDeleteSiteRemovesCatalogAndFilesystem(t *testing.T) {
 	}
 	if _, err := st.GetSite(ctx, "demo"); err == nil {
 		t.Fatalf("site catalog row still exists")
+	}
+	restored, err := svc.RestoreSite(ctx, "demo", deleted.Archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !restored.Restored || restored.Release != res.DeployID {
+		t.Fatalf("restore=%+v", restored)
+	}
+	if _, err := os.Stat(filepath.Join(root, "sites", "demo", "current")); err != nil {
+		t.Fatalf("site was not restored: %v", err)
+	}
+	rec, err := st.GetSite(ctx, "demo")
+	if err != nil || rec.Release != res.DeployID || rec.Deployer != "restore" {
+		t.Fatalf("restored site rec=%+v err=%v", rec, err)
+	}
+	purge, err := svc.PurgeArchive(ctx, filepath.Join(root, ".trash", "sites", "purge-me"))
+	if err != nil || !purge.Purged {
+		t.Fatalf("purge=%+v err=%v", purge, err)
+	}
+}
+
+func TestCleanupIncomingRemovesPreparedStaging(t *testing.T) {
+	svc, _, root := newTestService(t, 10)
+	ctx := context.Background()
+	prep, err := svc.Prepare(ctx, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stageFile(t, prep, "index.html", "staged")
+	res, err := svc.CleanupIncoming(ctx, "demo", prep.DeployID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Cleaned || res.DeployID != prep.DeployID || res.Path == "" {
+		t.Fatalf("cleanup=%+v", res)
+	}
+	if _, err := os.Stat(filepath.Join(root, "sites", "demo", ".incoming", prep.DeployID)); !os.IsNotExist(err) {
+		t.Fatalf("staging still exists: %v", err)
+	}
+}
+
+func TestRollbackSwitchesCurrentAndRecordsAudit(t *testing.T) {
+	svc, st, root := newTestService(t, 10)
+	ctx := context.Background()
+
+	first, err := svc.Prepare(ctx, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stageFile(t, first, "index.html", "one")
+	if _, err := svc.ActivateWithOptions(ctx, "demo", first.DeployID, ActivateOptions{Deployer: "alice"}); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := svc.Prepare(ctx, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stageFile(t, second, "index.html", "two")
+	if _, err := svc.ActivateWithOptions(ctx, "demo", second.DeployID, ActivateOptions{Deployer: "bob"}); err != nil {
+		t.Fatal(err)
+	}
+
+	rolled, err := svc.Rollback(ctx, "demo", RollbackOptions{Deployer: "carol"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rolled.RolledBack || rolled.Release != first.DeployID || rolled.PreviousRelease != second.DeployID || rolled.Deployer != "rollback:carol" {
+		t.Fatalf("rollback result=%+v", rolled)
+	}
+	currentIndex := filepath.Join(root, "sites", "demo", "current", "index.html")
+	if b, err := os.ReadFile(currentIndex); err != nil || string(b) != "one" {
+		t.Fatalf("current index=%q err=%v", b, err)
+	}
+	prev, err := os.Readlink(filepath.Join(root, "sites", "demo", "previous"))
+	if err != nil || filepath.Base(prev) != second.DeployID {
+		t.Fatalf("previous=%q err=%v", prev, err)
+	}
+	rec, err := st.GetSite(ctx, "demo")
+	if err != nil || rec.Release != first.DeployID || rec.Deployer != "rollback:carol" {
+		t.Fatalf("site rec=%+v err=%v", rec, err)
+	}
+	history, err := svc.ListReleases(ctx, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history.Releases) != 2 {
+		t.Fatalf("release history=%+v", history.Releases)
+	}
+	var current, previous ReleaseRecord
+	for _, rel := range history.Releases {
+		if !rel.Verified || rel.Verification != "ok" || rel.Deployer == "" || rel.CreatedAt == "" {
+			t.Fatalf("release metadata incomplete: %+v", rel)
+		}
+		if rel.Current {
+			current = rel
+		}
+		if rel.Previous {
+			previous = rel
+		}
+	}
+	if current.Release != first.DeployID || current.Deployer != "rollback:carol" || previous.Release != second.DeployID || previous.Deployer != "bob" {
+		t.Fatalf("current=%+v previous=%+v", current, previous)
+	}
+	if _, err := svc.Rollback(ctx, "demo", RollbackOptions{Release: first.DeployID}); err == nil || !strings.Contains(err.Error(), "already current") {
+		t.Fatalf("expected already-current rollback error, got %v", err)
+	}
+	if _, err := svc.Rollback(ctx, "demo", RollbackOptions{Release: "20260611T000000Z-deadbe"}); err == nil || !strings.Contains(err.Error(), "unavailable") {
+		t.Fatalf("expected missing-release rollback error, got %v", err)
 	}
 }
 
@@ -218,6 +330,13 @@ func TestPrepareMetadataSubdomainAndSSHCertSigning(t *testing.T) {
 	}
 	if _, err := svc.PrepareWithOptions(ctx, "other", PrepareOptions{Subdomain: "team-demo"}); err == nil || !strings.Contains(err.Error(), "already used") {
 		t.Fatalf("expected subdomain uniqueness error, got %v", err)
+	}
+	verifyUnsigned, err := svc.VerifyReleases(ctx, "demo", first.DeployID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verifyUnsigned.OK || verifyUnsigned.Checked != 1 || len(verifyUnsigned.Failures) != 0 {
+		t.Fatalf("unsigned verify=%+v", verifyUnsigned)
 	}
 
 	svc.Config.Deploy.RequireSSHCert = true
@@ -273,8 +392,8 @@ func TestPublicSiteDeployRescansStaticOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	stageFile(t, res, "index.html", `<script>quick.identity.current()</script>`)
-	if _, err := svc.Activate(ctx, "pub", res.DeployID); err == nil || !strings.Contains(err.Error(), "public site deploy rejected") {
-		t.Fatalf("expected public scan rejection, got %v", err)
+	if _, err := svc.Activate(ctx, "pub", res.DeployID); err == nil || !strings.Contains(err.Error(), "public site deploy rejected") || !strings.Contains(err.Error(), "index.html matched") {
+		t.Fatalf("expected public scan rejection with findings, got %v", err)
 	}
 }
 

@@ -269,6 +269,42 @@ static app_error serve_ssh_tee(const app_config_t *config, const char *host,
   return APP_SUCCESS;
 }
 
+static char *serve_trimmed_copy(const char *value) {
+  if (!value) return NULL;
+  const char *start = value;
+  while (*start == ' ' || *start == '\t' || *start == '\r' || *start == '\n') start++;
+  const char *end = start + strlen(start);
+  while (end > start && (end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\r' || end[-1] == '\n')) end--;
+  size_t len = (size_t)(end - start);
+  char *copy = malloc(len + 1U);
+  if (!copy) return NULL;
+  memcpy(copy, start, len);
+  copy[len] = '\0';
+  return copy;
+}
+
+static app_error serve_remote_mktemp_dir(const app_config_t *config,
+                                         const char *host, char **out) {
+  *out = NULL;
+  char *const argv[] = {"mktemp", "-d", "/tmp/openquick-install.XXXXXX", NULL};
+  quick_process_result_t res = {0};
+  app_error err = serve_ssh_capture(host, argv, NULL, &res);
+  if (err != APP_SUCCESS || res.exit_code != 0) {
+    quick_print_error(config, res.err && res.err[0] ? res.err : "remote mktemp failed");
+    quick_process_result_destroy(&res);
+    return err == APP_SUCCESS ? APP_ERROR_IO : err;
+  }
+  char *path = serve_trimmed_copy(res.out);
+  quick_process_result_destroy(&res);
+  if (!path || path[0] == '\0') {
+    free(path);
+    quick_print_error(config, "remote mktemp returned an empty path");
+    return APP_ERROR_IO;
+  }
+  *out = path;
+  return APP_SUCCESS;
+}
+
 static app_error serve_install_execute(const app_config_t *config,
                                        const char *profile_name,
                                        const char *host,
@@ -313,25 +349,31 @@ static app_error serve_install_execute(const app_config_t *config,
     return APP_ERROR_MEMORY;
   }
 
-  char tmp_remote[128];
-#ifndef _WIN32
-  snprintf(tmp_remote, sizeof(tmp_remote), "/tmp/openquick-quickd-%ld", (long)getpid());
-#else
-  snprintf(tmp_remote, sizeof(tmp_remote), "/tmp/openquick-quickd");
-#endif
-  char *scp_dest = malloc(strlen(host) + strlen(tmp_remote) + 2U);
-  if (!scp_dest) {
-    free(unit_for_root);
-    free(host_json);
-    free(quickd);
-    return APP_ERROR_MEMORY;
-  }
-  sprintf(scp_dest, "%s:%s", host, tmp_remote);
+  char *remote_tmp_dir = NULL;
+  char *tmp_remote = NULL;
+  char *scp_dest = NULL;
   char *sites_dir = NULL;
   char *data_dir = NULL;
   char *uploads_dir = NULL;
   char *logs_dir = NULL;
   char *config_dir = NULL;
+  char *backup_dir = NULL;
+  bool backup_created = false;
+
+  err = serve_remote_mktemp_dir(config, host, &remote_tmp_dir);
+  if (err != APP_SUCCESS) goto done;
+  tmp_remote = quick_path_join_cli(remote_tmp_dir, "quickd");
+  backup_dir = quick_path_join_cli(remote_tmp_dir, "backup");
+  if (!tmp_remote || !backup_dir) {
+    err = APP_ERROR_MEMORY;
+    goto done;
+  }
+  scp_dest = malloc(strlen(host) + strlen(tmp_remote) + 2U);
+  if (!scp_dest) {
+    err = APP_ERROR_MEMORY;
+    goto done;
+  }
+  sprintf(scp_dest, "%s:%s", host, tmp_remote);
 
   char *const groupadd[] = {"sudo", "groupadd", "--system", "--force", "quick-deploy", NULL};
   err = serve_ssh_expect(config, host, groupadd);
@@ -382,6 +424,20 @@ static app_error serve_install_execute(const app_config_t *config,
   err = serve_ssh_expect(config, host, mkdir_config);
 
 dirs_done:
+  if (err == APP_SUCCESS) {
+    char *const backup[] = {
+        "sh", "-c",
+        "set -e; b=$1; sudo install -d -m 0700 \"$b\"; "
+        "[ ! -e /usr/local/bin/quickd ] || sudo cp -p /usr/local/bin/quickd \"$b/quickd\"; "
+        "[ ! -e /etc/openquick/quickd.json ] || sudo cp -p /etc/openquick/quickd.json \"$b/quickd.json\"; "
+        "[ ! -e /etc/systemd/system/openquick.service ] || sudo cp -p /etc/systemd/system/openquick.service \"$b/openquick.service\"",
+        "sh", backup_dir, NULL};
+    err = serve_ssh_expect(config, host, backup);
+    if (err == APP_SUCCESS) {
+      backup_created = true;
+      app_output_format(config, false, "backup     %s", backup_dir);
+    }
+  }
   if (err == APP_SUCCESS) {
     char *const scp_argv[] = {"scp", quickd, scp_dest, NULL};
     quick_process_result_t scp_res = {0};
@@ -435,6 +491,23 @@ dirs_done:
         (doc_res.out && strstr(doc_res.out, "\"status\":\"fail\""))) {
       quick_print_error(config, doc_res.err && doc_res.err[0] ? doc_res.err : "quickd doctor --host --json failed after install");
       err = err == APP_SUCCESS ? APP_ERROR_IO : err;
+      if (backup_created) {
+        app_output_format(config, true, "rollback   restoring backup from %s", backup_dir);
+        char *const restore[] = {
+            "sh", "-c",
+            "set -e; b=$1; "
+            "[ ! -f \"$b/quickd\" ] || sudo cp -p \"$b/quickd\" /usr/local/bin/quickd; "
+            "[ ! -f \"$b/quickd.json\" ] || sudo cp -p \"$b/quickd.json\" /etc/openquick/quickd.json; "
+            "[ ! -f \"$b/openquick.service\" ] || sudo cp -p \"$b/openquick.service\" /etc/systemd/system/openquick.service; "
+            "sudo systemctl daemon-reload; sudo systemctl restart openquick.service || true",
+            "sh", backup_dir, NULL};
+        app_error restore_err = serve_ssh_expect(config, host, restore);
+        if (restore_err == APP_SUCCESS) {
+          app_output("rollback   previous quickd/config restored; inspect backup before removing it", config, true);
+        } else {
+          app_output_format(config, true, "rollback   restore failed; manual backup remains at %s", backup_dir);
+        }
+      }
     }
     quick_process_result_destroy(&doc_res);
   }
@@ -445,6 +518,9 @@ done:
   free(uploads_dir);
   free(logs_dir);
   free(config_dir);
+  free(backup_dir);
+  free(tmp_remote);
+  free(remote_tmp_dir);
   free(scp_dest);
   free(unit_for_root);
   free(host_json);

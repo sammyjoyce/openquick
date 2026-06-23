@@ -15,6 +15,8 @@
 // Forward declarations for handlers defined in their own translation units.
 app_error app_cmd_init(const app_config_t *config, int argc,
                        char *const argv[]);
+app_error app_cmd_templates(const app_config_t *config, int argc,
+                            char *const argv[]);
 app_error app_cmd_deploy(const app_config_t *config, int argc,
                          char *const argv[]);
 app_error app_cmd_serve(const app_config_t *config, int argc,
@@ -23,12 +25,18 @@ app_error app_cmd_open(const app_config_t *config, int argc,
                        char *const argv[]);
 app_error app_cmd_list(const app_config_t *config, int argc,
                        char *const argv[]);
+app_error app_cmd_config_show(const app_config_t *config, int argc,
+                              char *const argv[]);
 app_error app_cmd_info(const app_config_t *config, int argc,
                        char *const argv[]);
 app_error app_cmd_doctor(const app_config_t *config, int argc,
                          char *const argv[]);
 app_error app_cmd_delete(const app_config_t *config, int argc,
                          char *const argv[]);
+app_error app_cmd_restore(const app_config_t *config, int argc,
+                          char *const argv[]);
+app_error app_cmd_rollback(const app_config_t *config, int argc,
+                           char *const argv[]);
 app_error app_cmd_public(const app_config_t *config, int argc,
                          char *const argv[]);
 app_error app_cmd_domain(const app_config_t *config, int argc,
@@ -62,6 +70,22 @@ static const app_command_arg_t delete_args[] = {
      .description = "Site slug to delete"},
 };
 
+static const app_command_arg_t restore_args[] = {
+    {.name = "site",
+     .required = true,
+     .arity_minimum = 1,
+     .arity_maximum = 1,
+     .description = "Site slug to restore"},
+};
+
+static const app_command_arg_t rollback_args[] = {
+    {.name = "site",
+     .required = true,
+     .arity_minimum = 1,
+     .arity_maximum = 1,
+     .description = "Site slug to roll back"},
+};
+
 static const app_command_arg_t public_args[] = {
     {.name = "site",
      .required = true,
@@ -86,6 +110,14 @@ static const app_command_arg_t domain_args[] = {
      .arity_minimum = 0,
      .arity_maximum = 1,
      .description = "Custom domain for add/remove"},
+};
+
+static const app_command_arg_t config_args[] = {
+    {.name = "action",
+     .required = true,
+     .arity_minimum = 1,
+     .arity_maximum = 1,
+     .description = "show"},
 };
 
 static const app_command_arg_t serve_args[] = {
@@ -136,6 +168,14 @@ static const app_command_arg_t path_option_args[] = {
      .description = "Filesystem path"},
 };
 
+static const app_command_arg_t release_option_args[] = {
+    {.name = "release",
+     .required = true,
+     .arity_minimum = 1,
+     .arity_maximum = 1,
+     .description = "Release id"},
+};
+
 static const app_command_arg_t template_option_args[] = {
     {.name = "template",
      .required = true,
@@ -158,6 +198,22 @@ static const app_command_arg_t host_option_args[] = {
      .arity_minimum = 1,
      .arity_maximum = 1,
      .description = "SSH host"},
+};
+
+static const app_command_arg_t filter_option_args[] = {
+    {.name = "query",
+     .required = true,
+     .arity_minimum = 1,
+     .arity_maximum = 1,
+     .description = "Text to match against site rows"},
+};
+
+static const app_command_arg_t sort_option_args[] = {
+    {.name = "name|updated|source",
+     .required = true,
+     .arity_minimum = 1,
+     .arity_maximum = 1,
+     .description = "Site list sort key"},
 };
 
 static const app_command_arg_t domain_option_args[] = {
@@ -208,6 +264,9 @@ static const app_command_option_t init_options[] = {
      .arguments = profile_option_args,
      .argument_count = APP_COUNTOF(profile_option_args),
      .description = "Deployment profile to record in quick.json"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "adopt",
+     .description = "Adopt an existing folder by writing only missing OpenQuick metadata"},
 };
 
 static const app_command_option_t deploy_options[] = {
@@ -328,6 +387,37 @@ static const app_command_option_t list_options[] = {
      .name = "remote",
      .description = "Query quickd over SSH"},
     {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "filter",
+     .arguments = filter_option_args,
+     .argument_count = APP_COUNTOF(filter_option_args),
+     .description = "Only show rows matching text"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "sort",
+     .arguments = sort_option_args,
+     .argument_count = APP_COUNTOF(sort_option_args),
+     .description = "Sort rows by name, updated, or source"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "json",
+     .description = "Print JSON output"},
+};
+
+static const app_command_option_t config_show_options[] = {
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "profile",
+     .arguments = profile_option_args,
+     .argument_count = APP_COUNTOF(profile_option_args),
+     .description = "Profile used for resolution"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "site",
+     .arguments = site_option_args,
+     .argument_count = APP_COUNTOF(site_option_args),
+     .description = "Override the site slug"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "subdomain",
+     .arguments = subdomain_option_args,
+     .argument_count = APP_COUNTOF(subdomain_option_args),
+     .description = "Override the URL subdomain"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
      .name = "json",
      .description = "Print JSON output"},
 };
@@ -341,6 +431,44 @@ static const app_command_option_t delete_options[] = {
     {.id = APP_COMMAND_OPTION_UNKNOWN,
      .name = "yes",
      .description = "Skip typed delete confirmation"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "json",
+     .description = "Print JSON output"},
+};
+
+static const app_command_option_t restore_options[] = {
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "profile",
+     .arguments = profile_option_args,
+     .argument_count = APP_COUNTOF(profile_option_args),
+     .description = "Deployment profile"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "from",
+     .arguments = path_option_args,
+     .argument_count = APP_COUNTOF(path_option_args),
+     .description = "Archive path returned by quick delete"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "yes",
+     .description = "Skip typed restore confirmation"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "json",
+     .description = "Print JSON output"},
+};
+
+static const app_command_option_t rollback_options[] = {
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "profile",
+     .arguments = profile_option_args,
+     .argument_count = APP_COUNTOF(profile_option_args),
+     .description = "Deployment profile"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "to",
+     .arguments = release_option_args,
+     .argument_count = APP_COUNTOF(release_option_args),
+     .description = "Release id to restore; defaults to previous"},
+    {.id = APP_COMMAND_OPTION_UNKNOWN,
+     .name = "yes",
+     .description = "Skip typed rollback confirmation"},
     {.id = APP_COMMAND_OPTION_UNKNOWN,
      .name = "json",
      .description = "Print JSON output"},
@@ -403,6 +531,11 @@ static const char *const init_examples[] = {
     APP_NAME " init --template realtime --name lunch-vote --profile lab",
 };
 
+static const char *const templates_examples[] = {
+    APP_NAME " templates",
+    APP_NAME " init --template list",
+};
+
 static const char *const deploy_examples[] = {
     APP_NAME " deploy",
     APP_NAME " deploy --dry-run",
@@ -423,6 +556,12 @@ static const char *const open_examples[] = {
 static const char *const list_examples[] = {
     APP_NAME " list",
     APP_NAME " list --profile lab --json",
+    APP_NAME " list --remote --filter demo --sort updated",
+};
+
+static const char *const config_examples[] = {
+    APP_NAME " config show",
+    APP_NAME " config show --profile lab --json",
 };
 
 static const char *const info_examples[] = {
@@ -438,6 +577,16 @@ static const char *const doctor_examples[] = {
 static const char *const delete_examples[] = {
     APP_NAME " delete demo",
     APP_NAME " delete demo --profile lab --yes --json",
+};
+
+static const char *const restore_examples[] = {
+    APP_NAME " restore demo --from /srv/quick/.trash/sites/demo-20260612T000000.000000000Z",
+    APP_NAME " restore demo --from /srv/quick/.trash/sites/demo-20260612T000000.000000000Z --yes --json",
+};
+
+static const char *const rollback_examples[] = {
+    APP_NAME " rollback demo",
+    APP_NAME " rollback demo --to 20260612T000000Z-abcdef --yes --json",
 };
 
 static const char *const public_examples[] = {
@@ -491,6 +640,12 @@ static const app_command_t g_app_commands[] = {
      .examples = init_examples,
      .example_count = APP_COUNTOF(init_examples),
      .requires_terminal = false},
+    {.name = "templates",
+     .summary = "List bundled OpenQuick site templates.",
+     .handler = app_cmd_templates,
+     .examples = templates_examples,
+     .example_count = APP_COUNTOF(templates_examples),
+     .requires_terminal = false},
     {.name = "deploy",
      .summary = "Build, rsync, and activate a site through quickd.",
      .handler = app_cmd_deploy,
@@ -529,6 +684,16 @@ static const app_command_t g_app_commands[] = {
      .examples = list_examples,
      .example_count = APP_COUNTOF(list_examples),
      .requires_terminal = false},
+    {.name = "config",
+     .summary = "Show resolved OpenQuick config, profile, and target details.",
+     .handler = app_cmd_config_show,
+     .options = config_show_options,
+     .option_count = APP_COUNTOF(config_show_options),
+     .arguments = config_args,
+     .argument_count = APP_COUNTOF(config_args),
+     .examples = config_examples,
+     .example_count = APP_COUNTOF(config_examples),
+     .requires_terminal = false},
     {.name = "info",
      .summary = "Display application metadata.",
      .handler = app_cmd_info,
@@ -554,6 +719,26 @@ static const app_command_t g_app_commands[] = {
      .argument_count = APP_COUNTOF(delete_args),
      .examples = delete_examples,
      .example_count = APP_COUNTOF(delete_examples),
+     .requires_terminal = false},
+    {.name = "restore",
+     .summary = "Restore a recently deleted OpenQuick site archive.",
+     .handler = app_cmd_restore,
+     .options = restore_options,
+     .option_count = APP_COUNTOF(restore_options),
+     .arguments = restore_args,
+     .argument_count = APP_COUNTOF(restore_args),
+     .examples = restore_examples,
+     .example_count = APP_COUNTOF(restore_examples),
+     .requires_terminal = false},
+    {.name = "rollback",
+     .summary = "Roll a remote OpenQuick site back to a previous release.",
+     .handler = app_cmd_rollback,
+     .options = rollback_options,
+     .option_count = APP_COUNTOF(rollback_options),
+     .arguments = rollback_args,
+     .argument_count = APP_COUNTOF(rollback_args),
+     .examples = rollback_examples,
+     .example_count = APP_COUNTOF(rollback_examples),
      .requires_terminal = false},
     {.name = "public",
      .summary = "Show or change a site's public-static flag.",

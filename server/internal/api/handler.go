@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,8 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 
 	"openquick.dev/quickd/internal/config"
@@ -85,7 +88,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleAI(w, r, site.Name, id)
 		return
 	}
-	if strings.HasPrefix(r.URL.Path, "/_quick/warehouse/") {
+	if r.URL.Path == "/_quick/warehouse" || strings.HasPrefix(r.URL.Path, "/_quick/warehouse/") {
 		s.handleWarehouse(w, r, site.Name, id)
 		return
 	}
@@ -204,16 +207,44 @@ func (s *Server) handleDB(w http.ResponseWriter, r *http.Request, site string, i
 	switch r.Method {
 	case http.MethodGet:
 		if docID == "" {
-			docs, err := s.Store.ListDocuments(r.Context(), site, collection)
+			limit, err := parseListLimit(r.URL.Query().Get("limit"))
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			filterRaw := r.URL.Query().Get("filter")
+			sortKey := r.URL.Query().Get("sort")
+			if filterRaw != "" || sortKey != "" {
+				docs, err := s.Store.ListDocuments(r.Context(), site, collection)
+				if err != nil {
+					s.writeStoreError(w, err)
+					return
+				}
+				docs, err = filterSortDocuments(docs, filterRaw, sortKey)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				if len(docs) > limit {
+					docs = docs[:limit]
+				}
+				out := make([]map[string]any, 0, len(docs))
+				for _, d := range docs {
+					out = append(out, documentJSON(d))
+				}
+				writeJSON(w, http.StatusOK, map[string]any{"documents": out, "next_cursor": "", "filter": filterRaw, "sort": sortKey})
+				return
+			}
+			page, err := s.Store.ListDocumentsPage(r.Context(), site, collection, limit, r.URL.Query().Get("cursor"))
 			if err != nil {
 				s.writeStoreError(w, err)
 				return
 			}
-			out := make([]map[string]any, 0, len(docs))
-			for _, d := range docs {
+			out := make([]map[string]any, 0, len(page.Documents))
+			for _, d := range page.Documents {
 				out = append(out, documentJSON(d))
 			}
-			writeJSON(w, http.StatusOK, map[string]any{"documents": out})
+			writeJSON(w, http.StatusOK, map[string]any{"documents": out, "next_cursor": page.NextCursor})
 			return
 		}
 		doc, err := s.Store.GetDocument(r.Context(), site, collection, docID)
@@ -221,6 +252,7 @@ func (s *Server) handleDB(w http.ResponseWriter, r *http.Request, site string, i
 			s.writeStoreError(w, err)
 			return
 		}
+		w.Header().Set("ETag", documentETag(doc))
 		writeJSON(w, http.StatusOK, documentJSON(doc))
 	case http.MethodPost:
 		if docID != "" {
@@ -244,6 +276,7 @@ func (s *Server) handleDB(w http.ResponseWriter, r *http.Request, site string, i
 		}
 		out := documentJSON(doc)
 		s.Realtime.Publish(site, "db:"+collection, "create", out)
+		w.Header().Set("ETag", documentETag(doc))
 		writeJSON(w, http.StatusCreated, out)
 	case http.MethodPut:
 		if docID == "" {
@@ -255,6 +288,13 @@ func (s *Server) handleDB(w http.ResponseWriter, r *http.Request, site string, i
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		if current, err := s.Store.GetDocument(r.Context(), site, collection, docID); err != nil {
+			s.writeStoreError(w, err)
+			return
+		} else if !documentPreconditionMatches(r, current) {
+			writeRevisionConflict(w, current)
+			return
+		}
 		doc, err := s.Store.PutDocument(r.Context(), site, collection, docID, string(body), actor)
 		if err != nil {
 			s.writeStoreError(w, err)
@@ -262,6 +302,7 @@ func (s *Server) handleDB(w http.ResponseWriter, r *http.Request, site string, i
 		}
 		out := documentJSON(doc)
 		s.Realtime.Publish(site, "db:"+collection, "update", out)
+		w.Header().Set("ETag", documentETag(doc))
 		writeJSON(w, http.StatusOK, out)
 	case http.MethodPatch:
 		if docID == "" {
@@ -276,6 +317,10 @@ func (s *Server) handleDB(w http.ResponseWriter, r *http.Request, site string, i
 		old, err := s.Store.GetDocument(r.Context(), site, collection, docID)
 		if err != nil {
 			s.writeStoreError(w, err)
+			return
+		}
+		if !documentPreconditionMatches(r, old) {
+			writeRevisionConflict(w, old)
 			return
 		}
 		var current map[string]any
@@ -293,10 +338,20 @@ func (s *Server) handleDB(w http.ResponseWriter, r *http.Request, site string, i
 		}
 		out := documentJSON(doc)
 		s.Realtime.Publish(site, "db:"+collection, "update", out)
+		w.Header().Set("ETag", documentETag(doc))
 		writeJSON(w, http.StatusOK, out)
 	case http.MethodDelete:
 		if docID == "" {
 			http.NotFound(w, r)
+			return
+		}
+		old, err := s.Store.GetDocument(r.Context(), site, collection, docID)
+		if err != nil {
+			s.writeStoreError(w, err)
+			return
+		}
+		if !documentPreconditionMatches(r, old) {
+			writeRevisionConflict(w, old)
 			return
 		}
 		if err := s.Store.DeleteDocument(r.Context(), site, collection, docID); err != nil {
@@ -322,12 +377,111 @@ func splitDBPath(p string) (collection, id string, ok bool) {
 	return "", "", false
 }
 
+func parseListLimit(raw string) (int, error) {
+	if raw == "" {
+		return 100, nil
+	}
+	limit, err := strconv.Atoi(raw)
+	if err != nil || limit < 1 {
+		return 0, fmt.Errorf("limit must be a positive integer")
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	return limit, nil
+}
+
+func filterSortDocuments(docs []store.Document, filterRaw, sortKey string) ([]store.Document, error) {
+	filtered := docs
+	if strings.TrimSpace(filterRaw) != "" {
+		var filters map[string]any
+		if err := json.Unmarshal([]byte(filterRaw), &filters); err != nil {
+			return nil, fmt.Errorf("filter must be a JSON object")
+		}
+		for _, v := range filters {
+			if _, nested := v.(map[string]any); nested {
+				return nil, fmt.Errorf("unsupported filter operator")
+			}
+		}
+		filtered = filtered[:0]
+		for _, d := range docs {
+			var data map[string]any
+			if err := json.Unmarshal([]byte(d.DataJSON), &data); err != nil {
+				continue
+			}
+			match := true
+			for k, want := range filters {
+				if fmt.Sprint(data[k]) != fmt.Sprint(want) {
+					match = false
+					break
+				}
+			}
+			if match {
+				filtered = append(filtered, d)
+			}
+		}
+	}
+	key := strings.TrimSpace(sortKey)
+	if key == "" {
+		key = "created_at"
+	}
+	desc := strings.HasPrefix(key, "-")
+	key = strings.TrimPrefix(key, "-")
+	if key != "created_at" && key != "updated_at" && key != "id" {
+		return nil, fmt.Errorf("unsupported sort key")
+	}
+	sort.SliceStable(filtered, func(i, j int) bool {
+		var a, b string
+		switch key {
+		case "updated_at":
+			a, b = filtered[i].UpdatedAt, filtered[j].UpdatedAt
+		case "id":
+			a, b = filtered[i].ID, filtered[j].ID
+		default:
+			a, b = filtered[i].CreatedAt, filtered[j].CreatedAt
+		}
+		if a == b {
+			a, b = filtered[i].ID, filtered[j].ID
+		}
+		if desc {
+			return a > b
+		}
+		return a < b
+	})
+	return filtered, nil
+}
+
+func documentRevision(d store.Document) string {
+	sum := sha256.Sum256([]byte(d.ID + "\x00" + d.UpdatedAt + "\x00" + d.DataJSON))
+	return hex.EncodeToString(sum[:])
+}
+
+func documentETag(d store.Document) string {
+	return `"` + documentRevision(d) + `"`
+}
+
+func documentPreconditionMatches(r *http.Request, d store.Document) bool {
+	want := strings.TrimSpace(r.Header.Get("If-Match"))
+	if want == "" {
+		want = strings.TrimSpace(r.URL.Query().Get("revision"))
+	}
+	if want == "" || want == "*" {
+		return true
+	}
+	rev := documentRevision(d)
+	return want == rev || strings.Trim(want, `"`) == rev
+}
+
+func writeRevisionConflict(w http.ResponseWriter, d store.Document) {
+	writeJSON(w, http.StatusConflict, map[string]any{"error": "revision mismatch", "code": "revision_mismatch", "current_revision": documentRevision(d)})
+}
+
 func documentJSON(d store.Document) map[string]any {
 	var data any
 	if err := json.Unmarshal([]byte(d.DataJSON), &data); err != nil {
 		data = nil
 	}
-	return map[string]any{"id": d.ID, "data": data, "created_by": d.CreatedBy, "updated_by": d.UpdatedBy, "created_at": d.CreatedAt, "updated_at": d.UpdatedAt}
+	return map[string]any{"id": d.ID, "data": data, "revision": documentRevision(d), "created_by": d.CreatedBy, "updated_by": d.UpdatedBy, "created_at": d.CreatedAt, "updated_at": d.UpdatedAt}
 }
 
 func (s *Server) handleUploads(w http.ResponseWriter, r *http.Request, site string, id *identity.Identity) {
@@ -369,9 +523,27 @@ func (s *Server) handleUploads(w http.ResponseWriter, r *http.Request, site stri
 			return
 		}
 		writeJSON(w, http.StatusCreated, uploadJSON(u))
-	case http.MethodGet:
+	case http.MethodGet, http.MethodHead:
 		if upID == "" {
-			http.NotFound(w, r)
+			if r.Method == http.MethodHead {
+				http.NotFound(w, r)
+				return
+			}
+			limit, err := parseListLimit(r.URL.Query().Get("limit"))
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			page, err := s.Store.ListUploadsPage(r.Context(), site, limit, r.URL.Query().Get("cursor"))
+			if err != nil {
+				s.writeStoreError(w, err)
+				return
+			}
+			out := make([]map[string]any, 0, len(page.Uploads))
+			for _, u := range page.Uploads {
+				out = append(out, uploadJSON(u))
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"uploads": out, "next_cursor": page.NextCursor})
 			return
 		}
 		if err := s.Uploads.Serve(r.Context(), site, upID, w, r); err != nil {
@@ -399,6 +571,10 @@ func uploadJSON(u store.Upload) map[string]any {
 func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 	if errors.Is(err, store.ErrNotFound) {
 		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if errors.Is(err, store.ErrInvalidCursor) {
+		http.Error(w, "invalid cursor", http.StatusBadRequest)
 		return
 	}
 	http.Error(w, err.Error(), http.StatusInternalServerError)

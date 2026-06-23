@@ -247,6 +247,8 @@ int run_tui_menu_test(test_stats_t *stats, const char *binary,
        "menu label did not appear: Help/About"},
       {TUI_STEP_EXPECT, "Exit", 0, 0, 0, 1000,
        "menu label did not appear: Exit"},
+      {TUI_STEP_EXPECT, "CLI: quick list --remote", 0, 0, 0, 1000,
+       "CLI fallback hint did not appear on main menu"},
 
       {TUI_STEP_SEND, "h", 0, 0, 0, 0, "failed to select Help/About"},
       {TUI_STEP_EXPECT, "HELP/ABOUT", 0, 0, 0, PTY_TIMEOUT_MS,
@@ -256,6 +258,8 @@ int run_tui_menu_test(test_stats_t *stats, const char *binary,
        "Key Bindings did not appear"},
       {TUI_STEP_EXPECT, "Up / Down", 0, 0, 0, 1000,
        "key binding body did not appear"},
+      {TUI_STEP_EXPECT, "CLI equivalents", 0, 0, 0, 1000,
+       "CLI equivalents did not appear in help"},
       {TUI_STEP_SEND, "x", 0, 0, 0, 0, "failed to dismiss key bindings"},
       {TUI_STEP_EXPECT, "HELP/ABOUT", 0, 0, 0, PTY_TIMEOUT_MS,
        "Help/About did not reappear"},
@@ -1132,6 +1136,49 @@ int run_tui_settings_profiles_from_xdg(test_stats_t *stats, const char *binary,
   if (!failed && !vt_expect_text(&session, "lab (default)", 1000,
                                  &snapshot))
     failed = test_fail(stats, name, "lab profile was not loaded");
+  if (!failed && !vt_send(&session, "\r"))
+    failed = test_fail(stats, name, "failed to open profile");
+  if (!failed && !vt_expect_text(&session, "PROFILE", PTY_TIMEOUT_MS,
+                                 &snapshot))
+    failed = test_fail(stats, name, "profile panel did not render");
+  if (!failed && !vt_send(&session, "e"))
+    failed = test_fail(stats, name, "failed to start profile edit");
+  if (!failed && !vt_expect_text(&session, "EDIT PROFILE FIELD", PTY_TIMEOUT_MS,
+                                 &snapshot))
+    failed = test_fail(stats, name, "profile field menu did not render");
+  if (!failed && !vt_send(&session, "\r"))
+    failed = test_fail(stats, name, "failed to choose ssh field");
+  if (!failed && !vt_expect_text(&session, "EDIT PROFILE", PTY_TIMEOUT_MS,
+                                 &snapshot))
+    failed = test_fail(stats, name, "profile edit dialog did not render");
+  if (!failed && !vt_send(&session, "quick@changed\r"))
+    failed = test_fail(stats, name, "failed to enter changed ssh");
+  if (!failed && !vt_expect_text(&session, "quick@changed", PTY_TIMEOUT_MS,
+                                 &snapshot))
+    failed = test_fail(stats, name, "edited profile value did not render");
+  if (!failed && !vt_expect_text(&session, "Unsaved changes", 1000,
+                                 &snapshot))
+    failed = test_fail(stats, name, "unsaved marker did not render");
+  if (!failed && !vt_send(&session, "q"))
+    failed = test_fail(stats, name, "failed to leave dirty profile");
+  if (!failed && !vt_expect_text(&session, "UNSAVED PROFILE CHANGES", PTY_TIMEOUT_MS,
+                                 &snapshot))
+    failed = test_fail(stats, name, "unsaved changes prompt did not render");
+  if (!failed && !vt_send(&session, "c"))
+    failed = test_fail(stats, name, "failed to cancel unsaved prompt");
+  if (!failed && !vt_expect_text(&session, "quick@changed", PTY_TIMEOUT_MS,
+                                 &snapshot))
+    failed = test_fail(stats, name, "cancel did not return to edited profile");
+  if (!failed && !vt_send(&session, "q"))
+    failed = test_fail(stats, name, "failed to leave dirty profile again");
+  if (!failed && !vt_expect_text(&session, "UNSAVED PROFILE CHANGES", PTY_TIMEOUT_MS,
+                                 &snapshot))
+    failed = test_fail(stats, name, "unsaved changes prompt did not reappear");
+  if (!failed && !vt_send(&session, "d"))
+    failed = test_fail(stats, name, "failed to discard unsaved changes");
+  if (!failed && !vt_expect_text(&session, "PROFILES", PTY_TIMEOUT_MS,
+                                 &snapshot))
+    failed = test_fail(stats, name, "discard did not return to profiles");
   if (!failed && !vt_send(&session, "q"))
     failed = test_fail(stats, name, "failed to leave profiles");
   if (!failed && !vt_send(&session, "q"))
@@ -1230,6 +1277,182 @@ int run_tui_deploy_plan_panel(test_stats_t *stats, const char *binary,
   env_guard_restore(&guard);
   unlink(qpath);
   rmdir(site_dir);
+  char config_path[PATH_MAX], oq[PATH_MAX];
+  snprintf(config_path, sizeof(config_path), "%s/openquick/config.json", xdg);
+  snprintf(oq, sizeof(oq), "%s/openquick", xdg);
+  unlink(config_path);
+  rmdir(oq);
+  rmdir(xdg);
+  return failed;
+}
+
+int run_tui_deploy_cancel_cleanup_status(test_stats_t *stats,
+                                         const char *binary,
+                                         bool tui_enabled) {
+  const char *name = "deploy cancel reports cleanup and retry succeeds";
+  if (!tui_enabled) {
+    test_skip(stats, name, "rebuild with -Denable-tui=true");
+    return 0;
+  }
+  char site_dir[] = "/tmp/openquick-vt-deploy-cancel-XXXXXX";
+  char xdg[] = "/tmp/openquick-vt-xdg-deploy-cancel-XXXXXX";
+  char bin_dir[] = "/tmp/openquick-vt-bin-deploy-cancel-XXXXXX";
+  char state_dir[] = "/tmp/openquick-vt-state-deploy-cancel-XXXXXX";
+  if (!make_temp_dir_path(site_dir) || !make_temp_dir_path(xdg) ||
+      !make_temp_dir_path(bin_dir) || !make_temp_dir_path(state_dir) ||
+      !write_profile_config(xdg)) {
+    return test_fail(stats, name, "failed to create temp inputs: %s",
+                     strerror(errno));
+  }
+  char qpath[PATH_MAX];
+  char index_path[PATH_MAX];
+  snprintf(qpath, sizeof(qpath), "%s/quick.json", site_dir);
+  snprintf(index_path, sizeof(index_path), "%s/index.html", site_dir);
+  if (!write_text_file(qpath,
+                       "{\"name\":\"demo\",\"source\":\".\",\"output\":\".\",\"profile\":\"lab\",\"subdomain\":\"demo\"}\n") ||
+      !write_text_file(index_path, "<!doctype html><title>demo</title>\n")) {
+    return test_fail(stats, name, "failed to write site files");
+  }
+  char ssh_path[PATH_MAX];
+  char rsync_path[PATH_MAX];
+  snprintf(ssh_path, sizeof(ssh_path), "%s/ssh", bin_dir);
+  snprintf(rsync_path, sizeof(rsync_path), "%s/rsync", bin_dir);
+  if (!write_text_file(
+          ssh_path,
+          "#!/bin/sh\n"
+          "if [ \"$2\" = quickd ] && [ \"$3\" = doctor ]; then\n"
+          "  printf '%s\\n' '{\"checks\":[{\"status\":\"ok\"}]}'\n"
+          "  exit 0\n"
+          "fi\n"
+          "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = prepare ]; then\n"
+          "  printf '%s\\n' '{\"deploy_id\":\"20260623T000000Z-deadbe\",\"staging_path\":\"/srv/quick/.incoming/20260623T000000Z-deadbe/files\",\"link_dest\":\"\"}'\n"
+          "  exit 0\n"
+          "fi\n"
+          "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = cleanup ]; then\n"
+          "  echo cleanup >> \"$OPENQUICK_TUI_FAKE_STATE/ssh.log\"\n"
+          "  printf '%s\\n' '{\"cleaned\":true}'\n"
+          "  exit 0\n"
+          "fi\n"
+          "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = activate ]; then\n"
+          "  printf '%s\\n' '{\"release\":\"rel-ok\",\"url\":\"https://demo.quick.example.com\"}'\n"
+          "  exit 0\n"
+          "fi\n"
+          "exit 1\n") ||
+      chmod(ssh_path, 0755) != 0 ||
+      !write_text_file(
+          rsync_path,
+          "#!/bin/sh\n"
+          "if [ ! -f \"$OPENQUICK_TUI_FAKE_STATE/cancelled\" ]; then\n"
+          "  : > \"$OPENQUICK_TUI_FAKE_STATE/cancelled\"\n"
+          "  echo simulated transfer cancel >&2\n"
+          "  exit 130\n"
+          "fi\n"
+          "printf '%s\\n' 'Number of regular files transferred: 1'\n"
+          "printf '%s\\n' 'Number of regular files: 1'\n"
+          "printf '%s\\n' 'Number of deleted files: 0'\n"
+          "exit 0\n") ||
+      chmod(rsync_path, 0755) != 0) {
+    return test_fail(stats, name, "failed to write fake ssh/rsync");
+  }
+
+  char path_value[PATH_MAX * 2];
+  const char *old_path = getenv("PATH");
+  snprintf(path_value, sizeof(path_value), "%s%s%s", bin_dir,
+           old_path && old_path[0] ? ":" : "",
+           old_path && old_path[0] ? old_path : "");
+  env_guard_t guards[6];
+  env_guard_set(&guards[0], "XDG_CONFIG_HOME", xdg);
+  env_guard_set(&guards[1], "PATH", path_value);
+  env_guard_set(&guards[2], "OPENQUICK_TUI_FAKE_STATE", state_dir);
+  env_guard_set(&guards[3], "QUICK_PROFILE", NULL);
+  env_guard_set(&guards[4], "QUICK_REMOTE", NULL);
+  env_guard_set(&guards[5], "QUICK_BASE_DOMAIN", NULL);
+
+  const char *args[] = {"menu"};
+  vt_session_t session;
+  bool started = vt_session_start(&session, binary, args, 1, 100, 30);
+  char *snapshot = NULL;
+  int failed = 0;
+  if (!started) failed = test_fail(stats, name, "failed to start PTY session");
+  if (!failed && !vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS,
+                                 &snapshot))
+    failed = test_fail(stats, name, "initial menu did not render");
+  for (int attempt = 0; !failed && attempt < 2; attempt++) {
+    if (!vt_send(&session, "d")) {
+      failed = test_fail(stats, name, "failed to open Deploy");
+      break;
+    }
+    if (!vt_expect_text(&session, "Path to site directory", PTY_TIMEOUT_MS,
+                        &snapshot)) {
+      failed = test_fail(stats, name, "path prompt did not render");
+      break;
+    }
+    char send_path[PATH_MAX + 4];
+    snprintf(send_path, sizeof(send_path), "%s\r", site_dir);
+    if (!vt_send(&session, send_path) ||
+        !vt_expect_text(&session, "PROFILE", PTY_TIMEOUT_MS, &snapshot) ||
+        !vt_send(&session, "\r") ||
+        !vt_expect_text(&session, "Site name", PTY_TIMEOUT_MS, &snapshot) ||
+        !vt_send(&session, "\r") ||
+        !vt_expect_text(&session, "Subdomain", PTY_TIMEOUT_MS, &snapshot) ||
+        !vt_send(&session, "\r") ||
+        !vt_expect_text(&session, "DEPLOY PLAN", PTY_TIMEOUT_MS, &snapshot) ||
+        !vt_send(&session, "\r")) {
+      failed = test_fail(stats, name, "failed to complete deploy prompts");
+      break;
+    }
+    if (attempt == 0) {
+      if (!vt_expect_text(&session, "DEPLOY CANCELLED", PTY_TIMEOUT_MS,
+                          &snapshot) ||
+          !vt_expect_text(&session, "remote staging cleaned", PTY_TIMEOUT_MS,
+                          &snapshot)) {
+        failed = test_fail(stats, name,
+                           "cancel cleanup status did not render");
+        break;
+      }
+      if (!vt_send(&session, "\r") ||
+          !vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS, &snapshot)) {
+        failed = test_fail(stats, name,
+                           "failed to dismiss cancellation and return");
+        break;
+      }
+    } else {
+      if (!vt_expect_text(&session, "DEPLOY COMPLETE", PTY_TIMEOUT_MS,
+                          &snapshot) ||
+          !vt_expect_text(&session, "rel-ok", PTY_TIMEOUT_MS, &snapshot)) {
+        failed = test_fail(stats, name, "follow-up deploy did not succeed");
+        break;
+      }
+      if (!vt_send(&session, "\r") ||
+          !vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS, &snapshot)) {
+        failed = test_fail(stats, name,
+                           "failed to dismiss success and return");
+        break;
+      }
+    }
+  }
+  if (!failed && !vt_send(&session, "q"))
+    failed = test_fail(stats, name, "failed to start exit");
+  if (!failed && !vt_send(&session, "y"))
+    failed = test_fail(stats, name, "failed to confirm exit");
+  if (!failed && vt_wait_for_exit(&session, PTY_TIMEOUT_MS) != 0)
+    failed = test_fail(stats, name, "process did not exit cleanly");
+  if (!failed) test_pass(stats, name);
+  free(snapshot);
+  if (started) vt_session_close(&session);
+  restore_common_env(guards, sizeof(guards) / sizeof(guards[0]));
+  unlink(qpath);
+  unlink(index_path);
+  rmdir(site_dir);
+  unlink(ssh_path);
+  unlink(rsync_path);
+  rmdir(bin_dir);
+  char cancelled_path[PATH_MAX], ssh_log_path[PATH_MAX];
+  snprintf(cancelled_path, sizeof(cancelled_path), "%s/cancelled", state_dir);
+  snprintf(ssh_log_path, sizeof(ssh_log_path), "%s/ssh.log", state_dir);
+  unlink(cancelled_path);
+  unlink(ssh_log_path);
+  rmdir(state_dir);
   char config_path[PATH_MAX], oq[PATH_MAX];
   snprintf(config_path, sizeof(config_path), "%s/openquick/config.json", xdg);
   snprintf(oq, sizeof(oq), "%s/openquick", xdg);

@@ -73,19 +73,36 @@ Global flags work with the command surface. Prefer command-specific `--json` whe
 | `quick --help` | Show help. | `-h` is the short form. |
 | `quick --version` | Show version. | No command required. |
 | `quick [global flags] COMMAND` | Control output, config, and logging. | Global flags: `--debug`, `--quiet`, `--verbose`, `--json`, `--plain`, `--no-color`, `--config PATH`. |
-| `quick init [path]` | Scaffold a static site. | Flags: `--template TEMPLATE`, `--name NAME`, `--profile PROFILE`. Examples: `quick init lunch-vote`; `quick init --template realtime --name lunch-vote --profile lab`. |
+| `quick init [path]` | Scaffold a static site. | Flags: `--template TEMPLATE`, `--name NAME`, `--profile PROFILE`, `--adopt`. Examples: `quick init lunch-vote`; `quick init --template realtime --name lunch-vote --profile lab`; `quick init --template list --json`. |
+| `quick templates` | List bundled site templates and generated files. | Flags: `--json`. Example: `quick templates --json`. |
 | `quick deploy [path]` | Build if configured, transfer a folder or ZIP, and activate a release. | Flags: `--site SITE`, `--subdomain SUBDOMAIN`, `--profile PROFILE`, `--dry-run`, `--no-build`, `--no-delete`, `--open`, `--bootstrap`, `--allow-unpublished`, `--checksum`, `--yes`. Examples: `quick deploy`; `quick deploy --dry-run`; `quick deploy ./dist --site demo --profile lab`; `quick deploy site.zip --site demo`. |
 | `quick serve --dev` | Run local dev `quickd`. | Flags: `--port PORT`, `--identity EMAIL`, `--remote-api PROFILE`, `--profile PROFILE`. Example: `quick serve --dev --port 9366 --identity sam@example.com`. |
 | `quick serve install` | Print or execute host setup steps. | Flags: `--profile PROFILE`, `--host HOST`, `--remote-root PATH`, `--domain DOMAIN`, `--iap IAP`, `--execute`, `--allow-public-unsafe`. Example: `quick serve install --profile lab --host quick@box --remote-root /srv/quick --domain quick.example.com --iap tailscale`. |
 | `quick open [site]` | Open or print a site URL. | Flags: `--profile PROFILE`, `--copy`, `--plain`. Example: `quick open lunch-vote --profile lab --plain`. |
-| `quick list` | List local and remote deployments. | Flags: `--profile PROFILE`, `--remote`, `--json`. Example: `quick list --profile lab --remote --json`. |
+| `quick list` | List local and remote deployments. | Flags: `--profile PROFILE`, `--remote`, `--filter QUERY`, `--sort name|updated|updated_at|source`, `--json`. Example: `quick list --profile lab --remote --json`. |
 | `quick info` | Display application metadata. | Example: `quick --json info`. |
+| `quick config show` | Show the resolved profile/config target and source precedence before mutating a host. | Flags: `--profile PROFILE`, `--site SITE`, `--json`. Example: `quick config show --profile lab --json`. |
 | `quick doctor [site]` | Run local, remote, and edge diagnostics. | Flags: `--profile PROFILE`, `--remote`, `--site SITE`, `--deep`, `--json`. Example: `quick doctor --profile lab --remote --site lunch-vote --json`. |
-| `quick delete SITE` | Delete a remote site after confirmation. | Flags: `--profile PROFILE`, `--yes`, `--json`. Example: `quick delete lunch-vote --profile lab --yes --json`. |
+| `quick delete SITE` | Archive-delete a remote site after confirmation and print restore guidance. | Flags: `--profile PROFILE`, `--yes`, `--json`. Example: `quick delete lunch-vote --profile lab --yes --json`. |
+| `quick restore SITE` | Restore a recently deleted site archive. | Flags: `--profile PROFILE`, `--from ARCHIVE`, `--yes`, `--json`. Example: `quick restore lunch-vote --from /srv/quick/.trash/sites/lunch-vote-20260623T120000Z --yes`. |
+| `quick rollback SITE` | Move `current` back to the previous or selected release after confirmation. | Flags: `--profile PROFILE`, `--to RELEASE`, `--yes`, `--json`. Example: `quick rollback lunch-vote --profile lab --yes`. |
 | `quick public SITE [on\|off]` | Show or change a site's public-static flag. | Flags: `--profile PROFILE`, `--yes`, `--json`. Examples: `quick public lunch-vote`; `quick public lunch-vote on --yes`; `quick public lunch-vote off`. |
 | `quick domain ACTION [domain]` | Manage custom domains. | Actions: `add`, `remove`, `list`. Flags: `--site SITE`, `--profile PROFILE`, `--json`. Examples: `quick domain add app.example.com --site lunch-vote --profile lab`; `quick domain list --profile lab --json`; `quick domain remove app.example.com --profile lab`. |
 | `quick` or `quick menu` | Open the interactive dashboard on a TTY. | Use it for Sites, Deploy, New site, Doctor, Serve, and Settings. |
 | `quick opencli` | Print the OpenCLI contract as JSON. | Use it to verify the installed CLI surface. |
+
+## Agent deploy safety checklist
+
+Before an agent deploys or mutates a host, complete this checklist in order:
+
+1. Resolve the target with `quick config show --profile PROFILE --json` and confirm the site/profile/host match the user's request.
+2. Run `quick deploy --dry-run --site SITE --profile PROFILE` and read the transfer summary, including deleted and excluded paths.
+3. Run `quick doctor --profile PROFILE --remote --site SITE --json`; fix or report failures before deploying unless the user explicitly accepts the risk.
+4. Check `.quickignore`, `quick.json`, and built assets for secrets or private data; never put host credentials or API keys in browser code.
+5. If the site exists or the deploy reports a different `last_deployer`, ask for explicit overwrite approval; use `--yes` only for that approval or a pre-approved automation run.
+6. For public mode or custom domains, run the public scan/domain readiness flow and keep `/_quick/*` authenticated.
+7. If a transfer is cancelled or fails, report the cleanup status and any remaining staging path before retrying.
+8. After deploy, capture the release id/URL, run `quick open --plain`, and record rollback options (`quick rollback SITE` or `quick restore SITE --from ARCHIVE` after delete).
 
 ## Constraints
 

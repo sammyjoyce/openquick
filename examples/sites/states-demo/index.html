@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OpenQuick UI states demo</title>
+    <style>
+      :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      body { margin: 0; min-height: 100vh; background: #0f172a; color: #e2e8f0; }
+      main { max-width: 64rem; margin: 0 auto; padding: 2rem; }
+      h1 { margin-bottom: 0.25rem; }
+      .intro { color: #94a3b8; max-width: 44rem; line-height: 1.55; }
+      .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); margin-top: 1.5rem; }
+      .card { border: 1px solid #334155; border-radius: 1rem; padding: 1rem; background: #111827; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28); }
+      .card h2 { margin: 0 0 0.5rem; font-size: 1rem; }
+      .card p { color: #cbd5e1; line-height: 1.5; }
+      .badge { display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 999px; padding: 0.2rem 0.6rem; font-size: 0.78rem; font-weight: 700; background: #1e293b; color: #93c5fd; }
+      .ok { color: #86efac; }
+      .warn { color: #fbbf24; }
+      .danger { color: #fca5a5; }
+      button { border: 0; border-radius: 0.75rem; padding: 0.65rem 0.9rem; background: #2563eb; color: white; font-weight: 700; cursor: pointer; }
+      button:focus-visible { outline: 3px solid #93c5fd; outline-offset: 3px; }
+      [role="status"], [role="alert"] { min-height: 2.5rem; }
+      ul { padding-left: 1.2rem; }
+      code { color: #f0abfc; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>OpenQuick UI states demo</h1>
+      <p class="intro">
+        This example shows accessible loading, empty, error, permission denied, rate limited, and offline states for static sites that call the same-origin OpenQuick SDK.
+        Every API call is wrapped so a failed host capability becomes visible UI instead of an unhandled console error.
+      </p>
+
+      <section class="grid" aria-label="SDK state examples">
+        <article class="card" data-state="loading">
+          <span class="badge">Loading</span>
+          <h2>Loading identity</h2>
+          <p id="identity-status" role="status" aria-live="polite">Checking the current viewer…</p>
+        </article>
+
+        <article class="card" data-state="empty">
+          <span class="badge ok">Empty</span>
+          <h2>Empty collection</h2>
+          <p id="empty-status" role="status" aria-live="polite">No notes yet. Add the first item after the DB capability is available.</p>
+        </article>
+
+        <article class="card" data-state="error">
+          <span class="badge danger">Error</span>
+          <h2>API error</h2>
+          <p id="error-status" role="alert">No error yet.</p>
+          <button id="simulate-error" type="button">Simulate API failure</button>
+        </article>
+
+        <article class="card" data-state="permission-denied">
+          <span class="badge warn">Permission denied</span>
+          <h2>Identity required</h2>
+          <p id="permission-status" role="status" aria-live="polite">If the host denies anonymous access, explain how to sign in or ask for access.</p>
+        </article>
+
+        <article class="card" data-state="rate-limited">
+          <span class="badge warn">Rate limited</span>
+          <h2>Retry later</h2>
+          <p id="rate-status" role="status" aria-live="polite">Waiting for quota metadata from AI or uploads APIs.</p>
+        </article>
+
+        <article class="card" data-state="offline">
+          <span class="badge warn">Offline</span>
+          <h2>Network unavailable</h2>
+          <p id="offline-status" role="status" aria-live="polite">Network status unknown.</p>
+        </article>
+      </section>
+
+      <section class="card" aria-labelledby="notes-heading">
+        <h2 id="notes-heading">Implementation notes</h2>
+        <ul>
+          <li>Use <code>role="status"</code> for passive updates and <code>role="alert"</code> for actionable failures.</li>
+          <li>Read <code>error.code</code>, <code>error.status</code>, and quota fields from <code>OpenQuickError</code>.</li>
+          <li>Keep fallbacks useful when DB, AI, uploads, realtime, or identity are disabled by host config.</li>
+        </ul>
+      </section>
+    </main>
+
+    <script type="module">
+      import { quick, OpenQuickError } from '/_quick/sdk.js';
+
+      const identityStatus = document.querySelector('#identity-status');
+      const emptyStatus = document.querySelector('#empty-status');
+      const errorStatus = document.querySelector('#error-status');
+      const permissionStatus = document.querySelector('#permission-status');
+      const rateStatus = document.querySelector('#rate-status');
+      const offlineStatus = document.querySelector('#offline-status');
+      const simulateError = document.querySelector('#simulate-error');
+
+      function describeError(error) {
+        if (error instanceof OpenQuickError) {
+          const retry = error.retryAfter ? ` Try again in ${error.retryAfter} seconds.` : '';
+          return `${error.code || 'openquick_error'} (${error.status || 'unknown status'}).${retry}`;
+        }
+        return error && error.message ? error.message : 'Unexpected error';
+      }
+
+      function renderOfflineState() {
+        offlineStatus.textContent = navigator.onLine
+          ? 'Online. Disable the network in devtools to verify the offline copy.'
+          : 'Offline. Keep the current page usable and queue user intent until the network returns.';
+      }
+
+      window.addEventListener('online', renderOfflineState);
+      window.addEventListener('offline', renderOfflineState);
+      window.addEventListener('unhandledrejection', (event) => {
+        event.preventDefault();
+        errorStatus.textContent = `Recovered from an unexpected failure: ${describeError(event.reason)}`;
+      });
+
+      simulateError.addEventListener('click', async () => {
+        try {
+          await quick.ai.chat({ messages: [{ role: 'user', content: 'demo' }] });
+          errorStatus.textContent = 'AI request succeeded. Try disabling AI in the host config to see the error state.';
+        } catch (error) {
+          errorStatus.textContent = `Visible API failure: ${describeError(error)}`;
+        }
+      });
+
+      try {
+        const me = await quick.identity.current();
+        identityStatus.textContent = `Signed in as ${me.email || me.login || me.subject || 'anonymous'} via ${me.provider || 'unknown provider'}.`;
+      } catch (error) {
+        identityStatus.textContent = `Could not load identity: ${describeError(error)}`;
+        permissionStatus.textContent = 'Access denied or identity unavailable. Offer a sign-in path or operator contact instead of a blank page.';
+      }
+
+      try {
+        const docs = await quick.db.collection('example-notes').list({ limit: 3 });
+        emptyStatus.textContent = docs.length === 0
+          ? 'No notes yet. Show a first-action button instead of an empty table.'
+          : `Loaded ${docs.length} note${docs.length === 1 ? '' : 's'}.`;
+      } catch (error) {
+        emptyStatus.textContent = `DB unavailable: ${describeError(error)}`;
+      }
+
+      try {
+        await quick.ai.chat({ messages: [{ role: 'user', content: 'quota metadata demo' }] });
+        rateStatus.textContent = 'AI quota available.';
+      } catch (error) {
+        rateStatus.textContent = `Quota or provider unavailable: ${describeError(error)}`;
+      }
+
+      renderOfflineState();
+    </script>
+  </body>
+</html>
