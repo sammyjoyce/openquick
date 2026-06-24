@@ -48,3 +48,24 @@ func TestValidateServeRejectsPublicNone(t *testing.T) {
 		t.Fatalf("allow public unsafe should pass: %v", err)
 	}
 }
+
+func TestCloudflareIAPRequiresAccessFields(t *testing.T) {
+	for _, iapType := range []string{"cloudflare", "cloudflare-access"} {
+		t.Run(iapType, func(t *testing.T) {
+			cfg := Default("/tmp/q")
+			cfg.IAP.Type = iapType
+			if err := cfg.ValidateServe(false); err == nil {
+				t.Fatalf("expected missing cloudflare fields to fail closed")
+			}
+			cfg.IAP.TeamDomain = "https://team.cloudflareaccess.com/"
+			cfg.IAP.Audience = "aud1"
+			cfg.ApplyDefaults()
+			if cfg.IAP.JWKSURL != "https://team.cloudflareaccess.com/cdn-cgi/access/certs" {
+				t.Fatalf("unexpected jwks default: %q", cfg.IAP.JWKSURL)
+			}
+			if err := cfg.ValidateServe(false); err != nil {
+				t.Fatalf("complete cloudflare config should pass: %v", err)
+			}
+		})
+	}
+}

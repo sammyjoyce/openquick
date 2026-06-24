@@ -908,13 +908,20 @@ type doctorCheck struct {
 	Remediation string `json:"remediation"`
 }
 
-func checkWritableDir(dir string) error {
+func checkDir(dir string) error {
 	info, err := os.Stat(dir)
 	if err != nil {
 		return err
 	}
 	if !info.IsDir() {
 		return fmt.Errorf("%s is not a directory", dir)
+	}
+	return nil
+}
+
+func checkWritableDir(dir string) error {
+	if err := checkDir(dir); err != nil {
+		return err
 	}
 	probe := filepath.Join(dir, ".quickd-doctor-write-test")
 	if err := os.WriteFile(probe, []byte("ok"), 0o600); err != nil {
@@ -972,10 +979,10 @@ func doctorCmd(args []string) error {
 		cfg.RemoteRoot = af.root
 		cfg.ApplyDefaults()
 		checks = append(checks, doctorCheck{Name: "config", Group: "host", Status: "ok", Detail: cfg.RemoteRoot, Remediation: ""})
-		if err := checkWritableDir(cfg.RemoteRoot); err != nil {
-			checks = append(checks, doctorCheck{Name: "remote_root_writable", Group: "host", Status: "fail", Detail: err.Error(), Remediation: "create /srv/quick and make it writable by quick"})
+		if err := checkDir(cfg.RemoteRoot); err != nil {
+			checks = append(checks, doctorCheck{Name: "remote_root", Group: "host", Status: "fail", Detail: err.Error(), Remediation: "create /srv/quick and make it searchable by quick and deployers"})
 		} else {
-			checks = append(checks, doctorCheck{Name: "remote_root_writable", Group: "host", Status: "ok", Detail: cfg.RemoteRoot, Remediation: ""})
+			checks = append(checks, doctorCheck{Name: "remote_root", Group: "host", Status: "ok", Detail: cfg.RemoteRoot, Remediation: ""})
 		}
 		st, err := store.Open(cfg.DataDir)
 		if err != nil {
@@ -992,6 +999,12 @@ func doctorCmd(args []string) error {
 			checks = append(checks, doctorCheck{Name: "iap-listen", Group: "identity", Status: "warn", Detail: err.Error(), Remediation: "bind to loopback or configure an IAP"})
 		} else {
 			checks = append(checks, doctorCheck{Name: "iap-listen", Group: "identity", Status: "ok", Detail: cfg.IAP.Type, Remediation: ""})
+		}
+		adapter, err := identity.NewAdapter(cfg, "", false)
+		if err != nil {
+			checks = append(checks, doctorCheck{Name: "iap-adapter", Group: "identity", Status: "fail", Detail: err.Error(), Remediation: "fix iap.type/mode or install a quickd build with the requested provider"})
+		} else {
+			checks = append(checks, doctorCheck{Name: "iap-adapter", Group: "identity", Status: "ok", Detail: adapter.Name(), Remediation: ""})
 		}
 		if cfg.PublicBaseDomain == "" && cfg.BaseURL == "" {
 			checks = append(checks, doctorCheck{Name: "domain", Group: "edge/iap", Status: "warn", Detail: "no public_base_domain or base_url configured", Remediation: "configure a domain/base_url or deploy with --allow-unpublished"})

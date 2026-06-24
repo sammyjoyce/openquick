@@ -18,8 +18,12 @@ func NewAdapter(cfg config.Config, devIdentity string, allowPublicUnsafe bool) (
 	case "dev":
 		return DevAdapter{Email: devIdentity, AllowPublicUnsafe: allowPublicUnsafe}, nil
 	case "tailscale", "tailscale-localapi":
-		if strings.ToLower(cfg.IAP.Mode) == "serve" || t == "tailscale-serve" {
+		mode := strings.ToLower(strings.TrimSpace(cfg.IAP.Mode))
+		if mode == "serve" || t == "tailscale-serve" {
 			return TailscaleServeAdapter{}, nil
+		}
+		if mode == "tsnet" {
+			return newTailscaleTSNetAdapter()
 		}
 		proxies, err := ParseTrustedProxies(cfg.IAP.TrustedProxies)
 		if err != nil {
@@ -28,6 +32,8 @@ func NewAdapter(cfg config.Config, devIdentity string, allowPublicUnsafe bool) (
 		return TailscaleLocalAPIAdapter{TrustedProxies: proxies, SourceIPHeader: cfg.IAP.SourceIPHeader, Client: &LocalAPIWhoIsClient{}}, nil
 	case "tailscale-serve":
 		return TailscaleServeAdapter{}, nil
+	case "tailscale-tsnet":
+		return newTailscaleTSNetAdapter()
 	case "cloudflare", "cloudflare-access":
 		return &CloudflareAccessAdapter{TeamDomain: cfg.IAP.TeamDomain, Audience: cfg.IAP.Audience, JWKSURL: cfg.IAP.JWKSURL, EmailDomainAllowlist: cfg.IAP.EmailDomainAllowlist}, nil
 	default:

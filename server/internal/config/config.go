@@ -210,6 +210,19 @@ func LoadForRoot(root string) (Config, error) {
 	return loaded, nil
 }
 
+func cloudflareJWKSURL(teamDomain string) string {
+	teamDomain = strings.TrimRight(strings.TrimSpace(teamDomain), "/")
+	if teamDomain == "" {
+		return ""
+	}
+	return teamDomain + "/cdn-cgi/access/certs"
+}
+
+func isCloudflareIAP(t string) bool {
+	t = strings.ToLower(strings.TrimSpace(t))
+	return t == "cloudflare" || t == "cloudflare-access"
+}
+
 func (c *Config) ApplyDefaults() {
 	root := c.RemoteRoot
 	if root == "" {
@@ -230,6 +243,13 @@ func (c *Config) ApplyDefaults() {
 	}
 	if c.IAP.Type == "" {
 		c.IAP.Type = "none"
+	}
+	c.IAP.Type = strings.ToLower(strings.TrimSpace(c.IAP.Type))
+	if isCloudflareIAP(c.IAP.Type) {
+		c.IAP.TeamDomain = strings.TrimRight(strings.TrimSpace(c.IAP.TeamDomain), "/")
+		if c.IAP.JWKSURL == "" {
+			c.IAP.JWKSURL = cloudflareJWKSURL(c.IAP.TeamDomain)
+		}
 	}
 	if c.IAP.SourceIPHeader == "" {
 		c.IAP.SourceIPHeader = "X-Forwarded-For"
@@ -413,6 +433,11 @@ func (c Config) ValidateServe(allowPublicUnsafe bool) error {
 	}
 	if (t == "none" || t == "dev") && !allowPublicUnsafe && !IsLoopbackListen(c.Listen) {
 		return fmt.Errorf("iap=%s may only listen on loopback unless --allow-public-unsafe is set", t)
+	}
+	if isCloudflareIAP(t) {
+		if strings.TrimSpace(c.IAP.TeamDomain) == "" || strings.TrimSpace(c.IAP.Audience) == "" || strings.TrimSpace(c.IAP.JWKSURL) == "" {
+			return errors.New("iap=cloudflare requires team_domain, audience, and jwks_url")
+		}
 	}
 	if c.Viewer.RequireIdentity && c.Viewer.AllowAnonymous {
 		return errors.New("viewer.require_identity and viewer.allow_anonymous cannot both be true")

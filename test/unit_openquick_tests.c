@@ -799,10 +799,11 @@ static bool test_serve_install_steps_structure(void) {
                                        .domain = "quick.example.com",
                                        .iap = "tailscale"};
   bool ok = quick_op_serve_install_steps(&req, &steps) == APP_SUCCESS &&
-            steps.count == 6 && steps.steps[0].summary &&
-            strcmp(steps.steps[0].summary,
+            steps.count == 7 && steps.steps[0].summary &&
+            strstr(steps.steps[0].summary, "rsync") != NULL &&
+            strcmp(steps.steps[1].summary,
                    "create quick user and quick-deploy group") == 0 &&
-            strstr(steps.steps[5].summary, "quickd doctor") != NULL;
+            strstr(steps.steps[6].summary, "quickd doctor") != NULL;
   quick_serve_install_steps_destroy(&steps);
   return ok;
 }
