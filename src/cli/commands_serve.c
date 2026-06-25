@@ -109,8 +109,7 @@ static bool serve_iap_is_tailscale(const char *iap) {
   return iap &&
          (strcmp(iap, "tailscale") == 0 ||
           strcmp(iap, "tailscale-localapi") == 0 ||
-          strcmp(iap, "tailscale-serve") == 0 ||
-          strcmp(iap, "tailscale-tsnet") == 0);
+          strcmp(iap, "tailscale-serve") == 0);
 }
 
 static bool serve_iap_is_cloudflare(const char *iap) {
@@ -128,7 +127,6 @@ static const char *serve_default_iap_mode(const char *iap) {
   if (!iap || strcmp(iap, "none") == 0) return "";
   if (serve_iap_is_cloudflare(iap)) return "access";
   if (strcmp(iap, "tailscale-serve") == 0) return "serve";
-  if (strcmp(iap, "tailscale-tsnet") == 0) return "tsnet";
   if (serve_iap_is_tailscale(iap)) return "localapi";
   return "";
 }
@@ -157,7 +155,7 @@ static app_error serve_validate_install_inputs(const app_config_t *config,
   }
   if (!serve_iap_is_allowed(iap)) {
     quick_print_error(config,
-                      "iap must be tailscale, tailscale-localapi, tailscale-serve, tailscale-tsnet, cloudflare, cloudflare-access, or none");
+                      "iap must be tailscale, tailscale-localapi, tailscale-serve, cloudflare, cloudflare-access, or none");
     return APP_ERROR_VALIDATION;
   }
   return APP_SUCCESS;
@@ -226,57 +224,31 @@ static char *serve_json_string(const char *value) {
   return out;
 }
 
-static char *serve_cloudflare_jwks_url(const char *team_domain) {
-  if (!team_domain || team_domain[0] == '\0') {
-    return NULL;
-  }
-  const size_t base_len = strlen(team_domain);
-  size_t trimmed = base_len;
-  while (trimmed > 0 && team_domain[trimmed - 1U] == '/') {
-    trimmed--;
-  }
-  const char *suffix = "/cdn-cgi/access/certs";
-  char *out = malloc(trimmed + strlen(suffix) + 1U);
-  if (!out) {
-    return NULL;
-  }
-  memcpy(out, team_domain, trimmed);
-  strcpy(out + trimmed, suffix);
-  return out;
-}
-
 static char *serve_iap_extra_json(const quick_iap_config_t *iap_config) {
   if (!iap_config || !serve_iap_is_cloudflare(iap_config->type)) {
     return strdup("");
   }
   char *team = serve_json_string(iap_config->team_domain);
   char *audience = serve_json_string(iap_config->audience);
-  char *jwks_url = serve_cloudflare_jwks_url(iap_config->team_domain);
-  char *jwks = serve_json_string(jwks_url ? jwks_url : "");
-  free(jwks_url);
-  if (!team || !audience || !jwks) {
+  if (!team || !audience) {
     free(team);
     free(audience);
-    free(jwks);
     return NULL;
   }
-  const size_t len = strlen(team) + strlen(audience) + strlen(jwks) + 128U;
+  const size_t len = strlen(team) + strlen(audience) + 96U;
   char *out = malloc(len);
   if (!out) {
     free(team);
     free(audience);
-    free(jwks);
     return NULL;
   }
   snprintf(out, len,
            ",\n"
            "    \"team_domain\": %s,\n"
-           "    \"audience\": %s,\n"
-           "    \"jwks_url\": %s",
-           team, audience, jwks);
+           "    \"audience\": %s",
+           team, audience);
   free(team);
   free(audience);
-  free(jwks);
   return out;
 }
 
@@ -358,9 +330,20 @@ static char *serve_host_config_json(const char *remote_root, const char *domain,
   return json;
 }
 
+static app_error serve_profile_set_string(char **slot, const char *value) {
+  free(*slot);
+  *slot = NULL;
+  if (!value || value[0] == '\0') {
+    return APP_SUCCESS;
+  }
+  *slot = strdup(value);
+  return *slot ? APP_SUCCESS : APP_ERROR_MEMORY;
+}
+
 static app_error serve_write_profile(const char *profile_name, const char *host,
                                      const char *remote_root,
-                                     const char *domain, const char *iap) {
+                                     const char *domain,
+                                     const quick_iap_config_t *iap_config) {
   quick_profile_config_t profiles;
   quick_profile_config_init(&profiles);
   (void)quick_profile_config_load_default(&profiles);
@@ -369,23 +352,46 @@ static app_error serve_write_profile(const char *profile_name, const char *host,
     quick_profile_config_destroy(&profiles);
     return APP_ERROR_MEMORY;
   }
+  app_error err = APP_SUCCESS;
   if (host) {
-    free(profile->ssh);
-    profile->ssh = strdup(host);
+    err = serve_profile_set_string(&profile->ssh, host);
   }
-  free(profile->remote_root);
-  profile->remote_root = strdup(remote_root);
-  if (domain) {
-    free(profile->base_domain);
-    profile->base_domain = strdup(domain);
+  if (err == APP_SUCCESS) {
+    err = serve_profile_set_string(&profile->remote_root, remote_root);
   }
-  free(profile->iap.type);
-  profile->iap.type = strdup(iap);
+  if (err == APP_SUCCESS && domain) {
+    err = serve_profile_set_string(&profile->base_domain, domain);
+  }
+  const char *iap = iap_config && iap_config->type ? iap_config->type : "tailscale";
+  if (err == APP_SUCCESS) {
+    err = serve_profile_set_string(&profile->iap.type, iap);
+  }
+  if (err == APP_SUCCESS) {
+    err = serve_profile_set_string(&profile->iap.mode,
+                                   iap_config ? iap_config->mode : NULL);
+  }
+  if (err == APP_SUCCESS) {
+    err = serve_profile_set_string(
+        &profile->iap.team_domain,
+        iap_config && serve_iap_is_cloudflare(iap) ? iap_config->team_domain : NULL);
+  }
+  if (err == APP_SUCCESS) {
+    err = serve_profile_set_string(
+        &profile->iap.audience,
+        iap_config && serve_iap_is_cloudflare(iap) ? iap_config->audience : NULL);
+  }
+  if (err != APP_SUCCESS) {
+    quick_profile_config_destroy(&profiles);
+    return err;
+  }
   if (!profiles.default_profile) {
     profiles.default_profile = strdup(profile_name);
+    if (!profiles.default_profile) {
+      quick_profile_config_destroy(&profiles);
+      return APP_ERROR_MEMORY;
+    }
   }
   char *path = quick_profile_config_default_path();
-  app_error err = APP_SUCCESS;
   if (path) {
     err = quick_profile_config_write_file(path, &profiles);
     free(path);
@@ -515,7 +521,6 @@ static app_error serve_install_execute(const app_config_t *config,
   }
   free(scp);
 
-  const char *iap = iap_config && iap_config->type ? iap_config->type : "tailscale";
   char *host_json = serve_host_config_json(remote_root, domain, iap_config);
   char *unit = NULL;
   app_error err = host_json ? serve_read_systemd_unit(&unit) : APP_ERROR_MEMORY;
@@ -775,7 +780,8 @@ static app_error serve_install(const app_config_t *config, int argc,
   const char *host = quick_cmd_value(argc, argv, "--host");
   const char *remote_root = quick_cmd_value(argc, argv, "--remote-root");
   const char *domain = quick_cmd_value(argc, argv, "--domain");
-  const char *iap = quick_cmd_value(argc, argv, "--iap");
+  const char *iap_arg = quick_cmd_value(argc, argv, "--iap");
+  const char *iap = iap_arg;
   const bool execute = quick_cmd_flag(argc, argv, "--execute");
   const bool unsafe = quick_cmd_flag(argc, argv, "--allow-public-unsafe");
   if (!profile_name) profile_name = "default";
@@ -799,9 +805,16 @@ static app_error serve_install(const app_config_t *config, int argc,
   if (!remote_root) remote_root = "/srv/quick";
   if (!iap) iap = "tailscale";
 
-  quick_iap_config_t install_iap = {.type = (char *)iap};
-  if (profile) {
+  quick_iap_config_t install_iap = {
+      .type = (char *)iap,
+      .mode = (char *)serve_default_iap_mode(iap),
+  };
+  if (profile && !iap_arg) {
     install_iap.mode = profile->iap.mode;
+    install_iap.team_domain = profile->iap.team_domain;
+    install_iap.audience = profile->iap.audience;
+  } else if (profile && serve_iap_is_cloudflare(iap) &&
+             profile->iap.type && serve_iap_is_cloudflare(profile->iap.type)) {
     install_iap.team_domain = profile->iap.team_domain;
     install_iap.audience = profile->iap.audience;
   }
@@ -886,7 +899,7 @@ static app_error serve_install(const app_config_t *config, int argc,
       return err;
     }
   }
-  err = serve_write_profile(profile_name, host, remote_root, domain, iap);
+  err = serve_write_profile(profile_name, host, remote_root, domain, &install_iap);
   quick_profile_config_destroy(&profiles);
   quick_serve_install_steps_destroy(&steps);
   return err;

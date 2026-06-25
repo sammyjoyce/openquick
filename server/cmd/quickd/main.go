@@ -979,8 +979,8 @@ func doctorCmd(args []string) error {
 		cfg.RemoteRoot = af.root
 		cfg.ApplyDefaults()
 		checks = append(checks, doctorCheck{Name: "config", Group: "host", Status: "ok", Detail: cfg.RemoteRoot, Remediation: ""})
-		if err := checkDir(cfg.RemoteRoot); err != nil {
-			checks = append(checks, doctorCheck{Name: "remote_root", Group: "host", Status: "fail", Detail: err.Error(), Remediation: "create /srv/quick and make it searchable by quick and deployers"})
+		if err := checkWritableDir(cfg.RemoteRoot); err != nil {
+			checks = append(checks, doctorCheck{Name: "remote_root", Group: "host", Status: "fail", Detail: err.Error(), Remediation: "create /srv/quick and make it writable/searchable by quick and deployers"})
 		} else {
 			checks = append(checks, doctorCheck{Name: "remote_root", Group: "host", Status: "ok", Detail: cfg.RemoteRoot, Remediation: ""})
 		}

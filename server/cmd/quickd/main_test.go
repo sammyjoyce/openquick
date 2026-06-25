@@ -116,6 +116,44 @@ func TestConfigCheckAndExplain(t *testing.T) {
 	}
 }
 
+func TestDoctorFailsIncompleteCloudflareIAP(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "config"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	configJSON := `{"listen":"127.0.0.1:9876","remote_root":"` + root + `","iap":{"type":"cloudflare"},"viewer":{"allow_anonymous":false}}`
+	if err := os.WriteFile(filepath.Join(root, "config", "quickd.json"), []byte(configJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out := captureStdout(t, func() {
+		if err := doctorCmd([]string{"--root", root, "--json"}); err != nil {
+			t.Fatalf("doctor: %v", err)
+		}
+	})
+	var res struct {
+		OK     bool          `json:"ok"`
+		Checks []doctorCheck `json:"checks"`
+	}
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("decode doctor output: %v\n%s", err, out)
+	}
+	if res.OK {
+		t.Fatalf("doctor reported ok for incomplete cloudflare IAP: %s", out)
+	}
+	found := false
+	for _, check := range res.Checks {
+		if check.Name == "iap-adapter" {
+			found = true
+			if check.Status != "fail" || !strings.Contains(check.Detail, "cloudflare") {
+				t.Fatalf("unexpected iap-adapter check: %+v", check)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("doctor output missing iap-adapter check: %s", out)
+	}
+}
+
 func TestAuditExportChronologicalAndRedacted(t *testing.T) {
 	root := t.TempDir()
 	st, err := store.Open(filepath.Join(root, "data"))
