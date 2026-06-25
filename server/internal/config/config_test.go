@@ -78,3 +78,20 @@ func TestCloudflareIAPRequiresAccessFields(t *testing.T) {
 		})
 	}
 }
+
+func TestCloudflareTeamDomainDefaultsScheme(t *testing.T) {
+	cfg := Default("/tmp/q")
+	cfg.IAP.Type = "cloudflare"
+	cfg.IAP.TeamDomain = "team.cloudflareaccess.com/"
+	cfg.IAP.Audience = "aud1"
+	cfg.ApplyDefaults()
+	if cfg.IAP.TeamDomain != "https://team.cloudflareaccess.com" {
+		t.Fatalf("unexpected normalized team_domain: %q", cfg.IAP.TeamDomain)
+	}
+	if cfg.IAP.JWKSURL != "https://team.cloudflareaccess.com/cdn-cgi/access/certs" {
+		t.Fatalf("unexpected jwks_url: %q", cfg.IAP.JWKSURL)
+	}
+	if err := cfg.ValidateServe(false); err != nil {
+		t.Fatalf("scheme-defaulted cloudflare config should pass: %v", err)
+	}
+}

@@ -278,6 +278,9 @@ func (c *Config) ApplyDefaults() {
 	}
 	if isCloudflareIAP(c.IAP.Type) {
 		c.IAP.TeamDomain = strings.TrimRight(strings.TrimSpace(c.IAP.TeamDomain), "/")
+		if c.IAP.TeamDomain != "" && !strings.HasPrefix(c.IAP.TeamDomain, "http://") && !strings.HasPrefix(c.IAP.TeamDomain, "https://") {
+			c.IAP.TeamDomain = "https://" + c.IAP.TeamDomain
+		}
 		if c.IAP.JWKSURL == "" {
 			c.IAP.JWKSURL = cloudflareJWKSURL(c.IAP.TeamDomain)
 		}
