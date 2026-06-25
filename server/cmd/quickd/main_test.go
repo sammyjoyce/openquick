@@ -78,6 +78,25 @@ func TestAdminMintDevTokenStoresHashAndExpiry(t *testing.T) {
 	}
 }
 
+func TestTSNetListenAddrUsesConfiguredPort(t *testing.T) {
+	t.Parallel()
+	tests := map[string]string{
+		"127.0.0.1:9366": ":9366",
+		":9443":          ":9443",
+		"9367":           ":9367",
+		"[::1]:9368":     ":9368",
+	}
+	for in, want := range tests {
+		got, err := tsnetListenAddr(in)
+		if err != nil || got != want {
+			t.Fatalf("tsnetListenAddr(%q)=%q,%v want %q,nil", in, got, err, want)
+		}
+	}
+	if _, err := tsnetListenAddr("localhost"); err == nil {
+		t.Fatalf("expected missing-port error")
+	}
+}
+
 func TestServeRemoteAPIValidation(t *testing.T) {
 	if err := serveCmd([]string{"--remote-api", "https://example.com", "--remote-api-token", "tok"}); err == nil || !strings.Contains(err.Error(), "--dev") {
 		t.Fatalf("remote without dev err=%v", err)

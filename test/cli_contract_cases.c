@@ -1094,6 +1094,60 @@ static bool test_serve_install_explicit_iap_resets_profile_mode(
 #endif
 }
 
+static bool test_serve_install_tailscale_tsnet_writes_tsnet_mode(
+    test_context_t *ctx) {
+#ifndef _WIN32
+  char cfg_home[] = "/tmp/openquick-serve-tsnet-config-XXXXXX";
+  if (!mkdtemp(cfg_home)) {
+    return false;
+  }
+  char openquick_dir[512];
+  char config_path[512];
+  snprintf(openquick_dir, sizeof(openquick_dir), "%s/openquick", cfg_home);
+  snprintf(config_path, sizeof(config_path), "%s/config.json", openquick_dir);
+  if (mkdir(openquick_dir, 0755) != 0) {
+    return false;
+  }
+  if (!write_text_file(
+          config_path,
+          "{\n"
+          "  \"default_profile\": \"lab\",\n"
+          "  \"profiles\": {\n"
+          "    \"lab\": {\n"
+          "      \"ssh\": \"quick@box\",\n"
+          "      \"remote_root\": \"/srv/quick\",\n"
+          "      \"base_domain\": \"quick.example.com\",\n"
+          "      \"base_url\": null,\n"
+          "      \"iap\": {\n"
+          "        \"type\": \"tailscale\",\n"
+          "        \"mode\": \"serve\",\n"
+          "        \"team_domain\": \"https://team.cloudflareaccess.com\",\n"
+          "        \"audience\": \"old-audience\"\n"
+          "      },\n"
+          "      \"deploy\": {\"delete\": true, \"open_after_deploy\": false}\n"
+          "    }\n"
+          "  }\n"
+          "}\n")) {
+    return false;
+  }
+  const char *args[] = {"--plain", "serve", "install", "--profile", "lab",
+                        "--iap", "tailscale-tsnet"};
+  const env_var_t env[] = {{"XDG_CONFIG_HOME", cfg_home}};
+  command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
+                                       ARRAY_LEN(env));
+  bool ok = cc_expect_exit(&result, 0) &&
+            file_contains_text(config_path, "\"type\": \"tailscale-tsnet\"") &&
+            file_contains_text(config_path, "\"mode\": \"tsnet\"") &&
+            file_contains_text(config_path, "\"team_domain\": null") &&
+            file_contains_text(config_path, "\"audience\": null");
+  cc_command_result_free(&result);
+  return ok;
+#else
+  (void)ctx;
+  return true;
+#endif
+}
+
 static bool test_serve_install_execute_rolls_back_on_doctor_failure(test_context_t *ctx) {
 #ifndef _WIN32
   char bin_dir[] = "/tmp/openquick-serve-exec-bin-XXXXXX";
@@ -1578,6 +1632,8 @@ const test_case_t cli_contract_cases[] = {
      test_serve_install_guided_output},
     {"serve install explicit iap resets stale profile mode",
      test_serve_install_explicit_iap_resets_profile_mode},
+    {"serve install tailscale-tsnet writes tsnet mode",
+     test_serve_install_tailscale_tsnet_writes_tsnet_mode},
     {"serve install execute rolls back on doctor failure",
      test_serve_install_execute_rolls_back_on_doctor_failure},
     {"OpenQuick init/deploy/open/list/doctor contracts",

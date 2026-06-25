@@ -38,14 +38,23 @@ type Config struct {
 }
 
 type IAPConfig struct {
-	Type                 string   `json:"type"`
-	Mode                 string   `json:"mode"`
-	TrustedProxies       []string `json:"trusted_proxies"`
-	SourceIPHeader       string   `json:"source_ip_header"`
-	TeamDomain           string   `json:"team_domain"`
-	Audience             string   `json:"audience"`
-	JWKSURL              string   `json:"jwks_url"`
-	EmailDomainAllowlist []string `json:"email_domain_allowlist"`
+	Type                 string      `json:"type"`
+	Mode                 string      `json:"mode"`
+	TrustedProxies       []string    `json:"trusted_proxies"`
+	SourceIPHeader       string      `json:"source_ip_header"`
+	TeamDomain           string      `json:"team_domain"`
+	Audience             string      `json:"audience"`
+	JWKSURL              string      `json:"jwks_url"`
+	EmailDomainAllowlist []string    `json:"email_domain_allowlist"`
+	TSNet                TSNetConfig `json:"tsnet"`
+}
+
+type TSNetConfig struct {
+	Hostname   string `json:"hostname"`
+	StateDir   string `json:"state_dir"`
+	AuthKeyEnv string `json:"auth_key_env"`
+	Ephemeral  bool   `json:"ephemeral"`
+	ControlURL string `json:"control_url"`
 }
 
 type DeployConfig struct {
@@ -223,6 +232,12 @@ func isCloudflareIAP(t string) bool {
 	return t == "cloudflare" || t == "cloudflare-access"
 }
 
+func (c Config) IAPTSNetRequested() bool {
+	t := strings.ToLower(strings.TrimSpace(c.IAP.Type))
+	mode := strings.ToLower(strings.TrimSpace(c.IAP.Mode))
+	return t == "tailscale-tsnet" || (t == "tailscale" && mode == "tsnet")
+}
+
 func (c *Config) ApplyDefaults() {
 	root := c.RemoteRoot
 	if root == "" {
@@ -245,6 +260,22 @@ func (c *Config) ApplyDefaults() {
 		c.IAP.Type = "none"
 	}
 	c.IAP.Type = strings.ToLower(strings.TrimSpace(c.IAP.Type))
+	c.IAP.Mode = strings.ToLower(strings.TrimSpace(c.IAP.Mode))
+	c.IAP.TSNet.Hostname = strings.TrimSpace(c.IAP.TSNet.Hostname)
+	c.IAP.TSNet.StateDir = strings.TrimSpace(c.IAP.TSNet.StateDir)
+	c.IAP.TSNet.AuthKeyEnv = strings.TrimSpace(c.IAP.TSNet.AuthKeyEnv)
+	c.IAP.TSNet.ControlURL = strings.TrimSpace(c.IAP.TSNet.ControlURL)
+	if c.IAP.Type == "tailscale-tsnet" {
+		c.IAP.Mode = "tsnet"
+	}
+	if c.IAPTSNetRequested() {
+		if c.IAP.TSNet.Hostname == "" {
+			c.IAP.TSNet.Hostname = "openquick"
+		}
+		if c.IAP.TSNet.StateDir == "" {
+			c.IAP.TSNet.StateDir = filepath.Join(c.DataDir, "tsnet")
+		}
+	}
 	if isCloudflareIAP(c.IAP.Type) {
 		c.IAP.TeamDomain = strings.TrimRight(strings.TrimSpace(c.IAP.TeamDomain), "/")
 		if c.IAP.JWKSURL == "" {
@@ -305,6 +336,9 @@ func (c *Config) ApplyDefaults() {
 }
 
 func (c Config) Validate() error {
+	if c.IAPTSNetRequested() && !tsnetBuildEnabled() {
+		return errors.New("config: iap.type=tailscale-tsnet/iap.mode=tsnet requires quickd built with -tags tsnet")
+	}
 	if err := c.ValidateAI(); err != nil {
 		return err
 	}
@@ -430,6 +464,9 @@ func (c Config) ValidateServe(allowPublicUnsafe bool) error {
 	t := strings.ToLower(c.IAP.Type)
 	if t == "" {
 		t = "none"
+	}
+	if c.IAPTSNetRequested() && !tsnetBuildEnabled() {
+		return errors.New("iap=tailscale-tsnet requires quickd built with -tags tsnet")
 	}
 	if (t == "none" || t == "dev") && !allowPublicUnsafe && !IsLoopbackListen(c.Listen) {
 		return fmt.Errorf("iap=%s may only listen on loopback unless --allow-public-unsafe is set", t)

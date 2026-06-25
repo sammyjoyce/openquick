@@ -19,6 +19,9 @@ func NewAdapter(cfg config.Config, devIdentity string, allowPublicUnsafe bool) (
 		return DevAdapter{Email: devIdentity, AllowPublicUnsafe: allowPublicUnsafe}, nil
 	case "tailscale", "tailscale-localapi":
 		mode := strings.ToLower(strings.TrimSpace(cfg.IAP.Mode))
+		if mode == "tsnet" {
+			return nil, tsnetAdapterUnavailable("iap.mode=tsnet")
+		}
 		if mode == "serve" || t == "tailscale-serve" {
 			return TailscaleServeAdapter{}, nil
 		}
@@ -29,6 +32,8 @@ func NewAdapter(cfg config.Config, devIdentity string, allowPublicUnsafe bool) (
 		return TailscaleLocalAPIAdapter{TrustedProxies: proxies, SourceIPHeader: cfg.IAP.SourceIPHeader, Client: &LocalAPIWhoIsClient{}}, nil
 	case "tailscale-serve":
 		return TailscaleServeAdapter{}, nil
+	case "tailscale-tsnet":
+		return nil, tsnetAdapterUnavailable("iap.type=tailscale-tsnet")
 	case "cloudflare", "cloudflare-access":
 		if strings.TrimSpace(cfg.IAP.TeamDomain) == "" || strings.TrimSpace(cfg.IAP.Audience) == "" || strings.TrimSpace(cfg.IAP.JWKSURL) == "" {
 			return nil, fmt.Errorf("%w: cloudflare team_domain, audience, and jwks_url are required", ErrMisconfiguredAdapter)

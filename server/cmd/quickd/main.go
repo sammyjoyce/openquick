@@ -1000,11 +1000,15 @@ func doctorCmd(args []string) error {
 		} else {
 			checks = append(checks, doctorCheck{Name: "iap-listen", Group: "identity", Status: "ok", Detail: cfg.IAP.Type, Remediation: ""})
 		}
-		adapter, err := identity.NewAdapter(cfg, "", false)
-		if err != nil {
-			checks = append(checks, doctorCheck{Name: "iap-adapter", Group: "identity", Status: "fail", Detail: err.Error(), Remediation: "fix iap.type/mode or install a quickd build with the requested provider"})
+		if cfg.IAPTSNetRequested() && tsnetServeSupported() {
+			checks = append(checks, doctorCheck{Name: "iap-adapter", Group: "identity", Status: "ok", Detail: "tailscale-tsnet", Remediation: ""})
 		} else {
-			checks = append(checks, doctorCheck{Name: "iap-adapter", Group: "identity", Status: "ok", Detail: adapter.Name(), Remediation: ""})
+			adapter, err := identity.NewAdapter(cfg, "", false)
+			if err != nil {
+				checks = append(checks, doctorCheck{Name: "iap-adapter", Group: "identity", Status: "fail", Detail: err.Error(), Remediation: "fix iap.type/mode or install a quickd build with the requested provider"})
+			} else {
+				checks = append(checks, doctorCheck{Name: "iap-adapter", Group: "identity", Status: "ok", Detail: adapter.Name(), Remediation: ""})
+			}
 		}
 		if cfg.PublicBaseDomain == "" && cfg.BaseURL == "" {
 			checks = append(checks, doctorCheck{Name: "domain", Group: "edge/iap", Status: "warn", Detail: "no public_base_domain or base_url configured", Remediation: "configure a domain/base_url or deploy with --allow-unpublished"})
@@ -1108,22 +1112,21 @@ func serveCmd(args []string) error {
 	if dev {
 		_, _ = st.EnsureSite(context.Background(), devSite, devSite)
 	}
-	adapter, err := identity.NewAdapter(cfg, devIdentity, allowPublicUnsafe)
+	binding, err := openServeBinding(cfg, devIdentity, allowPublicUnsafe)
 	if err != nil {
 		return err
 	}
+	if binding.Close != nil {
+		defer func() { _ = binding.Close() }()
+	}
 	apiHandler := api.New(cfg, st)
-	staticHandler := static.New(cfg, st, adapter, apiHandler)
+	staticHandler := static.New(cfg, st, binding.Adapter, apiHandler)
 	staticHandler.DevDir = devDir
 	staticHandler.DevSite = devSite
 	staticHandler.RemoteAPI = remoteAPI
 	staticHandler.RemoteAPIToken = remoteAPIToken
-	ln, err := net.Listen("tcp", cfg.Listen)
-	if err != nil {
-		return listenError(cfg.Listen, err)
-	}
-	log.Printf("quickd listening on %s", cfg.Listen)
-	return http.Serve(ln, staticHandler)
+	log.Printf("quickd listening on %s", binding.Addr)
+	return http.Serve(binding.Listener, staticHandler)
 }
 
 func listenError(addr string, err error) error {

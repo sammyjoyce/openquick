@@ -109,7 +109,8 @@ static bool serve_iap_is_tailscale(const char *iap) {
   return iap &&
          (strcmp(iap, "tailscale") == 0 ||
           strcmp(iap, "tailscale-localapi") == 0 ||
-          strcmp(iap, "tailscale-serve") == 0);
+          strcmp(iap, "tailscale-serve") == 0 ||
+          strcmp(iap, "tailscale-tsnet") == 0);
 }
 
 static bool serve_iap_is_cloudflare(const char *iap) {
@@ -127,6 +128,7 @@ static const char *serve_default_iap_mode(const char *iap) {
   if (!iap || strcmp(iap, "none") == 0) return "";
   if (serve_iap_is_cloudflare(iap)) return "access";
   if (strcmp(iap, "tailscale-serve") == 0) return "serve";
+  if (strcmp(iap, "tailscale-tsnet") == 0) return "tsnet";
   if (serve_iap_is_tailscale(iap)) return "localapi";
   return "";
 }
@@ -155,7 +157,7 @@ static app_error serve_validate_install_inputs(const app_config_t *config,
   }
   if (!serve_iap_is_allowed(iap)) {
     quick_print_error(config,
-                      "iap must be tailscale, tailscale-localapi, tailscale-serve, cloudflare, cloudflare-access, or none");
+                      "iap must be tailscale, tailscale-localapi, tailscale-serve, tailscale-tsnet, cloudflare, cloudflare-access, or none");
     return APP_ERROR_VALIDATION;
   }
   return APP_SUCCESS;
@@ -810,7 +812,9 @@ static app_error serve_install(const app_config_t *config, int argc,
       .mode = (char *)serve_default_iap_mode(iap),
   };
   if (profile && !iap_arg) {
-    install_iap.mode = profile->iap.mode;
+    install_iap.mode = profile->iap.mode && profile->iap.mode[0] != '\0'
+                           ? profile->iap.mode
+                           : (char *)serve_default_iap_mode(iap);
     install_iap.team_domain = profile->iap.team_domain;
     install_iap.audience = profile->iap.audience;
   } else if (profile && serve_iap_is_cloudflare(iap) &&

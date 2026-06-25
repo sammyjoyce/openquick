@@ -71,6 +71,18 @@ Browser on tailnet -> tsnet listener in quickd
 
 `quickd` creates a `tsnet.Server`, accepts tailnet HTTP traffic, and identifies callers with Tailscale WhoIs. This avoids depending on the host `tailscaled` daemon for serving, but you must manage tsnet state and auth-key lifecycle. Pure `*.ts.net` wildcard caveats still apply; use path fallback or custom DNS for per-site subdomains.
 
+Example host IAP fragment:
+
+```json
+{
+  "iap": {
+    "type": "tailscale-tsnet"
+  }
+}
+```
+
+`quickd` must be built with the `tsnet` build tag for this mode. By default it stores tsnet state under `<data_dir>/tsnet`, listens on the configured port inside the tailnet, and lets Tailscale read `TS_AUTHKEY` when first authorizing. Systemd installs read `/etc/openquick/quickd.env` when present, so host installs can set `TS_AUTHKEY` there without storing the secret in `quickd.json`. If no reusable state or auth key is available, tsnet may print an interactive auth URL in the service logs.
+
 ## Funnel warning
 
 Tailscale Funnel exposes a service to the public internet. Funnel traffic does not carry tailnet user identity headers, so Funnel is not an OpenQuick identity boundary by itself.

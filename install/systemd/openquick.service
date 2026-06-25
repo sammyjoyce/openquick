@@ -9,6 +9,7 @@ Type=simple
 User=quick
 Group=quick-deploy
 WorkingDirectory=/srv/quick
+EnvironmentFile=-/etc/openquick/quickd.env
 ExecStart=/usr/local/bin/quickd serve --config /etc/openquick/quickd.json
 Restart=on-failure
 RestartSec=5s

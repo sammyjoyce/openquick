@@ -37,6 +37,15 @@ func TestDecodeStrictAndDefaults(t *testing.T) {
 	}
 }
 
+func TestTSNetDefaults(t *testing.T) {
+	cfg := Default("/tmp/q")
+	cfg.IAP.Type = "tailscale-tsnet"
+	cfg.ApplyDefaults()
+	if cfg.IAP.Mode != "tsnet" || cfg.IAP.TSNet.Hostname != "openquick" || cfg.IAP.TSNet.StateDir != "/tmp/q/data/tsnet" {
+		t.Fatalf("unexpected tsnet defaults: %+v", cfg.IAP)
+	}
+}
+
 func TestValidateServeRejectsPublicNone(t *testing.T) {
 	cfg := Default("/tmp/q")
 	cfg.Listen = "0.0.0.0:9366"
