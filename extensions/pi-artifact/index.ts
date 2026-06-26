@@ -181,8 +181,8 @@ function initialCodeFilesFromParams(params: ArtifactParams): ArtifactFileParam[]
   <main>
     <p class="eyebrow">OpenQuick artifact</p>
     <h1>Hello from Code Mode</h1>
-    <p>Edit the files on the left. The preview has the OpenQuick SDK available as <code>window.quick</code>.</p>
-    <pre id="identity">Loading identity…</pre>
+    <p>Edit the files on the left. The editor shell uses the OpenQuick SDK, while the preview runs in an isolated sandbox.</p>
+    <pre id="identity">Loading preview bridge…</pre>
   </main>
   <script type="module" src="script.js"></script>
 </body>
@@ -208,7 +208,7 @@ pre { white-space: pre-wrap; padding: 16px; border-radius: 16px; background: rgb
 const quick = window.quick;
 try {
   const me = quick ? await quick.identity.current() : null;
-  identityEl.textContent = me ? JSON.stringify(me, null, 2) : 'OpenQuick SDK bridge not found.';
+  identityEl.textContent = me ? JSON.stringify(me, null, 2) : 'Preview bridge not found.';
 } catch (error) {
   identityEl.textContent = error instanceof Error ? error.message : String(error);
 }`,
@@ -253,13 +253,13 @@ function codemodeHtml(params: ArtifactParams, codeFiles: ArtifactFileParam[]): s
 </head>
 <body>
   <header>
-    <div><strong>${escapeHtml(title)}</strong><div class="meta">OpenQuick Code Mode · SDK-backed identity + DB persistence</div></div>
+    <div><strong>${escapeHtml(title)}</strong><div class="meta">OpenQuick Code Mode · SDK-backed editor · sandboxed preview</div></div>
     <div><span id="status">Loading…</span> <button id="save">Save to quick.db</button> <button class="primary" id="run">Run preview</button></div>
   </header>
   <div class="shell">
     <aside id="files"></aside>
-    <section class="editor"><div class="bar"><span id="current"></span><span>window.quick is injected into preview</span></div><textarea id="code" spellcheck="false"></textarea></section>
-    <section class="preview"><div class="bar"><span>Preview</span><span id="who"></span></div><iframe id="preview" sandbox="allow-scripts allow-same-origin allow-forms"></iframe></section>
+    <section class="editor"><div class="bar"><span id="current"></span><span>SDK credentials stay in the editor shell</span></div><textarea id="code" spellcheck="false"></textarea></section>
+    <section class="preview"><div class="bar"><span>Sandboxed preview</span><span id="who"></span></div><iframe id="preview" sandbox="allow-scripts"></iframe></section>
   </div>
   <script type="module">
     import { quick } from '/_quick/sdk.js';
@@ -290,15 +290,15 @@ function codemodeHtml(params: ArtifactParams, codeFiles: ArtifactFileParam[]): s
 
     function saveEditor() { if (active) files.set(active, code.value); }
     function loadEditor() { current.textContent = active; code.value = files.get(active) || ''; }
-    function sdkInjection() {
-      return '<script type="module">import { quick } from "/_quick/sdk.js"; window.quick = quick; window.dispatchEvent(new CustomEvent("openquick:sdk-ready", { detail: { quick } }));<' + '/script>';
+    function previewBridgeScript() {
+      return '<script>window.quick = Object.freeze({ identity: { current: async () => ({ authenticated: false, provider: "preview-sandbox", note: "OpenQuick SDK credentials are available only to the parent Code Mode editor." }) }, db: { collection: () => { throw new Error("quick.db is disabled inside the sandboxed preview. Use the Code Mode save button to persist files."); } } }); window.dispatchEvent(new CustomEvent("openquick:sdk-ready", { detail: { quick: window.quick, sandboxed: true } }));<' + '/script>';
     }
     function renderPreview() {
       saveEditor();
       let html = files.get('index.html') || '<!doctype html><h1>No index.html</h1>';
-      if (!html.includes('/_quick/sdk.js')) {
-        if (/<\\/head\\s*>/i.test(html)) html = html.replace(/<\\/head\\s*>/i, sdkInjection() + '\\n</head>');
-        else html = sdkInjection() + '\\n' + html;
+      if (!html.includes('openquick:sdk-ready')) {
+        if (/<\\/head\\s*>/i.test(html)) html = html.replace(/<\\/head\\s*>/i, previewBridgeScript() + '\\n</head>');
+        else html = previewBridgeScript() + '\\n' + html;
       }
       const css = files.get('style.css');
       if (css && !html.includes('data-codemode-style')) {
@@ -307,8 +307,7 @@ function codemodeHtml(params: ArtifactParams, codeFiles: ArtifactFileParam[]): s
       }
       const js = files.get('script.js');
       if (js && !html.includes('data-codemode-script')) {
-        const prelude = 'import { quick } from "/_quick/sdk.js"; window.quick = quick; window.dispatchEvent(new CustomEvent("openquick:sdk-ready", { detail: { quick } }));\\n';
-        const script = '<script type="module" data-codemode-script>' + prelude + String(js).replace(/<\\/script/gi, '<\\\\/script') + '<' + '/script>';
+        const script = '<script type="module" data-codemode-script>' + String(js).replace(/<\\/script/gi, '<\\\\/script') + '<' + '/script>';
         html = /<\\/body\\s*>/i.test(html) ? html.replace(/<\\/body\\s*>/i, script + '\\n</body>') : html + script;
       }
       preview.srcdoc = html;
@@ -457,11 +456,11 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "artifact",
 		label: "Artifact",
-		description: `Create or update a static web artifact and publish it with OpenQuick using quick deploy --profile ${PROFILE}. Supports static mode plus SDK-backed codemode (an in-browser editor/live preview using /_quick/sdk.js and quick.db). Writes files to ${ARTIFACT_ROOT}, deploys them to https://<site>.sammy.sh, and returns the URL. Output is truncated to ${MAX_OUTPUT_LINES} lines or ${MAX_OUTPUT_LABEL}.`,
+		description: `Create or update a static web artifact and publish it with OpenQuick using quick deploy --profile ${PROFILE}. Supports static mode plus SDK-backed codemode (an in-browser editor with sandboxed live preview, using /_quick/sdk.js and quick.db in the editor shell). Writes files to ${ARTIFACT_ROOT}, deploys them to https://<site>.sammy.sh, and returns the URL. Output is truncated to ${MAX_OUTPUT_LINES} lines or ${MAX_OUTPUT_LABEL}.`,
 		promptSnippet: `Create and publish static HTML/CSS/JS artifacts with OpenQuick (quick deploy --profile ${PROFILE}). Use mode='codemode' for an SDK-backed code editor/live-preview artifact.`,
 		promptGuidelines: [
 			"Use artifact when the user asks for a previewable web artifact, static demo, mockup, or shareable HTML/CSS/JS page.",
-			"Set mode='codemode' when the user wants code-mode/code-playground behavior: editable files, live preview, OpenQuick SDK identity, and quick.db persistence.",
+			"Set mode='codemode' when the user wants code-mode/code-playground behavior: editable files, sandboxed live preview, OpenQuick SDK identity, and quick.db persistence in the editor shell.",
 			"For static artifacts that need OpenQuick APIs, set sdk=true so the page imports /_quick/sdk.js and exposes window.quick.",
 			"artifact deploys to the OpenQuick cf profile with quick deploy --profile cf; return the resulting URL to the user.",
 			"artifact is for static files only. Do not use artifact for custom servers, secrets, environment variables, or backend code.",

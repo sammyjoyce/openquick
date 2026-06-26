@@ -65,9 +65,9 @@ If a static artifact needs the OpenQuick browser SDK, pass `sdk: true`. The exte
 
 Pass `mode: "codemode"` for a pi.dev-artifact-style code playground. The deployed page is an in-browser file editor + live preview that:
 
-- imports the OpenQuick SDK from `/_quick/sdk.js`,
-- exposes `window.quick` inside the preview iframe,
-- shows the authenticated Cloudflare/OpenQuick identity,
+- imports the OpenQuick SDK from `/_quick/sdk.js` in the editor shell,
+- keeps SDK credentials out of the sandboxed preview iframe,
+- shows the authenticated Cloudflare/OpenQuick identity in the editor chrome,
 - persists edited files in `quick.db.collection('codemode_files')`, and
 - lets the user save with the button or `Cmd/Ctrl+S`.
 
@@ -80,7 +80,7 @@ With no files, it creates a starter `index.html`, `style.css`, and `script.js`:
 }
 ```
 
-With files, those files become the editable starter bundle inside Code Mode:
+With files, those files become the editable starter bundle inside Code Mode. The preview runs with `sandbox="allow-scripts"` and receives only a non-credential `window.quick` stub; use static mode with `sdk: true` when the final artifact itself should call OpenQuick APIs.
 
 ```json
 {
