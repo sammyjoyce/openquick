@@ -37,6 +37,15 @@ func TestDecodeStrictAndDefaults(t *testing.T) {
 	}
 }
 
+func TestTSNetDefaults(t *testing.T) {
+	cfg := Default("/tmp/q")
+	cfg.IAP.Type = "tailscale-tsnet"
+	cfg.ApplyDefaults()
+	if cfg.IAP.Mode != "tsnet" || cfg.IAP.TSNet.Hostname != "openquick" || cfg.IAP.TSNet.StateDir != "/tmp/q/data/tsnet" {
+		t.Fatalf("unexpected tsnet defaults: %+v", cfg.IAP)
+	}
+}
+
 func TestValidateServeRejectsPublicNone(t *testing.T) {
 	cfg := Default("/tmp/q")
 	cfg.Listen = "0.0.0.0:9366"
@@ -46,5 +55,43 @@ func TestValidateServeRejectsPublicNone(t *testing.T) {
 	}
 	if err := cfg.ValidateServe(true); err != nil {
 		t.Fatalf("allow public unsafe should pass: %v", err)
+	}
+}
+
+func TestCloudflareIAPRequiresAccessFields(t *testing.T) {
+	for _, iapType := range []string{"cloudflare", "cloudflare-access"} {
+		t.Run(iapType, func(t *testing.T) {
+			cfg := Default("/tmp/q")
+			cfg.IAP.Type = iapType
+			if err := cfg.ValidateServe(false); err == nil {
+				t.Fatalf("expected missing cloudflare fields to fail closed")
+			}
+			cfg.IAP.TeamDomain = "https://team.cloudflareaccess.com/"
+			cfg.IAP.Audience = "aud1"
+			cfg.ApplyDefaults()
+			if cfg.IAP.JWKSURL != "https://team.cloudflareaccess.com/cdn-cgi/access/certs" {
+				t.Fatalf("unexpected jwks default: %q", cfg.IAP.JWKSURL)
+			}
+			if err := cfg.ValidateServe(false); err != nil {
+				t.Fatalf("complete cloudflare config should pass: %v", err)
+			}
+		})
+	}
+}
+
+func TestCloudflareTeamDomainDefaultsScheme(t *testing.T) {
+	cfg := Default("/tmp/q")
+	cfg.IAP.Type = "cloudflare"
+	cfg.IAP.TeamDomain = "team.cloudflareaccess.com/"
+	cfg.IAP.Audience = "aud1"
+	cfg.ApplyDefaults()
+	if cfg.IAP.TeamDomain != "https://team.cloudflareaccess.com" {
+		t.Fatalf("unexpected normalized team_domain: %q", cfg.IAP.TeamDomain)
+	}
+	if cfg.IAP.JWKSURL != "https://team.cloudflareaccess.com/cdn-cgi/access/certs" {
+		t.Fatalf("unexpected jwks_url: %q", cfg.IAP.JWKSURL)
+	}
+	if err := cfg.ValidateServe(false); err != nil {
+		t.Fatalf("scheme-defaulted cloudflare config should pass: %v", err)
 	}
 }

@@ -34,6 +34,11 @@ RUN apt-get update \
     && ln -sf "/usr/lib/${multiarch}/libncursesw.so.6" /usr/lib/libncursesw.so.6 \
     && ln -sf "/usr/lib/${multiarch}/libtinfo.so" /usr/lib/libtinfo.so \
     && ln -sf "/usr/lib/${multiarch}/libtinfo.so.6" /usr/lib/libtinfo.so.6 \
+    && mkdir -p /opt/ncurses/lib /opt/ncurses/include \
+    && cp -L "/usr/lib/${multiarch}/libncursesw.so.6" /opt/ncurses/lib/libncursesw.so.6 \
+    && cp -L "/usr/lib/${multiarch}/libtinfo.so.6" /opt/ncurses/lib/libtinfo.so.6 \
+    && ln -sf libncursesw.so.6 /opt/ncurses/lib/libncursesw.so \
+    && ln -sf libtinfo.so.6 /opt/ncurses/lib/libtinfo.so \
     && rm -rf /var/lib/apt/lists/*
 RUN set -eux; \
     case "$TARGETARCH" in \
@@ -56,22 +61,23 @@ COPY src/ ./src/
 COPY registry/ ./registry/
 COPY tools/ ./tools/
 COPY test/ ./test/
-# libncurses-dev is installed, but Zig/lld does not reliably resolve Debian
-# bookworm's ncurses linker script transitive -ltinfo inside this slim image.
-# Build the CLI with the TUI and terminfo styling disabled so Linux container
-# builds remain deterministic; the smoke test still covers all non-interactive
-# CLI flows. PTY terminal scenarios are disabled because libghostty-vt is not
-# part of this image.
-RUN zig build -Doptimize=ReleaseSafe -Denable-tui=false -Dterminal-backend=none -Dcli-terminfo=disabled \
-    && if [ "$SKIP_TESTS" != "1" ]; then zig build test -Doptimize=ReleaseSafe -Denable-tui=false -Dterminal-backend=none -Dcli-terminfo=disabled; fi \
+# Debian bookworm's ncurses development package exposes libncursesw.so as a
+# linker script that refers to a transitive -ltinfo. Zig/lld does not resolve
+# that script reliably inside this slim image, so the build links through a
+# minimal /opt/ncurses prefix containing real shared libraries. Terminfo-based
+# CLI styling and PTY terminal scenarios remain disabled for deterministic
+# container builds because libghostty-vt is not part of this image.
+RUN zig build -Doptimize=ReleaseSafe -Denable-tui=true -Dterminal-backend=none -Dcli-terminfo=disabled -Dcurses-prefix=/opt/ncurses \
+    && if [ "$SKIP_TESTS" != "1" ]; then zig build test -Doptimize=ReleaseSafe -Denable-tui=true -Dterminal-backend=none -Dcli-terminfo=disabled -Dcurses-prefix=/opt/ncurses; fi \
     && cp zig-out/bin/quick /out-quick
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates rsync openssh-client curl zip \
+    && apt-get install -y --no-install-recommends ca-certificates rsync openssh-client curl zip libncursesw6 libtinfo6 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=server /out/quickd /usr/local/bin/quickd
 COPY --from=cli /out-quick /usr/local/bin/quick
+COPY install/ /usr/local/share/openquick/install/
 RUN mkdir -p /srv/quick /etc/openquick
 # quickd intentionally rejects unauthenticated/dev IAP on non-loopback listeners
 # unless --allow-public-unsafe is passed. The container smoke test publishes port

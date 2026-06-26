@@ -908,13 +908,20 @@ type doctorCheck struct {
 	Remediation string `json:"remediation"`
 }
 
-func checkWritableDir(dir string) error {
+func checkDir(dir string) error {
 	info, err := os.Stat(dir)
 	if err != nil {
 		return err
 	}
 	if !info.IsDir() {
 		return fmt.Errorf("%s is not a directory", dir)
+	}
+	return nil
+}
+
+func checkWritableDir(dir string) error {
+	if err := checkDir(dir); err != nil {
+		return err
 	}
 	probe := filepath.Join(dir, ".quickd-doctor-write-test")
 	if err := os.WriteFile(probe, []byte("ok"), 0o600); err != nil {
@@ -973,9 +980,9 @@ func doctorCmd(args []string) error {
 		cfg.ApplyDefaults()
 		checks = append(checks, doctorCheck{Name: "config", Group: "host", Status: "ok", Detail: cfg.RemoteRoot, Remediation: ""})
 		if err := checkWritableDir(cfg.RemoteRoot); err != nil {
-			checks = append(checks, doctorCheck{Name: "remote_root_writable", Group: "host", Status: "fail", Detail: err.Error(), Remediation: "create /srv/quick and make it writable by quick"})
+			checks = append(checks, doctorCheck{Name: "remote_root", Group: "host", Status: "fail", Detail: err.Error(), Remediation: "create /srv/quick and make it writable/searchable by quick and deployers"})
 		} else {
-			checks = append(checks, doctorCheck{Name: "remote_root_writable", Group: "host", Status: "ok", Detail: cfg.RemoteRoot, Remediation: ""})
+			checks = append(checks, doctorCheck{Name: "remote_root", Group: "host", Status: "ok", Detail: cfg.RemoteRoot, Remediation: ""})
 		}
 		st, err := store.Open(cfg.DataDir)
 		if err != nil {
@@ -992,6 +999,16 @@ func doctorCmd(args []string) error {
 			checks = append(checks, doctorCheck{Name: "iap-listen", Group: "identity", Status: "warn", Detail: err.Error(), Remediation: "bind to loopback or configure an IAP"})
 		} else {
 			checks = append(checks, doctorCheck{Name: "iap-listen", Group: "identity", Status: "ok", Detail: cfg.IAP.Type, Remediation: ""})
+		}
+		if cfg.IAPTSNetRequested() && tsnetServeSupported() {
+			checks = append(checks, doctorCheck{Name: "iap-adapter", Group: "identity", Status: "ok", Detail: "tailscale-tsnet", Remediation: ""})
+		} else {
+			adapter, err := identity.NewAdapter(cfg, "", false)
+			if err != nil {
+				checks = append(checks, doctorCheck{Name: "iap-adapter", Group: "identity", Status: "fail", Detail: err.Error(), Remediation: "fix iap.type/mode or install a quickd build with the requested provider"})
+			} else {
+				checks = append(checks, doctorCheck{Name: "iap-adapter", Group: "identity", Status: "ok", Detail: adapter.Name(), Remediation: ""})
+			}
 		}
 		if cfg.PublicBaseDomain == "" && cfg.BaseURL == "" {
 			checks = append(checks, doctorCheck{Name: "domain", Group: "edge/iap", Status: "warn", Detail: "no public_base_domain or base_url configured", Remediation: "configure a domain/base_url or deploy with --allow-unpublished"})
@@ -1095,22 +1112,21 @@ func serveCmd(args []string) error {
 	if dev {
 		_, _ = st.EnsureSite(context.Background(), devSite, devSite)
 	}
-	adapter, err := identity.NewAdapter(cfg, devIdentity, allowPublicUnsafe)
+	binding, err := openServeBinding(cfg, devIdentity, allowPublicUnsafe)
 	if err != nil {
 		return err
 	}
+	if binding.Close != nil {
+		defer func() { _ = binding.Close() }()
+	}
 	apiHandler := api.New(cfg, st)
-	staticHandler := static.New(cfg, st, adapter, apiHandler)
+	staticHandler := static.New(cfg, st, binding.Adapter, apiHandler)
 	staticHandler.DevDir = devDir
 	staticHandler.DevSite = devSite
 	staticHandler.RemoteAPI = remoteAPI
 	staticHandler.RemoteAPIToken = remoteAPIToken
-	ln, err := net.Listen("tcp", cfg.Listen)
-	if err != nil {
-		return listenError(cfg.Listen, err)
-	}
-	log.Printf("quickd listening on %s", cfg.Listen)
-	return http.Serve(ln, staticHandler)
+	log.Printf("quickd listening on %s", binding.Addr)
+	return http.Serve(binding.Listener, staticHandler)
 }
 
 func listenError(addr string, err error) error {

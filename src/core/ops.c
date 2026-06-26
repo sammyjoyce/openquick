@@ -3540,6 +3540,7 @@ app_error quick_op_serve_install_steps(
   quick_serve_install_steps_destroy(out);
   quick_serve_install_steps_init(out);
   static const char *const summaries[] = {
+      "connect over SSH and use sudo, systemd, and scp",
       "create quick user and quick-deploy group",
       "create /srv/quick-style dirs with documented permissions",
       "copy quickd to /usr/local/bin/quickd",

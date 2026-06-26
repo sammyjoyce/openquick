@@ -78,6 +78,25 @@ func TestAdminMintDevTokenStoresHashAndExpiry(t *testing.T) {
 	}
 }
 
+func TestTSNetListenAddrUsesConfiguredPort(t *testing.T) {
+	t.Parallel()
+	tests := map[string]string{
+		"127.0.0.1:9366": ":9366",
+		":9443":          ":9443",
+		"9367":           ":9367",
+		"[::1]:9368":     ":9368",
+	}
+	for in, want := range tests {
+		got, err := tsnetListenAddr(in)
+		if err != nil || got != want {
+			t.Fatalf("tsnetListenAddr(%q)=%q,%v want %q,nil", in, got, err, want)
+		}
+	}
+	if _, err := tsnetListenAddr("localhost"); err == nil {
+		t.Fatalf("expected missing-port error")
+	}
+}
+
 func TestServeRemoteAPIValidation(t *testing.T) {
 	if err := serveCmd([]string{"--remote-api", "https://example.com", "--remote-api-token", "tok"}); err == nil || !strings.Contains(err.Error(), "--dev") {
 		t.Fatalf("remote without dev err=%v", err)
@@ -113,6 +132,44 @@ func TestConfigCheckAndExplain(t *testing.T) {
 	})
 	if !strings.Contains(out, `"defaults"`) || !strings.Contains(out, "secret values") {
 		t.Fatalf("unexpected config explain output: %s", out)
+	}
+}
+
+func TestDoctorFailsIncompleteCloudflareIAP(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "config"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	configJSON := `{"listen":"127.0.0.1:9876","remote_root":"` + root + `","iap":{"type":"cloudflare"},"viewer":{"allow_anonymous":false}}`
+	if err := os.WriteFile(filepath.Join(root, "config", "quickd.json"), []byte(configJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out := captureStdout(t, func() {
+		if err := doctorCmd([]string{"--root", root, "--json"}); err != nil {
+			t.Fatalf("doctor: %v", err)
+		}
+	})
+	var res struct {
+		OK     bool          `json:"ok"`
+		Checks []doctorCheck `json:"checks"`
+	}
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("decode doctor output: %v\n%s", err, out)
+	}
+	if res.OK {
+		t.Fatalf("doctor reported ok for incomplete cloudflare IAP: %s", out)
+	}
+	found := false
+	for _, check := range res.Checks {
+		if check.Name == "iap-adapter" {
+			found = true
+			if check.Status != "fail" || !strings.Contains(check.Detail, "cloudflare") {
+				t.Fatalf("unexpected iap-adapter check: %+v", check)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("doctor output missing iap-adapter check: %s", out)
 	}
 }
 
