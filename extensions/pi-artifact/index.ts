@@ -330,12 +330,15 @@ function codemodeHtml(params: ArtifactParams, codeFiles: ArtifactFileParam[]): s
       saveEditor();
       setStatus('Saving…');
       try {
-        for (const [path, content] of files) {
-          const existing = await docs.list({ filter: { path }, limit: 1 });
-          const patch = { path, content, updatedAt: new Date().toISOString() };
-          if (existing[0] && existing[0].id) await docs.update(existing[0].id, patch);
+        const existing = await docs.list({ limit: 100 });
+        const existingIds = new Map(existing.filter((record) => typeof record.path === 'string' && record.id).map((record) => [record.path, record.id]));
+        const updatedAt = new Date().toISOString();
+        await Promise.all([...files].map(async ([path, content]) => {
+          const patch = { path, content, updatedAt };
+          const id = existingIds.get(path);
+          if (id) await docs.update(id, patch);
           else await docs.create(patch);
-        }
+        }));
         setStatus('Saved to quick.db', 'ok');
       } catch (error) {
         setStatus('Save failed: ' + (error instanceof Error ? error.message : String(error)), 'warn');
@@ -391,8 +394,9 @@ function filesFromParams(params: ArtifactParams): ArtifactFileParam[] {
 function deriveSite(params: ArtifactParams, files: ArtifactFileParam[]): string {
 	if (params.site) return validateSiteSlug(params.site);
 	const title = slugify(params.title ?? (params.mode === "codemode" ? "codemode" : "artifact")).slice(0, 34).replace(/-+$/g, "") || "artifact";
+	const sortedFiles = [...files].sort((a, b) => a.path.localeCompare(b.path));
 	const hash = createHash("sha256")
-		.update(JSON.stringify(files.map((file) => [file.path, file.content])))
+		.update(JSON.stringify(sortedFiles.map((file) => [file.path, file.content])))
 		.digest("hex")
 		.slice(0, 10);
 	return validateSiteSlug(`artifact-${title}-${hash}`.slice(0, 63).replace(/-+$/g, ""));
