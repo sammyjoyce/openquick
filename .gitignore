@@ -24,7 +24,12 @@ node_modules/
 # Local agent/session state
 .agents/
 .flue/
-.pi/
+.pi/*
+!.pi/extensions/
+.pi/extensions/*
+!.pi/extensions/openquick-artifact/
+.pi/extensions/openquick-artifact/*
+!.pi/extensions/openquick-artifact/index.ts
 TASK.md
 .claude/worktrees/
 
