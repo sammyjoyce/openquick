@@ -24,7 +24,9 @@ node_modules/
 # Local agent/session state
 .agents/
 .flue/
-.pi/
+.pi/*
+!.pi/extensions/
+!.pi/extensions/**
 TASK.md
 .claude/worktrees/
 
