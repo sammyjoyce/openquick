@@ -1,12 +1,14 @@
 # Pi Artifact extension for OpenQuick
 
-This Pi extension registers an `artifact` tool. The tool writes artifact files to `.pi/openquick-artifacts/<site>/` and publishes them with:
+This Pi extension registers an `artifact` tool. The tool writes artifact files to
+`.pi/openquick-artifacts/<site>/` and publishes them with:
 
 ```bash
 quick deploy <artifact-dir> --site <site> --profile cf --no-build --yes --json
 ```
 
-The resulting artifact is served by the Cloudflare Access-protected OpenQuick host at:
+The resulting artifact is served by the Cloudflare Access-protected OpenQuick
+host at:
 
 ```text
 https://<site>.sammy.sh
@@ -51,7 +53,9 @@ or:
 }
 ```
 
-If a static artifact needs the OpenQuick browser SDK, pass `sdk: true`. The extension injects a small bridge that imports `/_quick/sdk.js`, exposes `window.quick`, and dispatches `openquick:sdk-ready`:
+If a static artifact needs the OpenQuick browser SDK, pass `sdk: true`. The
+extension injects a small bridge that imports `/_quick/sdk.js`, exposes
+`window.quick`, and dispatches `openquick:sdk-ready`:
 
 ```json
 {
@@ -63,7 +67,8 @@ If a static artifact needs the OpenQuick browser SDK, pass `sdk: true`. The exte
 
 ### Code Mode artifact
 
-Pass `mode: "codemode"` for a pi.dev-artifact-style code playground. The deployed page is an in-browser file editor + live preview that:
+Pass `mode: "codemode"` for a pi.dev-artifact-style code playground. The deployed
+page is an in-browser file editor + live preview that:
 
 - imports the OpenQuick SDK from `/_quick/sdk.js` in the editor shell,
 - keeps SDK credentials out of the sandboxed preview iframe,
@@ -71,7 +76,8 @@ Pass `mode: "codemode"` for a pi.dev-artifact-style code playground. The deploye
 - persists edited files in `quick.db.collection('codemode_files')`, and
 - lets the user save with the button or `Cmd/Ctrl+S`.
 
-With no files, it creates a starter `index.html`, `style.css`, and `script.js`:
+With no files, it creates a starter `index.html`, `style.css`, and
+`script.js`:
 
 ```json
 {
@@ -80,7 +86,10 @@ With no files, it creates a starter `index.html`, `style.css`, and `script.js`:
 }
 ```
 
-With files, those files become the editable starter bundle inside Code Mode. The preview runs with `sandbox="allow-scripts"` and receives only a non-credential `window.quick` stub; use static mode with `sdk: true` when the final artifact itself should call OpenQuick APIs.
+With files, those files become the editable starter bundle inside Code Mode. The
+preview runs with `sandbox="allow-scripts"` and receives only a non-credential
+`window.quick` stub; use static mode with `sdk: true` when the final artifact
+itself should call OpenQuick APIs.
 
 ```json
 {
@@ -95,6 +104,9 @@ With files, those files become the editable starter bundle inside Code Mode. The
 
 ## Slugs and safety
 
-If `site` is omitted, the extension derives a deterministic slug from the title and content hash. Absolute paths, `..`, `.env*`, `.git`, `.quick`, `.ssh`, and `node_modules` are rejected before writing files.
+If `site` is omitted, the extension derives a deterministic slug from the title
+and content hash. Absolute paths, `..`, `.env*`, `.git`, `.quick`, `.ssh`, and
+`node_modules` are rejected before writing files.
 
-Because deployment uses `--yes`, an explicit existing `site` slug can overwrite that OpenQuick site non-interactively.
+Because deployment uses `--yes`, an explicit existing `site` slug can overwrite
+that OpenQuick site non-interactively.
