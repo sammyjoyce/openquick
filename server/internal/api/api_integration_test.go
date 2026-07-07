@@ -170,6 +170,39 @@ func TestDocumentCRUDAndSiteIsolation(t *testing.T) {
 	}
 }
 
+func TestDocumentWildcardPreconditionRejected(t *testing.T) {
+	app := newApp(t, 1024)
+	rr := doReq(app.h, http.MethodPost, "a.localhost:9366", "/_quick/db/posts", []byte(`{"title":"hello"}`))
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var created map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	id := created["id"].(string)
+	for _, tc := range []struct {
+		method string
+		body   string
+	}{
+		{method: http.MethodPut, body: `{"title":"put"}`},
+		{method: http.MethodPatch, body: `{"title":"patch"}`},
+		{method: http.MethodDelete},
+	} {
+		req := httptest.NewRequest(tc.method, "http://a.localhost:9366/_quick/db/posts/"+id, strings.NewReader(tc.body))
+		req.RemoteAddr = "127.0.0.1:1"
+		req.Header.Set("If-Match", "*")
+		if tc.body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		rr = httptest.NewRecorder()
+		app.h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "wildcard revision precondition") {
+			t.Fatalf("%s wildcard status=%d body=%s", tc.method, rr.Code, rr.Body.String())
+		}
+	}
+}
+
 func TestDocumentFilterAndSortQueries(t *testing.T) {
 	app := newApp(t, 1024)
 	for _, body := range []string{

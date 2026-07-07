@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -21,6 +22,9 @@ import (
 type Store struct {
 	DB  *sql.DB
 	DSN string
+
+	readOnlyMu sync.Mutex
+	readOnlyDB *sql.DB
 }
 
 type SiteRecord struct {
@@ -141,10 +145,55 @@ func OpenMemory() (*Store, error) {
 }
 
 func (s *Store) Close() error {
-	if s == nil || s.DB == nil {
+	if s == nil {
 		return nil
 	}
-	return s.DB.Close()
+	var err error
+	s.readOnlyMu.Lock()
+	if s.readOnlyDB != nil {
+		err = s.readOnlyDB.Close()
+	}
+	s.readOnlyMu.Unlock()
+	if s.DB != nil {
+		if dbErr := s.DB.Close(); err == nil {
+			err = dbErr
+		}
+	}
+	return err
+}
+
+func (s *Store) ReadOnlyDB(ctx context.Context) (*sql.DB, error) {
+	if s == nil || s.DSN == "" {
+		return nil, errors.New("store unavailable")
+	}
+	s.readOnlyMu.Lock()
+	defer s.readOnlyMu.Unlock()
+	if s.readOnlyDB != nil {
+		return s.readOnlyDB, nil
+	}
+	db, err := sql.Open("sqlite", readOnlyDSN(s.DSN))
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	if _, err := db.ExecContext(ctx, `PRAGMA query_only=ON`); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if _, err := db.ExecContext(ctx, `PRAGMA busy_timeout=5000`); err != nil {
+		db.Close()
+		return nil, err
+	}
+	s.readOnlyDB = db
+	return db, nil
+}
+
+func readOnlyDSN(dsn string) string {
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	return dsn + sep + "_pragma=query_only(1)&_pragma=busy_timeout(5000)"
 }
 
 func (s *Store) init() error {

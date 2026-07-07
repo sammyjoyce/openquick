@@ -49,7 +49,7 @@ export interface DbListOptions extends RequestOptions {
   limit?: number;
   cursor?: string;
   filter?: Record<string, unknown> | string;
-  sort?: string | string[];
+  sort?: string;
 }
 
 export interface ListResult<T = DocumentRecord> extends Array<T> {
@@ -392,7 +392,7 @@ function dbListPath(base: string, options: DbListOptions): string {
     params.set('filter', typeof options.filter === 'string' ? options.filter : JSON.stringify(options.filter));
   }
   if (options.sort !== undefined) {
-    params.set('sort', Array.isArray(options.sort) ? options.sort.join(',') : options.sort);
+    params.set('sort', options.sort);
   }
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;

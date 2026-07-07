@@ -24,7 +24,7 @@ type DbListOptions = RequestOptions & {
   limit?: number;
   cursor?: string;
   filter?: Record<string, unknown> | string;
-  sort?: string | string[];
+  sort?: string;
 };
 type UploadListOptions = RequestOptions & { limit?: number; cursor?: string };
 
@@ -106,12 +106,13 @@ const created = await posts.create({
 
 const post = await posts.get(created.id);
 const published = await posts.update(created.id, { status: 'published' }, { revision: created.revision }); // PATCH semantics + If-Match
-const page = await posts.list({
+const listOptions = {
   limit: 25,
   filter: { status: 'published' },
-  sort: ['-updated_at', 'id'],
-});
-const nextPage = page.nextCursor ? await posts.list({ limit: 25, cursor: page.nextCursor }) : [];
+  sort: '-updated_at',
+};
+const page = await posts.list(listOptions);
+const nextPage = page.nextCursor ? await posts.list({ ...listOptions, cursor: page.nextCursor }) : [];
 await posts.remove(created.id, { revision: published.revision });
 ```
 
@@ -126,7 +127,7 @@ DELETE /_quick/db/:collection/:id        # optional If-Match: <revision>
 ```
 
 `list()` accepts `limit`, `cursor`, `filter`, and `sort`.
-Object filters are JSON-encoded; sort arrays are sent as a comma-separated list.
+Object filters are JSON-encoded; sort is a single key (`created_at`, `updated_at`, or `id`) with optional leading `-` for descending order.
 Results are arrays with `documents`, `next_cursor`, and `nextCursor` aliases for pagination metadata.
 
 `update()` and `remove()` accept `{ revision }` to make writes conditional. The SDK sends the value as `If-Match`; stale revisions fail with `OpenQuickError` status `409` and code `revision_mismatch`.

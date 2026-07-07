@@ -74,12 +74,13 @@ type DeleteResult struct {
 }
 
 type RestoreResult struct {
-	FormatVersion string `json:"format_version"`
-	Site          string `json:"site"`
-	Archive       string `json:"archive"`
-	Release       string `json:"release,omitempty"`
-	URL           string `json:"url,omitempty"`
-	Restored      bool   `json:"restored"`
+	FormatVersion  string `json:"format_version"`
+	Site           string `json:"site"`
+	Archive        string `json:"archive"`
+	Release        string `json:"release,omitempty"`
+	URL            string `json:"url,omitempty"`
+	Restored       bool   `json:"restored"`
+	CleanupWarning string `json:"cleanup_warning,omitempty"`
 }
 
 type PurgeResult struct {
@@ -163,6 +164,8 @@ type deployMetadata struct {
 	LastRelease    *string `json:"last_release"`
 	LastDeployedAt *string `json:"last_deployed_at"`
 }
+
+const deleteArchiveTimestampLayout = "20060102T150405.000000000Z"
 
 func New(cfg config.Config, st *store.Store) *Service {
 	cfg.ApplyDefaults()
@@ -352,7 +355,7 @@ func (s *Service) DeleteSite(ctx context.Context, site string) (*DeleteResult, e
 		return nil, err
 	}
 	if deleted {
-		archive = filepath.Join(s.Config.RemoteRoot, ".trash", "sites", fmt.Sprintf("%s-%s", site, time.Now().UTC().Format("20060102T150405.000000000Z")))
+		archive = filepath.Join(s.Config.RemoteRoot, ".trash", "sites", fmt.Sprintf("%s-%s", site, time.Now().UTC().Format(deleteArchiveTimestampLayout)))
 		if err := os.MkdirAll(archive, 0o770); err != nil {
 			return nil, err
 		}
@@ -388,8 +391,11 @@ func (s *Service) RestoreSite(ctx context.Context, site, archive string) (*Resto
 	if archive == "" {
 		return nil, fmt.Errorf("archive path is required")
 	}
-	trashRoot := filepath.Join(s.Config.RemoteRoot, ".trash")
-	if err := ensurePathUnder(trashRoot, archive); err != nil {
+	archiveRoot := filepath.Join(s.Config.RemoteRoot, ".trash", "sites")
+	if err := ensureDirectChildUnder(archiveRoot, archive); err != nil {
+		return nil, err
+	}
+	if err := validateRestoreArchiveName(site, archive); err != nil {
 		return nil, err
 	}
 	archivedSite := filepath.Join(archive, "site")
@@ -467,8 +473,11 @@ func (s *Service) RestoreSite(ctx context.Context, site, archive string) (*Resto
 			return nil, rollback(err)
 		}
 	}
-	_ = os.Remove(archive)
-	return &RestoreResult{FormatVersion: "1.0", Site: site, Archive: archive, Release: release, URL: sites.URLForSubdomain(site, subdomain, s.Config), Restored: true}, nil
+	out := &RestoreResult{FormatVersion: "1.0", Site: site, Archive: archive, Release: release, URL: sites.URLForSubdomain(site, subdomain, s.Config), Restored: true}
+	if err := os.RemoveAll(archive); err != nil {
+		out.CleanupWarning = fmt.Sprintf("failed to remove archive %s: %v", archive, err)
+	}
+	return out, nil
 }
 
 func (s *Service) PurgeArchive(ctx context.Context, archive string) (*PurgeResult, error) {
@@ -512,6 +521,11 @@ func (s *Service) Rollback(ctx context.Context, site string, opts RollbackOption
 		return nil, err
 	}
 	siteDir := sites.SiteDir(s.Config.RemoteRoot, site)
+	if info, err := os.Stat(siteDir); err != nil {
+		return nil, fmt.Errorf("site %s unavailable: %w", site, err)
+	} else if !info.IsDir() {
+		return nil, fmt.Errorf("site %s is not a directory", site)
+	}
 	var out *RollbackResult
 	err := withLock(filepath.Join(siteDir, "deploy.lock"), func() error {
 		currentTarget, err := os.Readlink(filepath.Join(siteDir, "current"))
@@ -824,6 +838,47 @@ func ensureDirectChildUnder(root, p string) error {
 		return fmt.Errorf("path %s is not a direct archive path", p)
 	}
 	return nil
+}
+
+func validateRestoreArchiveName(site, archive string) error {
+	name := filepath.Base(archive)
+	prefix := site + "-"
+	if !strings.HasPrefix(name, prefix) || !restoreArchiveTimestampIsSafe(name[len(prefix):]) {
+		return fmt.Errorf("archive %s does not match delete archive name pattern for site %s", archive, site)
+	}
+	return nil
+}
+
+func restoreArchiveTimestampIsSafe(value string) bool {
+	if len(value) != len(deleteArchiveTimestampLayout) {
+		return false
+	}
+	for i := 0; i < 8; i++ {
+		if !asciiDigit(value[i]) {
+			return false
+		}
+	}
+	if value[8] != 'T' {
+		return false
+	}
+	for i := 9; i < 15; i++ {
+		if !asciiDigit(value[i]) {
+			return false
+		}
+	}
+	if value[15] != '.' {
+		return false
+	}
+	for i := 16; i < 25; i++ {
+		if !asciiDigit(value[i]) {
+			return false
+		}
+	}
+	return value[25] == 'Z'
+}
+
+func asciiDigit(ch byte) bool {
+	return ch >= '0' && ch <= '9'
 }
 
 func validateEntrypoint(root string, cfg sites.SiteConfig) error {

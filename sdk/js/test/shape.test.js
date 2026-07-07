@@ -58,11 +58,11 @@ test('db.list unwraps the quickd documents envelope and data nesting', async () 
     });
   };
   try {
-    const docs = await quick.db.collection('notes').list({ limit: 1, cursor: 'cursor-1', filter: { tag: 'work' }, sort: ['created_at', 'id'] });
+    const docs = await quick.db.collection('notes').list({ limit: 1, cursor: 'cursor-1', filter: { tag: 'work' }, sort: '-updated_at' });
     assert.equal(requestedPath.includes('limit=1'), true);
     assert.equal(requestedPath.includes('cursor=cursor-1'), true);
     assert.equal(requestedPath.includes('filter='), true);
-    assert.equal(requestedPath.includes('sort=created_at%2Cid'), true);
+    assert.equal(requestedPath.includes('sort=-updated_at'), true);
     assert.equal(docs.length, 1);
     assert.notEqual(docs.documents, docs);
     assert.deepEqual(docs.documents, [...docs]);
@@ -157,7 +157,7 @@ test('stale DB revision preconditions throw typed revision_mismatch errors', asy
   let ifMatch = '';
   globalThis.fetch = async (_path, init = {}) => {
     ifMatch = new Headers(init.headers).get('if-match') || '';
-    return new Response(JSON.stringify({ error: 'stale revision', code: 'revision_mismatch', revision: 'server-rev' }), {
+    return new Response(JSON.stringify({ error: 'stale revision', code: 'revision_mismatch', current_revision: 'server-rev' }), {
       status: 409,
       headers: { 'content-type': 'application/json' },
     });
@@ -169,7 +169,7 @@ test('stale DB revision preconditions throw typed revision_mismatch errors', asy
         assert.equal(error instanceof OpenQuickError, true);
         assert.equal(error.status, 409);
         assert.equal(error.code, 'revision_mismatch');
-        assert.equal(error.details.revision, 'server-rev');
+        assert.equal(error.details.current_revision, 'server-rev');
         return true;
       },
     );

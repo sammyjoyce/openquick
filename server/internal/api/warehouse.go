@@ -126,7 +126,6 @@ func (s *Server) warehouseColumns(r *http.Request, q config.WarehouseQueryConfig
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
 	rows, err := db.QueryContext(r.Context(), "SELECT * FROM ("+sqlText+") LIMIT 0", args...)
 	if err != nil {
 		return nil, err
@@ -236,23 +235,10 @@ func asFloat64(v any) (float64, error) {
 }
 
 func (s *Server) openWarehouseReadOnlyDB(ctx context.Context) (*sql.DB, error) {
-	if s.Store == nil || s.Store.DSN == "" {
+	if s.Store == nil {
 		return nil, errors.New("store unavailable")
 	}
-	db, err := sql.Open("sqlite", s.Store.DSN)
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	if _, err := db.ExecContext(ctx, `PRAGMA query_only=ON`); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if _, err := db.ExecContext(ctx, `PRAGMA busy_timeout=5000`); err != nil {
-		db.Close()
-		return nil, err
-	}
-	return db, nil
+	return s.Store.ReadOnlyDB(ctx)
 }
 
 func (s *Server) runWarehouseQuery(r *http.Request, query config.WarehouseQueryConfig, args []any) (warehouseResult, error) {
@@ -264,7 +250,6 @@ func (s *Server) runWarehouseQuery(r *http.Request, query config.WarehouseQueryC
 	if err != nil {
 		return warehouseResult{}, err
 	}
-	defer db.Close()
 	rows, err := db.QueryContext(r.Context(), sqlText, args...)
 	if err != nil {
 		return warehouseResult{}, err

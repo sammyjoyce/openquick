@@ -187,7 +187,7 @@ function dbListPath(base, options) {
     params.set("filter", typeof options.filter === "string" ? options.filter : JSON.stringify(options.filter));
   }
   if (options.sort !== undefined) {
-    params.set("sort", Array.isArray(options.sort) ? options.sort.join(",") : options.sort);
+    params.set("sort", options.sort);
   }
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;

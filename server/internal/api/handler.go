@@ -291,6 +291,10 @@ func (s *Server) handleDB(w http.ResponseWriter, r *http.Request, site string, i
 			http.NotFound(w, r)
 			return
 		}
+		if documentWildcardPrecondition(r) {
+			http.Error(w, "wildcard revision precondition is not supported", http.StatusBadRequest)
+			return
+		}
 		body, err := readJSONBody(w, r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -322,6 +326,10 @@ func (s *Server) handleDB(w http.ResponseWriter, r *http.Request, site string, i
 	case http.MethodPatch:
 		if docID == "" {
 			http.NotFound(w, r)
+			return
+		}
+		if documentWildcardPrecondition(r) {
+			http.Error(w, "wildcard revision precondition is not supported", http.StatusBadRequest)
 			return
 		}
 		patch, err := readJSONObject(w, r)
@@ -363,6 +371,10 @@ func (s *Server) handleDB(w http.ResponseWriter, r *http.Request, site string, i
 	case http.MethodDelete:
 		if docID == "" {
 			http.NotFound(w, r)
+			return
+		}
+		if documentWildcardPrecondition(r) {
+			http.Error(w, "wildcard revision precondition is not supported", http.StatusBadRequest)
 			return
 		}
 		var err error
@@ -562,12 +574,21 @@ func documentPreconditionPresent(r *http.Request) bool {
 	return strings.TrimSpace(r.Header.Get("If-Match")) != "" || strings.TrimSpace(r.URL.Query().Get("revision")) != ""
 }
 
-func documentPreconditionMatches(r *http.Request, d store.Document) bool {
+func documentPreconditionValue(r *http.Request) string {
 	want := strings.TrimSpace(r.Header.Get("If-Match"))
 	if want == "" {
 		want = strings.TrimSpace(r.URL.Query().Get("revision"))
 	}
-	if want == "" || want == "*" {
+	return want
+}
+
+func documentWildcardPrecondition(r *http.Request) bool {
+	return documentPreconditionValue(r) == "*"
+}
+
+func documentPreconditionMatches(r *http.Request, d store.Document) bool {
+	want := documentPreconditionValue(r)
+	if want == "" {
 		return true
 	}
 	rev := documentRevision(d)
