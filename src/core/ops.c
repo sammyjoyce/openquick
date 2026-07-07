@@ -2021,6 +2021,119 @@ app_error quick_op_delete(const quick_delete_request_t *request,
   return err;
 }
 
+static bool quick_ops_ascii_digit(char ch) {
+  return ch >= '0' && ch <= '9';
+}
+
+static bool quick_ops_ascii_alnum(char ch) {
+  return (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'Z') ||
+         (ch >= 'a' && ch <= 'z');
+}
+
+static bool quick_restore_archive_timestamp_is_safe(const char *value) {
+  if (!value || strlen(value) != 26U) {
+    return false;
+  }
+  for (size_t i = 0; i < 8U; i++) {
+    if (!quick_ops_ascii_digit(value[i])) {
+      return false;
+    }
+  }
+  if (value[8] != 'T') {
+    return false;
+  }
+  for (size_t i = 9U; i < 15U; i++) {
+    if (!quick_ops_ascii_digit(value[i])) {
+      return false;
+    }
+  }
+  if (value[15] != '.') {
+    return false;
+  }
+  for (size_t i = 16U; i < 25U; i++) {
+    if (!quick_ops_ascii_digit(value[i])) {
+      return false;
+    }
+  }
+  return value[25] == 'Z';
+}
+
+static const char *quick_restore_archive_name_part(const char *archive,
+                                                   const char *remote_root) {
+  static const char trash_suffix[] = "/.trash/sites/";
+  static const char trash_suffix_for_root[] = ".trash/sites/";
+  if (remote_root && remote_root[0] != '\0') {
+    if (!quick_remote_path_is_safe(remote_root)) {
+      return NULL;
+    }
+    size_t root_len = strlen(remote_root);
+    while (root_len > 1U && remote_root[root_len - 1U] == '/') {
+      root_len--;
+    }
+    if (strncmp(archive, remote_root, root_len) != 0) {
+      return NULL;
+    }
+    const char *after_root = archive + root_len;
+    if (root_len == 1U && remote_root[0] == '/') {
+      const size_t suffix_len = strlen(trash_suffix_for_root);
+      return strncmp(after_root, trash_suffix_for_root, suffix_len) == 0
+                 ? after_root + suffix_len
+                 : NULL;
+    }
+    const size_t suffix_len = strlen(trash_suffix);
+    return strncmp(after_root, trash_suffix, suffix_len) == 0
+               ? after_root + suffix_len
+               : NULL;
+  }
+  const char *trash = strstr(archive, trash_suffix);
+  return trash ? trash + strlen(trash_suffix) : NULL;
+}
+
+bool quick_restore_archive_path_is_safe(const char *archive,
+                                        const char *remote_root,
+                                        const char *site) {
+  if (!quick_remote_path_is_safe(archive)) {
+    return false;
+  }
+  const char *name = quick_restore_archive_name_part(archive, remote_root);
+  if (!name || name[0] == '\0' || strchr(name, '/')) {
+    return false;
+  }
+  const char *timestamp = NULL;
+  if (site && site[0] != '\0') {
+    if (!quick_slug_is_valid(site)) {
+      return false;
+    }
+    const size_t site_len = strlen(site);
+    if (strncmp(name, site, site_len) != 0 || name[site_len] != '-') {
+      return false;
+    }
+    timestamp = name + site_len + 1U;
+  } else {
+    const char *dash = strrchr(name, '-');
+    if (!dash || dash == name) {
+      return false;
+    }
+    timestamp = dash + 1;
+  }
+  return quick_restore_archive_timestamp_is_safe(timestamp);
+}
+
+bool quick_release_id_is_safe(const char *release) {
+  if (!release || release[0] == '\0' || release[0] == '-' ||
+      strlen(release) > 128U || strcmp(release, ".") == 0 ||
+      strcmp(release, "..") == 0) {
+    return false;
+  }
+  for (const char *p = release; *p; p++) {
+    if (quick_ops_ascii_alnum(*p) || *p == '.' || *p == '_' || *p == '-') {
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
 void quick_restore_result_init(quick_restore_result_t *result) {
   if (result) {
     *result = (quick_restore_result_t){0};
@@ -2047,6 +2160,10 @@ app_error quick_op_restore(const quick_restore_request_t *request,
       !request->archive || request->archive[0] == '\0') {
     return APP_ERROR_INVALID_ARG;
   }
+  if (!quick_restore_archive_path_is_safe(request->archive, NULL,
+                                          request->site)) {
+    return APP_ERROR_VALIDATION;
+  }
   quick_restore_result_destroy(out);
   quick_restore_result_init(out);
   quick_deploy_plan_t plan;
@@ -2057,6 +2174,11 @@ app_error quick_op_restore(const quick_restore_request_t *request,
   if (err != APP_SUCCESS) {
     quick_deploy_plan_destroy(&plan);
     return err;
+  }
+  if (!quick_restore_archive_path_is_safe(request->archive, plan.remote_root,
+                                          plan.site)) {
+    quick_deploy_plan_destroy(&plan);
+    return APP_ERROR_VALIDATION;
   }
   out->profile = quick_ops_strdup(plan.profile);
   out->ssh = quick_ops_strdup(plan.ssh);
@@ -2072,8 +2194,8 @@ app_error quick_op_restore(const quick_restore_request_t *request,
     return APP_SUCCESS;
   }
   char *const argv[] = {"ssh", plan.ssh, "quickd", "sites", "restore",
-                        plan.site, "--from", (char *)request->archive,
-                        "--json", NULL};
+                        "--from", (char *)request->archive, "--json",
+                        plan.site, NULL};
   quick_process_result_t res = {0};
   err = quick_process_capture(argv, NULL, &res);
   if (err == APP_SUCCESS && res.exit_code != 0) {
@@ -2117,6 +2239,10 @@ app_error quick_op_rollback(const quick_rollback_request_t *request,
                             quick_rollback_result_t *out) {
   if (!request || !out || !request->site || request->site[0] == '\0') {
     return APP_ERROR_INVALID_ARG;
+  }
+  if (request->release && request->release[0] != '\0' &&
+      !quick_release_id_is_safe(request->release)) {
+    return APP_ERROR_VALIDATION;
   }
   quick_rollback_result_destroy(out);
   quick_rollback_result_init(out);

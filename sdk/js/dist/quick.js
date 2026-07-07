@@ -43,7 +43,10 @@ class OpenQuickError extends Error {
   details;
   retryAfter;
   constructor(message, options) {
-    super(message, options.cause !== undefined ? { cause: options.cause } : undefined);
+    super(message);
+    if (options.cause !== undefined) {
+      this.cause = options.cause;
+    }
     this.name = "OpenQuickError";
     this.status = options.status;
     this.code = options.code;
@@ -117,6 +120,7 @@ function isAbortError(err) {
 }
 function throwAbortError(err) {
   throw new OpenQuickError("OpenQuick request aborted", {
+    status: 0,
     code: "aborted",
     details: { error: "aborted", cause: err instanceof Error ? err.message : String(err) }
   });
@@ -188,15 +192,18 @@ function dbListPath(base, options) {
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
 }
+function dbWriteHeaders(options, baseHeaders = {}) {
+  const headers = new Headers(baseHeaders);
+  if (options.revision !== undefined) {
+    headers.set("If-Match", options.revision);
+  }
+  return headers;
+}
 function normalizeDocument(value) {
   if (value && typeof value === "object" && "data" in value) {
     const { data, ...meta } = value;
     if (data && typeof data === "object" && !Array.isArray(data)) {
-      const result = { ...meta, ...data };
-      if (Object.prototype.hasOwnProperty.call(value, "id")) {
-        result.id = value.id;
-      }
-      return result;
+      return { ...data, ...meta };
     }
   }
   return value;
@@ -456,7 +463,7 @@ function collection(name) {
     async update(id, patch, options = {}) {
       return normalizeDocument(await requestJson(`${base}/${encodeURIComponent(requireId(id, "document id"))}`, {
         method: "PATCH",
-        headers: jsonHeaders,
+        headers: dbWriteHeaders(options, jsonHeaders),
         body: JSON.stringify(patch),
         signal: options.signal
       }));
@@ -464,6 +471,7 @@ function collection(name) {
     async remove(id, options = {}) {
       await requestJson(`${base}/${encodeURIComponent(requireId(id, "document id"))}`, {
         method: "DELETE",
+        headers: dbWriteHeaders(options),
         signal: options.signal
       });
     },

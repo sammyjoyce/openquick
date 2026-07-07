@@ -470,7 +470,7 @@
                 "description": "IAP adapter"
               }
             ],
-            "description": "IAP adapter: tailscale, tailscale-tsnet, cloudflare, or none"
+            "description": "IAP adapter: tailscale, tailscale-localapi, tailscale-serve, tailscale-tsnet, cloudflare, cloudflare-access, or none"
           },
           {
             "name": "execute",
@@ -607,7 +607,7 @@
             "aliases": [],
             "arguments": [
               {
-                "name": "name|updated|source",
+                "name": "name|updated|updated_at|source",
                 "required": true,
                 "arity": {
                   "minimum": 1,
@@ -616,7 +616,7 @@
                 "description": "Site list sort key"
               }
             ],
-            "description": "Sort rows by name, updated, or source"
+            "description": "Sort rows by name, updated, updated_at, or source"
           },
           {
             "name": "json",

@@ -552,10 +552,12 @@ static bool test_site_admin_commands_use_ssh_contract(test_context_t *ctx) {
       "  exit 0\n"
       "fi\n"
       "if [ \"$2\" = quickd ] && [ \"$3\" = sites ] && [ \"$4\" = delete ]; then\n"
+      "  if [ \"$5\" != demo ] || [ \"$6\" != --json ] || [ -n \"$7\" ]; then exit 1; fi\n"
       "  printf '%s\\n' '{\"format_version\":\"1.0\",\"site\":\"demo\",\"deleted\":true,\"archive\":\"/srv/quick/.trash/sites/demo-20260612T000000.000000000Z\"}'\n"
       "  exit 0\n"
       "fi\n"
       "if [ \"$2\" = quickd ] && [ \"$3\" = sites ] && [ \"$4\" = restore ]; then\n"
+      "  if [ \"$5\" != --from ] || [ \"$6\" != /srv/quick/.trash/sites/demo-20260612T000000.000000000Z ] || [ \"$7\" != --json ] || [ \"$8\" != demo ] || [ -n \"$9\" ]; then exit 1; fi\n"
       "  printf '%s\\n' '{\"format_version\":\"1.0\",\"site\":\"demo\",\"archive\":\"/srv/quick/.trash/sites/demo-20260612T000000.000000000Z\",\"release\":\"rel1\",\"url\":\"https://demo.quick.example.com\",\"restored\":true}'\n"
       "  exit 0\n"
       "fi\n"
@@ -1174,8 +1176,12 @@ static bool test_serve_install_execute_rolls_back_on_doctor_failure(test_context
       "  exit 0\n"
       "fi\n"
       "if [ \"$2\" = sh ]; then\n"
-      "  printf '%s\\n' \"$4\" >> \"$OPENQUICK_TEST_LOG\"\n"
-      "  case \"$4\" in *'restart openquick'*) echo restore >> \"$OPENQUICK_TEST_LOG\";; esac\n"
+      "  seen_restore=0\n"
+      "  while IFS= read -r line; do\n"
+      "    printf '%s\\n' \"$line\" >> \"$OPENQUICK_TEST_LOG\"\n"
+      "    case \"$line\" in *'restart openquick'*) seen_restore=1;; esac\n"
+      "  done\n"
+      "  if [ \"$seen_restore\" = 1 ]; then echo restore >> \"$OPENQUICK_TEST_LOG\"; fi\n"
       "  exit 0\n"
       "fi\n"
       "exit 0\n";
@@ -1327,12 +1333,20 @@ static bool test_openquick_site_workflow_contracts(test_context_t *ctx) {
     char new_path[512];
     char env_path[512];
     char ignore_path[512];
+    char outside_file[512];
+    char escape_link[512];
+    char outside_dir[] = "/tmp/openquick-dry-outside-XXXXXX";
     snprintf(quick_dir_local, sizeof(quick_dir_local), "%s/.quick", dir);
     snprintf(deployments_dir, sizeof(deployments_dir), "%s/.quick/deployments", dir);
     snprintf(manifest_path, sizeof(manifest_path), "%s/lab.manifest", deployments_dir);
     snprintf(new_path, sizeof(new_path), "%s/new.html", dir);
     snprintf(env_path, sizeof(env_path), "%s/.env", dir);
     snprintf(ignore_path, sizeof(ignore_path), "%s/.quickignore", dir);
+    snprintf(escape_link, sizeof(escape_link), "%s/linked-out", dir);
+    if (!mkdtemp(outside_dir)) {
+      return false;
+    }
+    snprintf(outside_file, sizeof(outside_file), "%s/secret-outside.html", outside_dir);
     (void)mkdir(quick_dir_local, 0755);
     (void)mkdir(deployments_dir, 0755);
     ok = write_text_file(manifest_path,
@@ -1340,6 +1354,8 @@ static bool test_openquick_site_workflow_contracts(test_context_t *ctx) {
                          "1111111111111111 9 removed.html\n") &&
          write_text_file(new_path, "<!doctype html><title>new</title>\n") &&
          write_text_file(env_path, "SECRET=1\n") &&
+         write_text_file(outside_file, "escaped output tree\n") &&
+         symlink(outside_dir, escape_link) == 0 &&
          write_text_file(ignore_path, ".quick/\n.env\n") && ok;
     const char *args[] = {"--json", "deploy", dir, "--dry-run", "--site",
                           "lunch-vote"};
@@ -1348,6 +1364,8 @@ static bool test_openquick_site_workflow_contracts(test_context_t *ctx) {
                              {"XDG_CONFIG_HOME", cfg_home}};
     command_result_t result =
         cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
+    const bool escaped_reported =
+        result.out && strstr(result.out, "secret-outside.html") != NULL;
     ok = cc_expect_exit(&result, 0) &&
          cc_expect_stdout_contains(&result, "\"format_version\":\"1.0\"") &&
          cc_expect_stdout_contains(&result, "\"site\":\"lunch-vote\"") &&
@@ -1359,7 +1377,10 @@ static bool test_openquick_site_workflow_contracts(test_context_t *ctx) {
          cc_expect_stdout_contains(&result, "\"deleted\":") &&
          cc_expect_stdout_contains(&result, "removed.html") &&
          cc_expect_stdout_contains(&result, "\"excluded\":") &&
-         cc_expect_stdout_contains(&result, ".env") && ok;
+         cc_expect_stdout_contains(&result, ".env") && !escaped_reported && ok;
+    if (escaped_reported) {
+      fprintf(stderr, "dry-run summary followed a symlink outside the output tree\n");
+    }
     cc_command_result_free(&result);
   }
 
@@ -1375,6 +1396,26 @@ static bool test_openquick_site_workflow_contracts(test_context_t *ctx) {
          cc_expect_stdout_contains(&result, "summary") &&
          cc_expect_stdout_contains(&result, "destructive deletes planned") &&
          cc_expect_stdout_contains(&result, "removed.html") && ok;
+    cc_command_result_free(&result);
+  }
+
+  {
+    const char *args[] = {"--json", "deploy", dir, "--dry-run", "--no-delete",
+                          "--site", "lunch-vote"};
+    const env_var_t env[] = {{"QUICK_REMOTE", "quick@box"},
+                             {"QUICK_BASE_DOMAIN", "quick.example.com"},
+                             {"XDG_CONFIG_HOME", cfg_home}};
+    command_result_t result =
+        cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
+    const bool removed_reported =
+        result.out && strstr(result.out, "removed.html") != NULL;
+    ok = cc_expect_exit(&result, 0) &&
+         cc_expect_stdout_contains(&result, "\"deleted_count\":0") &&
+         cc_expect_stdout_contains(&result, "\"deleted\":[]") &&
+         !removed_reported && ok;
+    if (removed_reported) {
+      fprintf(stderr, "--no-delete dry-run summary reported a deleted path\n");
+    }
     cc_command_result_free(&result);
   }
 

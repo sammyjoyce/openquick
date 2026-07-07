@@ -22,7 +22,7 @@ func NewAdapter(cfg config.Config, devIdentity string, allowPublicUnsafe bool) (
 		if mode == "tsnet" {
 			return nil, tsnetAdapterUnavailable("iap.mode=tsnet")
 		}
-		if mode == "serve" || t == "tailscale-serve" {
+		if mode == "serve" {
 			return TailscaleServeAdapter{}, nil
 		}
 		proxies, err := ParseTrustedProxies(cfg.IAP.TrustedProxies)

@@ -13,32 +13,33 @@ const ArtifactParamsSchema = {
 	type: "object",
 	additionalProperties: false,
 	properties: {
-		title: { type: "string", description: "Human-readable artifact title. Used to derive a site slug when site is omitted." },
-		site: { type: "string", description: "Optional OpenQuick site slug. If omitted, a deterministic artifact-<title>-<hash> slug is generated." },
-		html: { type: "string", description: "Shortcut for writing index.html. Use files for multi-file artifacts." },
+		title: { type: "string", description: "Optional string. Human-readable title. If `site` is omitted, it contributes to the generated site slug; in `mode: \"codemode\"`, it also labels the generated editor page. If omitted, the generated slug base defaults to `codemode` for Code Mode and `artifact` otherwise; the generated Code Mode page title falls back to an explicit `site`, then `OpenQuick Code Mode`." },
+		site: { type: "string", description: "Optional OpenQuick site slug string. Must contain only lowercase letters, digits, and hyphens, start and end with a letter or digit, and be at most 63 characters. If omitted, the tool generates deterministic `artifact-<base>-<10-hex-content-hash>` where `<base>` is the slugified `title` or mode default (`codemode`/`artifact`), clipped to 34 characters with trailing hyphens removed; the final slug is validated. The deployed or planned URL is `https://<site>.sammy.sh`. For an explicit existing site, set `overwrite: true` only when intentionally updating it." },
+		html: { type: "string", description: "Optional UTF-8 HTML string shortcut for `index.html`. In static mode, either `html` or `files` must provide an `index.html`; `html` is mapped first, so a later `files` entry whose normalized path is `index.html` overwrites it. In Code Mode, this becomes starter `index.html` content embedded inside the generated editor instead of a directly published file." },
 		files: {
 			type: "array",
-			description: "Static files to publish. Include index.html unless html is provided. In codemode, these become the editable starter files inside the code editor.",
+			description: "Optional array of text files with `{ path, content }`. In static mode, files are written under `.pi/openquick-artifacts/<site>` and must include `index.html` unless `html` is provided. In Code Mode, entries become editable starter files embedded in the generated editor; missing `index.html`, `style.css`, and `script.js` are defaulted. Duplicate normalized paths are resolved by the later entry winning.",
 			items: {
 				type: "object",
 				additionalProperties: false,
 				required: ["path", "content"],
 				properties: {
-					path: { type: "string", description: "Relative output path, for example index.html or assets/app.js. Absolute paths and .. are rejected." },
-					content: { type: "string", description: "UTF-8 file contents." },
+					path: { type: "string", description: "Required string path relative to the artifact root or Code Mode starter bundle, such as `index.html` or `assets/app.js`. Backslashes are normalized to `/` and one leading `./` is stripped. No globbing, regex, shell expansion, absolute paths, empty paths, NUL bytes, empty segments, `.` segments, or `..` segments. Path segments named `.git`, `.quick`, `.ssh`, `node_modules`, or starting with `.env` are rejected; resolved static output paths must stay inside the artifact directory." },
+					content: { type: "string", description: "Required string. Written as UTF-8 text in static mode, or embedded as starter-file text in the Code Mode editor. Binary upload/object content is not supported by this parameter." },
 				},
 			},
 		},
 		mode: {
 			type: "string",
 			enum: ["static", "codemode"],
-			description: "static publishes files directly. codemode publishes an OpenQuick SDK-powered in-browser code editor with live preview and quick.db persistence.",
+			description: "Optional enum string: `\"static\"` or `\"codemode\"`. Defaults to `\"static\"`. `static` publishes the provided files directly and requires an `index.html`. `codemode` publishes exactly one generated `index.html` containing an SDK-backed editor shell, sandboxed live preview, and `quick.db.collection('codemode_files')` persistence; supplied `html`/`files` are starter content, not separately published files. Use static mode with `sdk: true` when the final page itself should call OpenQuick APIs.",
 		},
 		sdk: {
 			type: "boolean",
-			description: "For static mode, inject a /_quick/sdk.js bridge that exposes window.quick and dispatches openquick:sdk-ready. Codemode always uses the SDK.",
+			description: "Optional boolean. Defaults to `false` in static mode. In static mode, `true` injects a bridge into `index.html` unless the HTML already contains `/_quick/sdk.js` or `openquick:sdk-ready`; the bridge imports `/_quick/sdk.js`, sets `window.quick`, and dispatches `openquick:sdk-ready`. In Code Mode, this parameter has no effect on generation because the editor shell always imports the SDK and returned details report `sdk: true`.",
 		},
-		dryRun: { type: "boolean", description: "If true, run quick deploy --dry-run and do not publish." },
+		dryRun: { type: "boolean", description: "Optional boolean, default `false`. When `true`, append `--dry-run` to `quick deploy` and return the planned URL if the command succeeds. The tool still deletes/recreates the local artifact directory, writes files, and runs `quick deploy`; only remote publishing is dry-run." },
+		overwrite: { type: "boolean", description: "Optional boolean, default `false`. When `true`, append `--yes` to `quick deploy` to intentionally update or replace an existing site. Leave `false` unless the user explicitly wants to overwrite; with an explicit existing `site`, OpenQuick's overwrite guard can fail and the error includes a hint to retry with `overwrite: true`." },
 	},
 } as const;
 
@@ -55,6 +56,7 @@ type ArtifactParams = {
 	mode?: "static" | "codemode";
 	sdk?: boolean;
 	dryRun?: boolean;
+	overwrite?: boolean;
 };
 
 type DeployJson = {
@@ -129,9 +131,8 @@ function normalizeArtifactPath(path: string): string {
 	if (parts.some((part) => part === "" || part === "." || part === "..")) {
 		throw new Error(`Artifact file path must be relative and must not contain empty, '.', or '..' segments: ${JSON.stringify(path)}.`);
 	}
-	const first = parts[0] ?? "";
-	if ([".git", ".quick", ".ssh", "node_modules"].includes(first) || first.startsWith(".env")) {
-		throw new Error(`Refusing to publish reserved or secret-looking path ${JSON.stringify(path)}.`);
+	if (parts.some((part) => [".git", ".quick", ".ssh", "node_modules"].includes(part) || part.startsWith(".env"))) {
+		throw new Error(`Refusing to publish reserved or secret-looking path segment in ${JSON.stringify(path)}.`);
 	}
 	return parts.join("/");
 }
@@ -456,7 +457,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "artifact",
 		label: "Artifact",
-		description: `Create or update a static web artifact and publish it with OpenQuick using quick deploy --profile ${PROFILE}. Supports static mode plus SDK-backed codemode (an in-browser editor with sandboxed live preview, using /_quick/sdk.js and quick.db in the editor shell). Writes files to ${ARTIFACT_ROOT}, deploys them to https://<site>.sammy.sh, and returns the URL. Output is truncated to ${MAX_OUTPUT_LINES} lines or ${MAX_OUTPUT_LABEL}.`,
+		description: `Create a previewable OpenQuick web artifact from UTF-8 text files, or a generated Code Mode editor artifact, under \`${ARTIFACT_ROOT}/<site>\` and run \`quick deploy <artifact-dir> --site <site> --profile ${PROFILE} --no-build --json\` for \`https://<site>.sammy.sh\`. Use for shareable static demos, mockups, HTML/CSS/JS pages or sites, and \`mode: "codemode"\` code-playground artifacts. Do not use for custom servers, backend code, secrets, environment variables, or binary asset uploads. Side effects: deletes/recreates \`${ARTIFACT_ROOT}/<site>\` under the current workspace and writes files before deploy, even with \`dryRun: true\` or if deploy later fails. \`dryRun: true\` adds \`--dry-run\` so OpenQuick produces a deploy plan instead of publishing. On success, details include site, URL, mode, SDK flag, artifact directory, written paths, command, and truncated stdout/stderr; stdout/stderr in details and failures are limited to the last ${MAX_OUTPUT_LINES} lines or ${MAX_OUTPUT_LABEL}.`,
 		promptSnippet: `Create and publish static HTML/CSS/JS artifacts with OpenQuick (quick deploy --profile ${PROFILE}). Use mode='codemode' for an SDK-backed code editor/live-preview artifact.`,
 		promptGuidelines: [
 			"Use artifact when the user asks for a previewable web artifact, static demo, mockup, or shareable HTML/CSS/JS page.",
@@ -484,8 +485,8 @@ export default function (pi: ExtensionAPI) {
 				"--profile",
 				PROFILE,
 				"--no-build",
-				"--yes",
 			];
+			if (params.overwrite === true) command.push("--yes");
 			if (params.dryRun) command.push("--dry-run");
 			command.push("--json");
 
@@ -515,7 +516,10 @@ export default function (pi: ExtensionAPI) {
 			};
 
 			if (result.code !== 0) {
-				throw new Error(`quick deploy failed with exit code ${result.code}.\nstdout:\n${stdout.text}\nstderr:\n${stderr.text}`);
+				const overwriteHint = params.site && params.overwrite !== true
+					? "\nIf you intended to update an existing site, pass overwrite: true to opt into quick deploy --yes."
+					: "";
+				throw new Error(`quick deploy failed with exit code ${result.code}.\nstdout:\n${stdout.text}\nstderr:\n${stderr.text}${overwriteHint}`);
 			}
 
 			const summary = params.dryRun

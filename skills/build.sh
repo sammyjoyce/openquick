@@ -30,15 +30,29 @@ for file in $required_files; do
   fi
 done
 
-if ! grep -q "Agent deploy safety checklist" "$src_dir/SKILL.md"; then
+checklist_section=$(awk '
+  /^## Agent deploy safety checklist$/ {
+    in_checklist = 1
+    print
+    next
+  }
+  in_checklist && /^## / {
+    exit
+  }
+  in_checklist {
+    print
+  }
+' "$src_dir/SKILL.md")
+
+if [ -z "$checklist_section" ]; then
   echo "missing agent deploy safety checklist in SKILL.md" >&2
   exit 1
 fi
-if ! grep -q "quick deploy --dry-run" "$src_dir/SKILL.md"; then
+if ! printf '%s\n' "$checklist_section" | grep -q "quick deploy --dry-run"; then
   echo "skill checklist must require a dry-run before deploy" >&2
   exit 1
 fi
-if ! grep -q "quick doctor --profile" "$src_dir/SKILL.md"; then
+if ! printf '%s\n' "$checklist_section" | grep -q "quick doctor --profile"; then
   echo "skill checklist must require targeted doctor checks" >&2
   exit 1
 fi

@@ -209,7 +209,7 @@ static const app_command_arg_t filter_option_args[] = {
 };
 
 static const app_command_arg_t sort_option_args[] = {
-    {.name = "name|updated|source",
+    {.name = "name|updated|updated_at|source",
      .required = true,
      .arity_minimum = 1,
      .arity_maximum = 1,
@@ -354,7 +354,7 @@ static const app_command_option_t serve_options[] = {
      .name = "iap",
      .arguments = iap_option_args,
      .argument_count = APP_COUNTOF(iap_option_args),
-     .description = "IAP adapter: tailscale, tailscale-tsnet, cloudflare, or none"},
+     .description = "IAP adapter: tailscale, tailscale-localapi, tailscale-serve, tailscale-tsnet, cloudflare, cloudflare-access, or none"},
     {.id = APP_COMMAND_OPTION_UNKNOWN,
      .name = "execute",
      .description = "Run installer probes over SSH"},
@@ -395,7 +395,7 @@ static const app_command_option_t list_options[] = {
      .name = "sort",
      .arguments = sort_option_args,
      .argument_count = APP_COUNTOF(sort_option_args),
-     .description = "Sort rows by name, updated, or source"},
+     .description = "Sort rows by name, updated, updated_at, or source"},
     {.id = APP_COMMAND_OPTION_UNKNOWN,
      .name = "json",
      .description = "Print JSON output"},

@@ -185,6 +185,11 @@ void quick_delete_result_destroy(quick_delete_result_t *result);
 app_error quick_op_delete(const quick_delete_request_t *request,
                           quick_delete_result_t *out);
 
+bool quick_restore_archive_path_is_safe(const char *archive,
+                                        const char *remote_root,
+                                        const char *site);
+bool quick_release_id_is_safe(const char *release);
+
 typedef struct {
   const quick_profile_config_t *profiles;
   const char *profile;

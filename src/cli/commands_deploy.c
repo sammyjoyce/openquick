@@ -1,15 +1,16 @@
-#include <dirent.h>
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "../core/config.h"
 #include "../core/deploy_plan.h"
 #include "../core/error.h"
 #include "../core/ops.h"
+#include "../core/process.h"
 #include "../io/output.h"
 #include "commands.h"
 #include "commands_openquick.h"
@@ -158,8 +159,6 @@ struct deploy_dry_summary_t {
   size_t changed_count;
   size_t deleted_count;
   size_t excluded_count;
-  unsigned long long added_bytes;
-  unsigned long long changed_bytes;
 };
 
 static char *deploy_strdup(const char *s) {
@@ -247,59 +246,47 @@ static deploy_manifest_entry_t *deploy_manifest_find(deploy_manifest_t *m,
   return NULL;
 }
 
-static bool deploy_wildcard_match(const char *pattern, const char *text) {
-  const char *star = strchr(pattern, '*');
-  if (!star) {
-    return strcmp(pattern, text) == 0;
+static char *deploy_path_with_trailing_slash(const char *path) {
+  if (!path) {
+    return NULL;
   }
-  size_t prefix = (size_t)(star - pattern);
-  const char *suffix = star + 1;
-  size_t suffix_len = strlen(suffix);
-  size_t text_len = strlen(text);
-  return text_len >= prefix + suffix_len &&
-         strncmp(pattern, text, prefix) == 0 &&
-         strcmp(text + text_len - suffix_len, suffix) == 0;
+  size_t len = strlen(path);
+  const bool has_slash = len > 0 && path[len - 1U] == '/';
+  char *out = malloc(len + (has_slash ? 1U : 2U));
+  if (!out) {
+    return NULL;
+  }
+  memcpy(out, path, len);
+  if (!has_slash) {
+    out[len++] = '/';
+  }
+  out[len] = '\0';
+  return out;
 }
 
-static const char *deploy_basename(const char *path) {
-  const char *slash = strrchr(path, '/');
-  return slash ? slash + 1 : path;
-}
-
-static bool deploy_ignore_match_one(const char *pattern, const char *rel,
-                                    bool is_dir) {
-  if (!pattern || pattern[0] == '\0') {
-    return false;
+static char *deploy_make_temp_dir(void) {
+  const char *base = getenv("TMPDIR");
+  if (!base || base[0] == '\0') {
+    base = "/tmp";
   }
-  size_t plen = strlen(pattern);
-  if (pattern[plen - 1U] == '/') {
-    if (!is_dir) {
-      return false;
-    }
-    return strncmp(rel, pattern, plen - 1U) == 0;
+  static const char suffix[] = "openquick-deploy-dry-XXXXXX";
+  size_t base_len = strlen(base);
+  const bool needs_slash = base_len > 0 && base[base_len - 1U] != '/';
+  char *tmpl = malloc(base_len + (needs_slash ? 1U : 0U) + sizeof(suffix));
+  if (!tmpl) {
+    return NULL;
   }
-  if (strchr(pattern, '/')) {
-    return deploy_wildcard_match(pattern, rel);
+  memcpy(tmpl, base, base_len);
+  size_t pos = base_len;
+  if (needs_slash) {
+    tmpl[pos++] = '/';
   }
-  return deploy_wildcard_match(pattern, deploy_basename(rel));
-}
-
-static bool deploy_ignore_match(const quick_ignore_t *ignore, const char *rel,
-                                bool is_dir) {
-  (void)is_dir;
-  if (strcmp(rel, ".quick") == 0 || strncmp(rel, ".quick/", 7) == 0 ||
-      strcmp(rel, ".git") == 0 || strncmp(rel, ".git/", 5) == 0) {
-    return true;
+  memcpy(tmpl + pos, suffix, sizeof(suffix));
+  if (!mkdtemp(tmpl)) {
+    free(tmpl);
+    return NULL;
   }
-  if (!ignore) {
-    return false;
-  }
-  for (size_t i = 0; i < ignore->count; i++) {
-    if (deploy_ignore_match_one(ignore->patterns[i], rel, is_dir)) {
-      return true;
-    }
-  }
-  return false;
+  return tmpl;
 }
 
 static app_error deploy_hash_file(const char *path, char out[17],
@@ -332,6 +319,74 @@ static app_error deploy_hash_file(const char *path, char out[17],
     *size_out = size;
   }
   return APP_SUCCESS;
+}
+
+static app_error deploy_hash_symlink(const char *path, const struct stat *st,
+                                     char out[17],
+                                     unsigned long long *size_out) {
+  size_t cap = st && st->st_size > 0 ? (size_t)st->st_size + 1U : 256U;
+  char *target = NULL;
+  ssize_t n = -1;
+  for (;;) {
+    char *grown = realloc(target, cap);
+    if (!grown) {
+      free(target);
+      return APP_ERROR_MEMORY;
+    }
+    target = grown;
+    n = readlink(path, target, cap);
+    if (n < 0) {
+      free(target);
+      return APP_ERROR_IO;
+    }
+    if ((size_t)n < cap) {
+      break;
+    }
+    if (cap > (SIZE_MAX / 2U)) {
+      free(target);
+      return APP_ERROR_OUT_OF_RANGE;
+    }
+    cap *= 2U;
+  }
+
+  uint64_t h = 1469598103934665603ULL;
+  static const unsigned char prefix[] = {'s', 'y', 'm', 'l', 'i', 'n', 'k', 0};
+  for (size_t i = 0; i < sizeof(prefix); i++) {
+    h ^= (uint64_t)prefix[i];
+    h *= 1099511628211ULL;
+  }
+  for (ssize_t i = 0; i < n; i++) {
+    h ^= (uint64_t)(unsigned char)target[i];
+    h *= 1099511628211ULL;
+  }
+  snprintf(out, 17, "%016llx", (unsigned long long)h);
+  if (size_out) {
+    *size_out = (unsigned long long)n;
+  }
+  free(target);
+  return APP_SUCCESS;
+}
+
+static app_error deploy_hash_selected_path(const char *root, const char *rel,
+                                           char out[17],
+                                           unsigned long long *size_out) {
+  char *path = quick_path_join_cli(root, rel);
+  if (!path) {
+    return APP_ERROR_MEMORY;
+  }
+  struct stat st;
+  if (lstat(path, &st) != 0) {
+    free(path);
+    return APP_ERROR_IO;
+  }
+  app_error err = APP_ERROR_INVALID_ARG;
+  if (S_ISREG(st.st_mode)) {
+    err = deploy_hash_file(path, out, size_out);
+  } else if (S_ISLNK(st.st_mode)) {
+    err = deploy_hash_symlink(path, &st, out, size_out);
+  }
+  free(path);
+  return err;
 }
 
 static char *deploy_manifest_path(const quick_deploy_plan_t *plan) {
@@ -398,117 +453,187 @@ static app_error deploy_manifest_write(const char *path,
   return fclose(f) == 0 ? APP_SUCCESS : APP_ERROR_IO;
 }
 
-static app_error deploy_scan_dir(const char *root, const char *rel,
-                                 const quick_ignore_t *ignore,
-                                 deploy_dry_summary_t *summary) {
-  char *dir_path = rel && rel[0] ? quick_path_join_cli(root, rel)
-                                 : deploy_strdup(root);
-  if (!dir_path) {
+static app_error deploy_summary_record_selected_path(
+    const char *root, const char *rel, deploy_dry_summary_t *summary) {
+  if (!rel || rel[0] == '\0' || strcmp(rel, ".") == 0) {
+    return APP_SUCCESS;
+  }
+  char hash[17];
+  unsigned long long size = 0;
+  app_error err = deploy_hash_selected_path(root, rel, hash, &size);
+  if (err != APP_SUCCESS) {
+    return err;
+  }
+  if (!deploy_manifest_append(&summary->current, rel, hash, size)) {
     return APP_ERROR_MEMORY;
   }
-  DIR *dir = opendir(dir_path);
-  if (!dir) {
-    bool missing_root = (!rel || rel[0] == '\0') && errno == ENOENT;
-    free(dir_path);
-    return missing_root ? APP_SUCCESS : APP_ERROR_IO;
+  deploy_manifest_entry_t *old = deploy_manifest_find(&summary->previous, rel);
+  if (!old) {
+    return deploy_string_list_append(&summary->added, &summary->added_count, rel)
+               ? APP_SUCCESS
+               : APP_ERROR_MEMORY;
   }
-  struct dirent *ent;
-  while ((ent = readdir(dir)) != NULL) {
-    if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) {
-      continue;
-    }
-    char *child_rel = rel && rel[0] ? quick_path_join_cli(rel, ent->d_name)
-                                    : deploy_strdup(ent->d_name);
-    char *child_path = child_rel ? quick_path_join_cli(root, child_rel) : NULL;
-    if (!child_rel || !child_path) {
-      free(child_rel);
-      free(child_path);
-      closedir(dir);
-      free(dir_path);
-      return APP_ERROR_MEMORY;
-    }
-    struct stat st;
-    if (stat(child_path, &st) != 0) {
-      free(child_rel);
-      free(child_path);
-      continue;
-    }
-    bool is_dir = S_ISDIR(st.st_mode);
-    if (deploy_ignore_match(ignore, child_rel, is_dir)) {
-      if (!deploy_string_list_append(&summary->excluded, &summary->excluded_count,
-                                     child_rel)) {
-        free(child_rel);
-        free(child_path);
-        closedir(dir);
-        free(dir_path);
-        return APP_ERROR_MEMORY;
-      }
-      free(child_rel);
-      free(child_path);
-      continue;
-    }
-    if (is_dir) {
-      app_error err = deploy_scan_dir(root, child_rel, ignore, summary);
-      free(child_rel);
-      free(child_path);
-      if (err != APP_SUCCESS) {
-        closedir(dir);
-        free(dir_path);
-        return err;
-      }
-      continue;
-    }
-    if (S_ISREG(st.st_mode)) {
-      char hash[17];
-      unsigned long long size = 0;
-      app_error err = deploy_hash_file(child_path, hash, &size);
-      if (err != APP_SUCCESS) {
-        free(child_rel);
-        free(child_path);
-        closedir(dir);
-        free(dir_path);
-        return err;
-      }
-      if (!deploy_manifest_append(&summary->current, child_rel, hash, size)) {
-        free(child_rel);
-        free(child_path);
-        closedir(dir);
-        free(dir_path);
-        return APP_ERROR_MEMORY;
-      }
-      deploy_manifest_entry_t *old = deploy_manifest_find(&summary->previous, child_rel);
-      if (!old) {
-        if (!deploy_string_list_append(&summary->added, &summary->added_count, child_rel)) {
-          free(child_rel);
-          free(child_path);
-          closedir(dir);
-          free(dir_path);
-          return APP_ERROR_MEMORY;
-        }
-        summary->added_bytes += size;
-      } else {
-        old->seen = true;
-        if (old->size != size || strcmp(old->hash, hash) != 0) {
-          if (!deploy_string_list_append(&summary->changed, &summary->changed_count, child_rel)) {
-            free(child_rel);
-            free(child_path);
-            closedir(dir);
-            free(dir_path);
-            return APP_ERROR_MEMORY;
-          }
-          summary->changed_bytes += size;
-        }
-      }
-    }
-    free(child_rel);
-    free(child_path);
+  old->seen = true;
+  if (old->size != size || strcmp(old->hash, hash) != 0) {
+    return deploy_string_list_append(&summary->changed, &summary->changed_count,
+                                     rel)
+               ? APP_SUCCESS
+               : APP_ERROR_MEMORY;
   }
-  closedir(dir);
-  free(dir_path);
   return APP_SUCCESS;
 }
 
+static app_error deploy_parse_rsync_excluded_line(
+    char *line, deploy_dry_summary_t *summary) {
+  static const char file_prefix[] = "[sender] hiding file ";
+  static const char dir_prefix[] = "[sender] hiding directory ";
+  const char *rel = NULL;
+  if (strncmp(line, file_prefix, sizeof(file_prefix) - 1U) == 0) {
+    rel = line + sizeof(file_prefix) - 1U;
+  } else if (strncmp(line, dir_prefix, sizeof(dir_prefix) - 1U) == 0) {
+    rel = line + sizeof(dir_prefix) - 1U;
+  }
+  if (!rel) {
+    return APP_SUCCESS;
+  }
+  char *because = strstr((char *)rel, " because of pattern ");
+  if (!because || because == rel) {
+    return APP_SUCCESS;
+  }
+  *because = '\0';
+  return deploy_string_list_append(&summary->excluded, &summary->excluded_count,
+                                   rel)
+             ? APP_SUCCESS
+             : APP_ERROR_MEMORY;
+}
+
+static app_error deploy_parse_rsync_output(const char *output, const char *root,
+                                           deploy_dry_summary_t *summary) {
+  if (!output) {
+    return APP_SUCCESS;
+  }
+  const char *p = output;
+  while (*p) {
+    const char *end = strchr(p, '\n');
+    size_t len = end ? (size_t)(end - p) : strlen(p);
+    while (len > 0 && p[len - 1U] == '\r') {
+      len--;
+    }
+    char *line = malloc(len + 1U);
+    if (!line) {
+      return APP_ERROR_MEMORY;
+    }
+    memcpy(line, p, len);
+    line[len] = '\0';
+
+    app_error err = deploy_parse_rsync_excluded_line(line, summary);
+    if (err == APP_SUCCESS && root && len > 12U && line[11] == ' ' &&
+        (line[1] == 'f' || line[1] == 'L')) {
+      err = deploy_summary_record_selected_path(root, line + 12, summary);
+    }
+    free(line);
+    if (err != APP_SUCCESS) {
+      return err;
+    }
+    if (!end) {
+      break;
+    }
+    p = end + 1;
+  }
+  return APP_SUCCESS;
+}
+
+static app_error deploy_enumerate_rsync_selection(
+    const quick_deploy_plan_t *plan, bool no_delete,
+    deploy_dry_summary_t *summary) {
+  quick_ignore_t ignore;
+  quick_ignore_init(&ignore);
+  app_error err = quick_ignore_load_for_site(plan->site_root, &ignore);
+  if (err != APP_SUCCESS) {
+    quick_ignore_destroy(&ignore);
+    return err;
+  }
+  size_t exclude_argc = 0;
+  char **exclude_args = quick_ignore_to_rsync_args(&ignore, &exclude_argc);
+  if (ignore.count > 0 && !exclude_args) {
+    quick_ignore_destroy(&ignore);
+    return APP_ERROR_MEMORY;
+  }
+
+  struct stat root_st;
+  if (lstat(plan->output_dir, &root_st) != 0) {
+    err = errno == ENOENT ? APP_SUCCESS : APP_ERROR_IO;
+    quick_ignore_args_destroy(exclude_args, exclude_argc);
+    quick_ignore_destroy(&ignore);
+    return err;
+  }
+
+  char *source = deploy_path_with_trailing_slash(plan->output_dir);
+  char *temp_dir = deploy_make_temp_dir();
+  char *dest = temp_dir ? deploy_path_with_trailing_slash(temp_dir) : NULL;
+  const size_t max_args = 24U + exclude_argc;
+  char **rsync_argv = calloc(max_args, sizeof(char *));
+  if (!source || !temp_dir || !dest || !rsync_argv) {
+    free(source);
+    free(dest);
+    if (temp_dir) {
+      (void)rmdir(temp_dir);
+    }
+    free(temp_dir);
+    free(rsync_argv);
+    quick_ignore_args_destroy(exclude_args, exclude_argc);
+    quick_ignore_destroy(&ignore);
+    return APP_ERROR_MEMORY;
+  }
+
+  size_t ai = 0;
+  rsync_argv[ai++] = "rsync";
+  rsync_argv[ai++] = "-a";
+  rsync_argv[ai++] = "--dry-run";
+  rsync_argv[ai++] = "--itemize-changes";
+  if (!no_delete) {
+    rsync_argv[ai++] = "--delete";
+  }
+  rsync_argv[ai++] = "--partial-dir=.rsync-partial";
+  rsync_argv[ai++] = "--safe-links";
+  rsync_argv[ai++] = "--chmod=Dg+s,ug+rwX,o-rwx";
+  rsync_argv[ai++] = "--debug=FILTER";
+  rsync_argv[ai++] = "--out-format=%i %n";
+  for (size_t i = 0; i < exclude_argc; i++) {
+    rsync_argv[ai++] = exclude_args[i];
+  }
+  rsync_argv[ai++] = source;
+  rsync_argv[ai++] = dest;
+  rsync_argv[ai] = NULL;
+
+  quick_process_result_t rsync = {0};
+  err = quick_process_capture(rsync_argv, NULL, &rsync);
+  if (err == APP_SUCCESS && rsync.exit_code != 0) {
+    err = APP_ERROR_IO;
+  }
+  if (err == APP_SUCCESS) {
+    /* Keep dry-run selection coupled to the deploy transfer: rsync applies
+       --safe-links and quick_ignore_to_rsync_args() excludes here exactly as
+       quick_op_deploy_execute() does for the remote transfer. */
+    err = deploy_parse_rsync_output(rsync.out, plan->output_dir, summary);
+  }
+  if (err == APP_SUCCESS) {
+    err = deploy_parse_rsync_output(rsync.err, NULL, summary);
+  }
+
+  quick_process_result_destroy(&rsync);
+  free(rsync_argv);
+  free(source);
+  free(dest);
+  (void)rmdir(temp_dir);
+  free(temp_dir);
+  quick_ignore_args_destroy(exclude_args, exclude_argc);
+  quick_ignore_destroy(&ignore);
+  return err;
+}
+
 static app_error deploy_dry_summary_build(const quick_deploy_plan_t *plan,
+                                          bool no_delete,
                                           deploy_dry_summary_t *summary) {
   memset(summary, 0, sizeof(*summary));
   char *manifest = deploy_manifest_path(plan);
@@ -517,15 +642,9 @@ static app_error deploy_dry_summary_build(const quick_deploy_plan_t *plan,
   }
   app_error err = deploy_manifest_load(manifest, &summary->previous);
   if (err == APP_SUCCESS) {
-    quick_ignore_t ignore;
-    quick_ignore_init(&ignore);
-    err = quick_ignore_load_for_site(plan->site_root, &ignore);
-    if (err == APP_SUCCESS) {
-      err = deploy_scan_dir(plan->output_dir, "", &ignore, summary);
-    }
-    quick_ignore_destroy(&ignore);
+    err = deploy_enumerate_rsync_selection(plan, no_delete, summary);
   }
-  if (err == APP_SUCCESS) {
+  if (err == APP_SUCCESS && !no_delete) {
     for (size_t i = 0; i < summary->previous.count; i++) {
       if (!summary->previous.items[i].seen) {
         if (!deploy_string_list_append(&summary->deleted, &summary->deleted_count,
@@ -610,7 +729,7 @@ static void deploy_print_human_summary(const app_config_t *config,
 
 static void deploy_manifest_record_success(const quick_deploy_plan_t *plan) {
   deploy_dry_summary_t summary;
-  if (deploy_dry_summary_build(plan, &summary) == APP_SUCCESS) {
+  if (deploy_dry_summary_build(plan, false, &summary) == APP_SUCCESS) {
     char *manifest = deploy_manifest_path(plan);
     if (manifest) {
       (void)deploy_manifest_write(manifest, &summary.current);
@@ -731,7 +850,7 @@ app_error app_cmd_deploy(const app_config_t *config, int argc,
 
   if (dry_run) {
     deploy_dry_summary_t summary;
-    app_error summary_err = deploy_dry_summary_build(&plan, &summary);
+    app_error summary_err = deploy_dry_summary_build(&plan, no_delete, &summary);
     if (summary_err != APP_SUCCESS) {
       quick_print_error(config, "failed to build dry-run transfer summary");
       quick_deploy_plan_destroy(&plan);

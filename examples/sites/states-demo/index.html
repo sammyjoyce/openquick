@@ -116,7 +116,7 @@
 
       simulateError.addEventListener('click', async () => {
         try {
-          await quick.ai.chat({ messages: [{ role: 'user', content: 'demo' }] });
+          await quick.ai.chat([{ role: 'user', content: 'demo' }]);
           errorStatus.textContent = 'AI request succeeded. Try disabling AI in the host config to see the error state.';
         } catch (error) {
           errorStatus.textContent = `Visible API failure: ${describeError(error)}`;
@@ -141,7 +141,7 @@
       }
 
       try {
-        await quick.ai.chat({ messages: [{ role: 'user', content: 'quota metadata demo' }] });
+        await quick.ai.chat([{ role: 'user', content: 'quota metadata demo' }]);
         rateStatus.textContent = 'AI quota available.';
       } catch (error) {
         rateStatus.textContent = `Quota or provider unavailable: ${describeError(error)}`;

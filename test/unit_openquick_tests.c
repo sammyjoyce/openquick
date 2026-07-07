@@ -181,6 +181,40 @@ static bool test_safe_remote_install_validation(void) {
          !quick_domain_is_safe("-bad.example.com");
 }
 
+static bool test_restore_and_rollback_input_validation(void) {
+  char too_long_release[130];
+  memset(too_long_release, 'a', sizeof(too_long_release) - 1U);
+  too_long_release[sizeof(too_long_release) - 1U] = '\0';
+  return quick_restore_archive_path_is_safe(
+             "/srv/quick/.trash/sites/demo-20260612T000000.000000000Z",
+             "/srv/quick", "demo") &&
+         quick_restore_archive_path_is_safe(
+             "/srv/quick/.trash/sites/my-site-20260612T000000.000000000Z",
+             NULL, "my-site") &&
+         !quick_restore_archive_path_is_safe(
+             "/srv/quick/sites/demo-20260612T000000.000000000Z",
+             "/srv/quick", "demo") &&
+         !quick_restore_archive_path_is_safe(
+             "/srv/other/.trash/sites/demo-20260612T000000.000000000Z",
+             "/srv/quick", "demo") &&
+         !quick_restore_archive_path_is_safe(
+             "/srv/quick/.trash/sites/demo-20260612T000000Z-abcdef",
+             "/srv/quick", "demo") &&
+         !quick_restore_archive_path_is_safe(
+             "/srv/quick/.trash/sites/other-20260612T000000.000000000Z",
+             "/srv/quick", "demo") &&
+         !quick_restore_archive_path_is_safe(
+             "/srv/quick/.trash/sites/demo-20260612T000000.000000000Z/site",
+             "/srv/quick", "demo") &&
+         quick_release_id_is_safe("20260612T000000Z-abcdef") &&
+         quick_release_id_is_safe("rel_1.2-ABC") &&
+         !quick_release_id_is_safe("-rel") &&
+         !quick_release_id_is_safe("../rel") &&
+         !quick_release_id_is_safe("rel;rm") &&
+         !quick_release_id_is_safe("") && !quick_release_id_is_safe(NULL) &&
+         !quick_release_id_is_safe(too_long_release);
+}
+
 static bool test_quickignore_to_rsync_args(void) {
 #ifndef _WIN32
   char path[] = "/tmp/openquick-ignore-XXXXXX";
@@ -819,6 +853,8 @@ void run_openquick_unit_tests(unit_stats_t *stats) {
               "deploy plan resolution honors flag over env over quick.json");
   unit_record(stats, test_safe_remote_install_validation(),
               "remote installer validation rejects unsafe argv-over-ssh values");
+  unit_record(stats, test_restore_and_rollback_input_validation(),
+              "restore and rollback validation rejects unsafe remote values");
   unit_record(stats, test_quickignore_to_rsync_args(),
               ".quickignore patterns become rsync --exclude args");
   unit_record(stats, test_process_stream_callbacks(),

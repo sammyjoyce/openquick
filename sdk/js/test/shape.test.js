@@ -91,6 +91,94 @@ test('db.list still accepts a bare array of flat documents', async () => {
   }
 });
 
+test('db document metadata is authoritative over same-named data fields', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    jsonResponse({
+      id: 'doc-meta',
+      revision: 'server-rev',
+      created_at: '2026-01-01T00:00:00Z',
+      data: {
+        id: 'user-id',
+        revision: 'user-rev',
+        created_at: 'user-created-at',
+        title: 'metadata wins',
+      },
+    });
+  try {
+    const doc = await quick.db.collection('notes').create({ title: 'metadata wins' });
+    assert.equal(doc.id, 'doc-meta');
+    assert.equal(doc.revision, 'server-rev');
+    assert.equal(doc.created_at, '2026-01-01T00:00:00Z');
+    assert.equal(doc.title, 'metadata wins');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('db.update and db.remove send revision preconditions as If-Match', async () => {
+  const originalFetch = globalThis.fetch;
+  const seen = [];
+  globalThis.fetch = async (path, init = {}) => {
+    const headers = new Headers(init.headers);
+    seen.push({
+      path: String(path),
+      method: init.method,
+      ifMatch: headers.get('if-match'),
+      contentType: headers.get('content-type'),
+      body: init.body,
+    });
+    if (init.method === 'PATCH') {
+      return jsonResponse({ id: 'doc-5', revision: 'rev-2', data: { text: 'updated' } });
+    }
+    return new Response(null, { status: 204 });
+  };
+  try {
+    const notes = quick.db.collection('notes');
+    const updated = await notes.update('doc-5', { text: 'updated' }, { revision: 'rev-1' });
+    await notes.remove('doc-5', { revision: 'rev-2' });
+
+    assert.equal(updated.revision, 'rev-2');
+    assert.equal(seen.length, 2);
+    assert.equal(seen[0].method, 'PATCH');
+    assert.equal(seen[0].ifMatch, 'rev-1');
+    assert.equal(seen[0].contentType, 'application/json');
+    assert.equal(seen[0].path.includes('revision='), false);
+    assert.equal(seen[1].method, 'DELETE');
+    assert.equal(seen[1].ifMatch, 'rev-2');
+    assert.equal(seen[1].path.includes('revision='), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('stale DB revision preconditions throw typed revision_mismatch errors', async () => {
+  const originalFetch = globalThis.fetch;
+  let ifMatch = '';
+  globalThis.fetch = async (_path, init = {}) => {
+    ifMatch = new Headers(init.headers).get('if-match') || '';
+    return new Response(JSON.stringify({ error: 'stale revision', code: 'revision_mismatch', revision: 'server-rev' }), {
+      status: 409,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
+  try {
+    await assert.rejects(
+      () => quick.db.collection('notes').update('doc-6', { text: 'stale' }, { revision: 'stale-rev' }),
+      (error) => {
+        assert.equal(error instanceof OpenQuickError, true);
+        assert.equal(error.status, 409);
+        assert.equal(error.code, 'revision_mismatch');
+        assert.equal(error.details.revision, 'server-rev');
+        return true;
+      },
+    );
+    assert.equal(ifMatch, 'stale-rev');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('warehouse.metadata returns configured query metadata', async () => {
   const originalFetch = globalThis.fetch;
   const seen = [];
@@ -179,7 +267,12 @@ test('aborted requests throw typed OpenQuickError', async () => {
   try {
     await assert.rejects(
       () => quick.ai.chat([{ role: 'user', content: 'stop' }], { signal: new AbortController().signal }),
-      (err) => err instanceof OpenQuickError && err.code === 'aborted'
+      (err) => {
+        assert.equal(err instanceof OpenQuickError, true);
+        assert.equal(err.code, 'aborted');
+        assert.equal(err.status, 0);
+        return true;
+      },
     );
   } finally {
     globalThis.fetch = originalFetch;

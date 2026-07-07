@@ -4,8 +4,10 @@ This Pi extension registers an `artifact` tool. The tool writes artifact files t
 `.pi/openquick-artifacts/<site>/` and publishes them with:
 
 ```bash
-quick deploy <artifact-dir> --site <site> --profile cf --no-build --yes --json
+quick deploy <artifact-dir> --site <site> --profile cf --no-build --json
 ```
+
+Pass `overwrite: true` to intentionally append `--yes` for an existing site.
 
 The resulting artifact is served by the Cloudflare Access-protected OpenQuick
 host at:
@@ -65,6 +67,19 @@ extension injects a small bridge that imports `/_quick/sdk.js`, exposes
 }
 ```
 
+By default, the tool does not pass `--yes`. If you provide an explicit `site`
+that already exists, OpenQuick's normal overwrite guard applies. Pass
+`"overwrite": true` only when you intentionally want to replace or update that
+site.
+
+```json
+{
+  "site": "my-artifact",
+  "overwrite": true,
+  "html": "<!doctype html><h1>Replace my-artifact</h1>"
+}
+```
+
 ### Code Mode artifact
 
 Pass `mode: "codemode"` for a pi.dev-artifact-style code playground. The deployed
@@ -105,8 +120,11 @@ itself should call OpenQuick APIs.
 ## Slugs and safety
 
 If `site` is omitted, the extension derives a deterministic slug from the title
-and content hash. Absolute paths, `..`, `.env*`, `.git`, `.quick`, `.ssh`, and
-`node_modules` are rejected before writing files.
+and content hash. Absolute paths, `..`, and any path segment named `.git`,
+`.quick`, `.ssh`, or `node_modules`, or starting with `.env`, are rejected before
+writing files.
 
-Because deployment uses `--yes`, an explicit existing `site` slug can overwrite
-that OpenQuick site non-interactively.
+The extension omits `--yes` unless `overwrite: true` is set, so explicit existing
+`site` slugs keep OpenQuick's overwrite guard instead of being overwritten
+non-interactively. Generated slugs for new artifacts deploy without requiring the
+overwrite opt-in.

@@ -437,6 +437,26 @@ static app_error serve_ssh_expect(const app_config_t *config, const char *host,
   return APP_SUCCESS;
 }
 
+static app_error serve_ssh_script_expect(const app_config_t *config,
+                                         const char *host,
+                                         const char *script,
+                                         const char *arg_path) {
+  if (!script || !arg_path || !quick_remote_path_is_safe(arg_path)) {
+    quick_print_error(config, "remote script argument path is unsafe");
+    return APP_ERROR_VALIDATION;
+  }
+  char *const argv[] = {"sh", "-s", "--", (char *)arg_path, NULL};
+  quick_process_result_t res = {0};
+  app_error err = serve_ssh_capture(host, argv, script, &res);
+  if (err != APP_SUCCESS || res.exit_code != 0) {
+    quick_print_error(config, res.err && res.err[0] ? res.err : "remote install command failed");
+    quick_process_result_destroy(&res);
+    return err == APP_SUCCESS ? APP_ERROR_IO : err;
+  }
+  quick_process_result_destroy(&res);
+  return APP_SUCCESS;
+}
+
 static app_error serve_ssh_tee(const app_config_t *config, const char *host,
                                const char *remote_path, const char *content) {
   char *const argv[] = {"sudo", "tee", (char *)remote_path, NULL};
@@ -643,14 +663,14 @@ static app_error serve_install_execute(const app_config_t *config,
 
 dirs_done:
   if (err == APP_SUCCESS) {
-    char *const backup[] = {
-        "sh", "-c",
-        "set -e; b=$1; sudo install -d -m 0700 \"$b\"; "
-        "[ ! -e /usr/local/bin/quickd ] || sudo cp -p /usr/local/bin/quickd \"$b/quickd\"; "
-        "[ ! -e /etc/openquick/quickd.json ] || sudo cp -p /etc/openquick/quickd.json \"$b/quickd.json\"; "
-        "[ ! -e /etc/systemd/system/openquick.service ] || sudo cp -p /etc/systemd/system/openquick.service \"$b/openquick.service\"",
-        "sh", backup_dir, NULL};
-    err = serve_ssh_expect(config, host, backup);
+    static const char backup_script[] =
+        "set -e\n"
+        "b=$1\n"
+        "sudo install -d -m 0700 \"$b\"\n"
+        "if [ -e /usr/local/bin/quickd ]; then sudo cp -p /usr/local/bin/quickd \"$b/quickd\"; fi\n"
+        "if [ -e /etc/openquick/quickd.json ]; then sudo cp -p /etc/openquick/quickd.json \"$b/quickd.json\"; fi\n"
+        "if [ -e /etc/systemd/system/openquick.service ]; then sudo cp -p /etc/systemd/system/openquick.service \"$b/openquick.service\"; fi\n";
+    err = serve_ssh_script_expect(config, host, backup_script, backup_dir);
     if (err == APP_SUCCESS) {
       backup_created = true;
       app_output_format(config, false, "backup     %s", backup_dir);
@@ -736,15 +756,15 @@ dirs_done:
       err = err == APP_SUCCESS ? APP_ERROR_IO : err;
       if (backup_created) {
         app_output_format(config, true, "rollback   restoring backup from %s", backup_dir);
-        char *const restore[] = {
-            "sh", "-c",
-            "set -e; b=$1; "
-            "[ ! -f \"$b/quickd\" ] || sudo cp -p \"$b/quickd\" /usr/local/bin/quickd; "
-            "[ ! -f \"$b/quickd.json\" ] || sudo cp -p \"$b/quickd.json\" /etc/openquick/quickd.json; "
-            "[ ! -f \"$b/openquick.service\" ] || sudo cp -p \"$b/openquick.service\" /etc/systemd/system/openquick.service; "
-            "sudo systemctl daemon-reload; sudo systemctl restart openquick.service || true",
-            "sh", backup_dir, NULL};
-        app_error restore_err = serve_ssh_expect(config, host, restore);
+        static const char restore_script[] =
+            "set -e\n"
+            "b=$1\n"
+            "if sudo test -f \"$b/quickd\"; then sudo cp -p \"$b/quickd\" /usr/local/bin/quickd; fi\n"
+            "if sudo test -f \"$b/quickd.json\"; then sudo cp -p \"$b/quickd.json\" /etc/openquick/quickd.json; fi\n"
+            "if sudo test -f \"$b/openquick.service\"; then sudo cp -p \"$b/openquick.service\" /etc/systemd/system/openquick.service; fi\n"
+            "sudo systemctl daemon-reload\n"
+            "sudo systemctl restart openquick.service || true\n";
+        app_error restore_err = serve_ssh_script_expect(config, host, restore_script, backup_dir);
         if (restore_err == APP_SUCCESS) {
           app_output("rollback   previous quickd/config restored; inspect backup before removing it", config, true);
         } else {

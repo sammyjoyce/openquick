@@ -718,6 +718,11 @@ app_error app_cmd_restore(const app_config_t *config, int argc,
     quick_print_error(config, "restore requires a site and --from archive path");
     return APP_ERROR_MISSING_ARG;
   }
+  if (!quick_restore_archive_path_is_safe(archive, NULL, site)) {
+    quick_print_error(config,
+                      "restore --from must be the absolute .trash/sites archive path returned by quick delete for this site");
+    return APP_ERROR_VALIDATION;
+  }
   quick_profile_config_t profiles;
   app_error err = quick_cmd_load_profiles(&profiles);
   if (err != APP_SUCCESS) {
@@ -773,7 +778,12 @@ app_error app_cmd_restore(const app_config_t *config, int argc,
         app_output_format(config, false, "  url        %s", result.url);
       }
     }
-  } else if (err != APP_ERROR_VALIDATION) {
+  } else if (err == APP_ERROR_VALIDATION) {
+    if (!result.confirmation_required) {
+      quick_print_error(config,
+                        "restore --from must match the selected profile's .trash/sites archive path");
+    }
+  } else {
     quick_print_error(config, "failed to restore remote site");
   }
   quick_restore_result_destroy(&result);
@@ -790,6 +800,12 @@ app_error app_cmd_rollback(const app_config_t *config, int argc,
     quick_print_error(config, "rollback requires a site");
     return APP_ERROR_MISSING_ARG;
   }
+  const char *release = quick_cmd_value(argc, argv, "--to");
+  if (release && release[0] != '\0' && !quick_release_id_is_safe(release)) {
+    quick_print_error(config,
+                      "rollback --to must be a safe release id using letters, digits, '.', '_', or '-' and must not start with '-'");
+    return APP_ERROR_VALIDATION;
+  }
   quick_profile_config_t profiles;
   app_error err = quick_cmd_load_profiles(&profiles);
   if (err != APP_SUCCESS) {
@@ -801,7 +817,7 @@ app_error app_cmd_rollback(const app_config_t *config, int argc,
   quick_rollback_request_t request = {.profiles = &profiles,
                                       .profile = quick_cmd_value(argc, argv, "--profile"),
                                       .site = site,
-                                      .release = quick_cmd_value(argc, argv, "--to"),
+                                      .release = release,
                                       .assume_yes = quick_cmd_flag(argc, argv, "--yes")};
   err = quick_op_rollback(&request, &result);
   if (err == APP_SUCCESS && result.confirmation_required) {

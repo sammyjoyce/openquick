@@ -108,6 +108,7 @@ type AIAudit struct {
 
 var ErrNotFound = errors.New("not found")
 var ErrInvalidCursor = errors.New("invalid cursor")
+var ErrRevisionMismatch = errors.New("revision mismatch")
 
 func Open(dataDir string) (*Store, error) {
 	if err := os.MkdirAll(dataDir, 0o750); err != nil {
@@ -489,10 +490,13 @@ func (s *Store) RecordDeploy(ctx context.Context, site, release, deployer string
 	if err != nil {
 		return err
 	}
+	if err := recordAudit(ctx, tx, "deploy", site, deployer, release, map[string]string{"release": release, "ssh_key_id": audit.SSHKeyID, "ssh_principals": audit.SSHPrincipals}); err != nil {
+		return err
+	}
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	return s.RecordAudit(ctx, "deploy", site, deployer, release, map[string]string{"release": release, "ssh_key_id": audit.SSHKeyID, "ssh_principals": audit.SSHPrincipals})
+	return nil
 }
 
 func (s *Store) AddDomain(ctx context.Context, domain, site string) (DomainRecord, error) {
@@ -556,7 +560,11 @@ func redactAuditMetadata(in map[string]string) map[string]string {
 	return out
 }
 
-func (s *Store) RecordAudit(ctx context.Context, action, site, subject, target string, metadata map[string]string) error {
+type auditWriter interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func recordAudit(ctx context.Context, w auditWriter, action, site, subject, target string, metadata map[string]string) error {
 	meta := redactAuditMetadata(metadata)
 	if meta == nil {
 		meta = map[string]string{}
@@ -565,8 +573,12 @@ func (s *Store) RecordAudit(ctx context.Context, action, site, subject, target s
 	if err != nil {
 		return err
 	}
-	_, err = s.DB.ExecContext(ctx, `INSERT INTO audit_events(action, site, subject, target, metadata_json, created_at) VALUES(?,?,?,?,?,?)`, action, site, subject, target, string(body), now())
+	_, err = w.ExecContext(ctx, `INSERT INTO audit_events(action, site, subject, target, metadata_json, created_at) VALUES(?,?,?,?,?,?)`, action, site, subject, target, string(body), now())
 	return err
+}
+
+func (s *Store) RecordAudit(ctx context.Context, action, site, subject, target string, metadata map[string]string) error {
+	return recordAudit(ctx, s.DB, action, site, subject, target, metadata)
 }
 
 func (s *Store) ExportAudit(ctx context.Context) ([]AuditEvent, error) {
@@ -777,6 +789,106 @@ func (s *Store) PutDocument(ctx context.Context, site, collection, id, dataJSON,
 		return Document{}, ErrNotFound
 	}
 	return s.GetDocument(ctx, site, collection, id)
+}
+
+func (s *Store) PutDocumentIfUnchanged(ctx context.Context, site, collection, id, dataJSON, actor, expectedUpdatedAt, expectedDataJSON string) (Document, error) {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return Document{}, err
+	}
+	defer tx.Rollback()
+	siteID, err := siteIDTx(ctx, tx, site)
+	if err != nil {
+		return Document{}, err
+	}
+	t := now()
+	res, err := tx.ExecContext(ctx, `UPDATE documents SET data_json=?, updated_by=?, updated_at=? WHERE site_id=? AND collection=? AND id=? AND updated_at=? AND data_json=?`, dataJSON, actor, t, siteID, collection, id, expectedUpdatedAt, expectedDataJSON)
+	if err != nil {
+		return Document{}, err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		exists, err := documentExistsTx(ctx, tx, siteID, collection, id)
+		if err != nil {
+			return Document{}, err
+		}
+		if !exists {
+			return Document{}, ErrNotFound
+		}
+		return Document{}, ErrRevisionMismatch
+	}
+	d, err := getDocumentTx(ctx, tx, siteID, collection, id)
+	if err != nil {
+		return Document{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Document{}, err
+	}
+	return d, nil
+}
+
+func (s *Store) DeleteDocumentIfUnchanged(ctx context.Context, site, collection, id, expectedUpdatedAt, expectedDataJSON string) error {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	siteID, err := siteIDTx(ctx, tx, site)
+	if err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM documents WHERE site_id=? AND collection=? AND id=? AND updated_at=? AND data_json=?`, siteID, collection, id, expectedUpdatedAt, expectedDataJSON)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		exists, err := documentExistsTx(ctx, tx, siteID, collection, id)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return ErrNotFound
+		}
+		return ErrRevisionMismatch
+	}
+	return tx.Commit()
+}
+
+func siteIDTx(ctx context.Context, tx *sql.Tx, name string) (int64, error) {
+	var id int64
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM sites WHERE name = ?`, name).Scan(&id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, ErrNotFound
+		}
+		return 0, err
+	}
+	return id, nil
+}
+
+func getDocumentTx(ctx context.Context, tx *sql.Tx, siteID int64, collection, id string) (Document, error) {
+	row := tx.QueryRowContext(ctx, `SELECT data_json, COALESCE(created_by,''), COALESCE(updated_by,''), created_at, updated_at FROM documents WHERE site_id=? AND collection=? AND id=?`, siteID, collection, id)
+	var d Document
+	d.SiteID, d.Collection, d.ID = siteID, collection, id
+	if err := row.Scan(&d.DataJSON, &d.CreatedBy, &d.UpdatedBy, &d.CreatedAt, &d.UpdatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Document{}, ErrNotFound
+		}
+		return Document{}, err
+	}
+	return d, nil
+}
+
+func documentExistsTx(ctx context.Context, tx *sql.Tx, siteID int64, collection, id string) (bool, error) {
+	var exists int
+	err := tx.QueryRowContext(ctx, `SELECT 1 FROM documents WHERE site_id=? AND collection=? AND id=?`, siteID, collection, id).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *Store) DeleteDocument(ctx context.Context, site, collection, id string) error {

@@ -219,7 +219,7 @@ static bool quick_tui_edit_profile_field(quick_profile_t *profile) {
 }
 
 typedef enum {
-  QUICK_TUI_UNSAVED_CANCEL = 0,
+  QUICK_TUI_UNSAVED_CANCEL = 1,
   QUICK_TUI_UNSAVED_SAVE,
   QUICK_TUI_UNSAVED_DISCARD,
 } quick_tui_unsaved_decision_t;

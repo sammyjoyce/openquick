@@ -858,19 +858,6 @@ func (h *Handler) serveStatic(w http.ResponseWriter, r *http.Request, site, urlP
 		http.NotFound(w, r)
 		return
 	}
-	if rel != "." {
-		if encodedRel, encoding, ok := precompressedVariant(root, rel, r.Header.Get("Accept-Encoding")); ok {
-			file, stat, err := safeOpen(root, encodedRel)
-			if err == nil && !stat.IsDir() {
-				defer file.Close()
-				serveEncodedOpened(w, r, rel, encoding, file, stat)
-				return
-			}
-			if file != nil {
-				file.Close()
-			}
-		}
-	}
 	file, stat, err := safeOpen(root, rel)
 	if err != nil && errors.Is(err, os.ErrNotExist) {
 		if h.trySPAFallback(w, r, site, root) {
@@ -883,8 +870,8 @@ func (h *Handler) serveStatic(w http.ResponseWriter, r *http.Request, site, urlP
 		h.serveSiteForbidden(w, r, root)
 		return
 	}
-	defer file.Close()
 	if stat.IsDir() {
+		defer file.Close()
 		dirRel := rel
 		indexRel := "index.html"
 		if dirRel != "." {
@@ -910,6 +897,15 @@ func (h *Handler) serveStatic(w http.ResponseWriter, r *http.Request, site, urlP
 		h.serveSiteNotFound(w, r, root)
 		return
 	}
+	if rel != "." {
+		if encodedFile, encodedStat, encoding, ok := precompressedVariant(root, rel, r.Header.Get("Accept-Encoding")); ok {
+			file.Close()
+			defer encodedFile.Close()
+			serveEncodedOpened(w, r, rel, encoding, encodedFile, encodedStat)
+			return
+		}
+	}
+	defer file.Close()
 	serveOpened(w, r, rel, file, stat)
 }
 
@@ -1135,7 +1131,7 @@ func acceptEncodingQ(fields []string) float64 {
 	return q
 }
 
-func precompressedVariant(root, rel, acceptEncoding string) (string, string, bool) {
+func precompressedVariant(root, rel, acceptEncoding string) (*os.File, os.FileInfo, string, bool) {
 	candidates := []struct {
 		suffix   string
 		encoding string
@@ -1147,17 +1143,15 @@ func precompressedVariant(root, rel, acceptEncoding string) (string, string, boo
 		if !acceptsEncoding(acceptEncoding, candidate.encoding) {
 			continue
 		}
-		encodedRel := rel + candidate.suffix
-		file, stat, err := safeOpen(root, encodedRel)
+		file, stat, err := safeOpen(root, rel+candidate.suffix)
 		if err == nil && !stat.IsDir() {
-			file.Close()
-			return encodedRel, candidate.encoding, true
+			return file, stat, candidate.encoding, true
 		}
 		if file != nil {
 			file.Close()
 		}
 	}
-	return "", "", false
+	return nil, nil, "", false
 }
 
 func serveEncodedOpened(w http.ResponseWriter, r *http.Request, rel, encoding string, f *os.File, info os.FileInfo) {

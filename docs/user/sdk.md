@@ -12,11 +12,22 @@ Hosted sites import the SDK from the same origin:
 </script>
 ```
 
-The SDK has no runtime dependencies. It calls same-origin `/_quick/*` APIs on wildcard site hosts and automatically switches to `/~/site/_quick/*` when the current page is served through OpenQuick's path fallback.
+The SDK has no runtime dependencies.
+It calls same-origin `/_quick/*` APIs on wildcard site hosts and automatically switches to `/~/site/_quick/*` when the current page is served through OpenQuick's path fallback.
 
 ## Top-level API
 
 ```ts
+type RequestOptions = { signal?: AbortSignal };
+type DbWriteOptions = RequestOptions & { revision?: string };
+type DbListOptions = RequestOptions & {
+  limit?: number;
+  cursor?: string;
+  filter?: Record<string, unknown> | string;
+  sort?: string | string[];
+};
+type UploadListOptions = RequestOptions & { limit?: number; cursor?: string };
+
 export const quick = {
   identity: {
     current(): Promise<Identity>;
@@ -27,21 +38,33 @@ export const quick = {
   },
   uploads: {
     put(file: File | Blob, options?: UploadOptions): Promise<Upload>;
-    get(id: string): Promise<Upload>;
-    remove(id: string): Promise<void>;
+    get(id: string, options?: RequestOptions): Promise<Upload>;
+    list(options?: UploadListOptions): Promise<UploadListResult>;
+    remove(id: string, options?: RequestOptions): Promise<void>;
   },
   realtime: {
     channel(name: string): Channel;
+    onStateChange(cb: (state: 'disconnected' | 'connecting' | 'connected' | 'reconnecting') => void): () => void;
   },
   ai: {
     chat(messages: ChatMessage[], options?: ChatOptions): Promise<ChatResponse>;
     image(prompt: string, options?: ImageOptions): Promise<ImageResponse>;
   },
   warehouse: {
-    query(name: string, params?: Record<string, unknown>): Promise<WarehouseQueryResult>;
+    metadata(options?: RequestOptions): Promise<WarehouseMetadataResult>;
+    query(name: string, params?: Record<string, unknown>, options?: RequestOptions): Promise<WarehouseQueryResult>;
   },
-  capabilities(): Promise<Capabilities>;
+  capabilities(options?: RequestOptions): Promise<Capabilities>;
 };
+
+interface Collection<T = DocumentRecord> {
+  create(data: Record<string, unknown>, options?: RequestOptions): Promise<T>;
+  get(id: string, options?: RequestOptions): Promise<T>;
+  update(id: string, patch: Record<string, unknown>, options?: DbWriteOptions): Promise<T>;
+  remove(id: string, options?: DbWriteOptions): Promise<void>;
+  list(options?: DbListOptions): Promise<ListResult<T>>;
+  subscribe(handlers: DbSubscriptionHandlers<T>): Promise<() => void>;
+}
 ```
 
 ## Identity
@@ -82,22 +105,35 @@ const created = await posts.create({
 });
 
 const post = await posts.get(created.id);
-await posts.update(created.id, { status: 'published' }); // PATCH semantics
-const allPosts = await posts.list();
-await posts.remove(created.id);
+const published = await posts.update(created.id, { status: 'published' }, { revision: created.revision }); // PATCH semantics + If-Match
+const page = await posts.list({
+  limit: 25,
+  filter: { status: 'published' },
+  sort: ['-updated_at', 'id'],
+});
+const nextPage = page.nextCursor ? await posts.list({ limit: 25, cursor: page.nextCursor }) : [];
+await posts.remove(created.id, { revision: published.revision });
 ```
 
 HTTP backing:
 
 ```text
-GET    /_quick/db/:collection
+GET    /_quick/db/:collection?limit=&cursor=&filter=&sort=
 POST   /_quick/db/:collection
 GET    /_quick/db/:collection/:id
-PATCH  /_quick/db/:collection/:id
-DELETE /_quick/db/:collection/:id
+PATCH  /_quick/db/:collection/:id        # optional If-Match: <revision>
+DELETE /_quick/db/:collection/:id        # optional If-Match: <revision>
 ```
 
+`list()` accepts `limit`, `cursor`, `filter`, and `sort`.
+Object filters are JSON-encoded; sort arrays are sent as a comma-separated list.
+Results are arrays with `documents`, `next_cursor`, and `nextCursor` aliases for pagination metadata.
+
+`update()` and `remove()` accept `{ revision }` to make writes conditional. The SDK sends the value as `If-Match`; stale revisions fail with `OpenQuickError` status `409` and code `revision_mismatch`.
+
 All records are namespaced by the site and authenticated identity on the host.
+quickd returns document data in a `data` envelope; the SDK flattens it to `id` plus fields while keeping server metadata such as `id`, `revision`,
+`created_at`, `updated_at`, and `created_by` authoritative over same-named user data fields.
 
 ## DB subscriptions
 
@@ -133,11 +169,13 @@ Server publish messages use:
 ## Realtime channels
 
 ```js
+const stopState = quick.realtime.onStateChange((state) => console.log('realtime', state));
 const room = quick.realtime.channel('lunch-room');
 const stopCursor = room.on('cursor', (msg) => renderCursor(msg));
 room.send('cursor', { x: 120, y: 90 });
 ```
 
+`onStateChange()` reports `disconnected`, `connecting`, `connected`, and `reconnecting` for the shared socket and returns an unsubscribe function.
 `send()` publishes this envelope over the shared connection:
 
 ```json
@@ -156,13 +194,18 @@ const upload = await quick.uploads.put(file, { name: file.name });
 console.log(upload.url);
 
 const metadata = await quick.uploads.get(upload.id);
+const uploads = await quick.uploads.list({ limit: 20 });
+const moreUploads = uploads.nextCursor ? await quick.uploads.list({ limit: 20, cursor: uploads.nextCursor }) : [];
 await quick.uploads.remove(upload.id);
 ```
+
+`list()` returns an array with `uploads`, `next_cursor`, and `nextCursor` aliases for pagination metadata.
 
 HTTP backing:
 
 ```text
 POST   /_quick/uploads
+GET    /_quick/uploads?limit=&cursor=
 GET    /_quick/uploads/:id
 DELETE /_quick/uploads/:id
 ```
@@ -186,7 +229,9 @@ if (caps.warehouse) {
 }
 ```
 
-Feature-specific SDK calls check `GET /_quick/capabilities` first. If a host reports `ai: false` or `warehouse: false` (or omits the flag), the call fails before hitting the feature endpoint with a clear error such as `quick.ai.chat is not available on this host`.
+Feature-specific SDK calls check `GET /_quick/capabilities` first.
+If a host reports `ai: false` or `warehouse: false` (or omits the flag), the call fails before hitting the feature endpoint with a clear error such as
+`quick.ai.chat is not available on this host`.
 
 ## AI
 
@@ -245,6 +290,15 @@ AI provider keys stay server-side. Browser code sends prompts only to the same-o
 
 ## Warehouse
 
+Warehouse metadata lists the configured named queries with their parameters, maximum row count, and columns:
+
+```js
+const metadata = await quick.warehouse.metadata(); // GET /_quick/warehouse
+for (const query of metadata.queries) {
+  console.log(query.name, query.params, query.columns);
+}
+```
+
 Named warehouse queries post same-origin JSON to `POST /_quick/warehouse/:name`:
 
 ```js
@@ -258,9 +312,18 @@ for (const row of report.rows) {
 }
 ```
 
-Response shape:
+Response shapes:
 
 ```ts
+type WarehouseMetadataResult = {
+  queries: Array<{
+    name: string;
+    params: Array<{ name: string; type: string }>;
+    max_rows: number;
+    columns: string[];
+  }>;
+};
+
 type WarehouseQueryResult = {
   name: string;
   columns: string[];

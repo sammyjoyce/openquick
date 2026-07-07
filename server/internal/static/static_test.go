@@ -187,6 +187,44 @@ func TestPrecompressedAssetServing(t *testing.T) {
 	}
 }
 
+func TestPrecompressedSidecarRequiresOriginal(t *testing.T) {
+	h, root := testStaticHandler(t)
+	siteDir := filepath.Join(root, "sites", "demo")
+	rel := filepath.Join(siteDir, "releases", "20260611T000000Z-abcdef")
+	if err := sites.WriteSiteConfig(siteDir, sites.SiteConfig{Name: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rel, "404.html"), []byte("custom missing"), 0o660); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rel, "ghost.txt.gz"), []byte("stale gzip"), 0o660); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "http://demo.localhost:9366/ghost.txt", nil)
+	req.RemoteAddr = "127.0.0.1:12345"
+	req.Header.Set("Accept-Encoding", "gzip")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNotFound || !strings.Contains(rr.Body.String(), "custom missing") || rr.Header().Get("Content-Encoding") == "gzip" || strings.Contains(rr.Body.String(), "stale gzip") {
+		t.Fatalf("missing original status=%d encoding=%q body=%q", rr.Code, rr.Header().Get("Content-Encoding"), rr.Body.String())
+	}
+
+	if err := os.WriteFile(filepath.Join(rel, "plain.txt"), []byte("plain"), 0o660); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rel, "plain.txt.gz"), []byte("encoded plain"), 0o660); err != nil {
+		t.Fatal(err)
+	}
+	req = httptest.NewRequest(http.MethodGet, "http://demo.localhost:9366/plain.txt", nil)
+	req.RemoteAddr = "127.0.0.1:12345"
+	req.Header.Set("Accept-Encoding", "gzip")
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK || rr.Header().Get("Content-Encoding") != "gzip" || rr.Body.String() != "encoded plain" {
+		t.Fatalf("present original status=%d encoding=%q body=%q", rr.Code, rr.Header().Get("Content-Encoding"), rr.Body.String())
+	}
+}
+
 func TestPermissionDeniedFriendlyHTMLAndAPIJSON(t *testing.T) {
 	h, _ := testStaticHandler(t)
 	req := httptest.NewRequest(http.MethodGet, "http://demo.localhost:9366/", nil)

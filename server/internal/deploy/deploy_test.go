@@ -211,6 +211,72 @@ func TestDeleteSiteRemovesCatalogAndFilesystem(t *testing.T) {
 	}
 }
 
+func TestRestoreSitePreflightsSubdomainConflict(t *testing.T) {
+	svc, st, root := newTestService(t, 10)
+	ctx := context.Background()
+	res, err := svc.PrepareWithOptions(ctx, "demo", PrepareOptions{Subdomain: "team-demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stageFile(t, res, "index.html", "demo")
+	if _, err := svc.Activate(ctx, "demo", res.DeployID); err != nil {
+		t.Fatal(err)
+	}
+	deleted, err := svc.DeleteSite(ctx, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.EnsureSite(ctx, "claim", "team-demo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.RestoreSite(ctx, "demo", deleted.Archive); err == nil || !strings.Contains(err.Error(), "already used") {
+		t.Fatalf("expected subdomain conflict, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(deleted.Archive, "site", "current")); err != nil {
+		t.Fatalf("archive site was not preserved: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "sites", "demo")); !os.IsNotExist(err) {
+		t.Fatalf("site directory restored despite failed preflight: %v", err)
+	}
+	if _, err := st.GetSite(ctx, "demo"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("site catalog row restored despite failed preflight: %v", err)
+	}
+}
+
+func TestPurgeArchiveRejectsUnsafePaths(t *testing.T) {
+	svc, _, root := newTestService(t, 10)
+	ctx := context.Background()
+	trashRoot := filepath.Join(root, ".trash")
+	archiveRoot := filepath.Join(trashRoot, "sites")
+	archive := filepath.Join(archiveRoot, "keep")
+	unexpected := filepath.Join(trashRoot, "other", "keep")
+	if err := os.MkdirAll(filepath.Join(archive, "site"), 0o770); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(unexpected, 0o770); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		name       string
+		path       string
+		wantExists string
+	}{
+		{"trash root", trashRoot, archive},
+		{"archive namespace root", archiveRoot, archive},
+		{"nested archive payload", filepath.Join(archive, "site"), archive},
+		{"unexpected namespace", unexpected, unexpected},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := svc.PurgeArchive(ctx, tt.path); err == nil {
+				t.Fatalf("expected purge rejection for %s", tt.path)
+			}
+			if _, err := os.Stat(tt.wantExists); err != nil {
+				t.Fatalf("expected %s to remain: %v", tt.wantExists, err)
+			}
+		})
+	}
+}
+
 func TestCleanupIncomingRemovesPreparedStaging(t *testing.T) {
 	svc, _, root := newTestService(t, 10)
 	ctx := context.Background()
@@ -375,6 +441,45 @@ func TestPrepareMetadataSubdomainAndSSHCertSigning(t *testing.T) {
 	}
 	if verify.OK || len(verify.Failures) == 0 {
 		t.Fatalf("tamper verify=%+v", verify)
+	}
+}
+
+func TestVerifyRejectsPartialManifestSignature(t *testing.T) {
+	svc, _, root := newTestService(t, 10)
+	ctx := context.Background()
+	res, err := svc.Prepare(ctx, "partial")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stageFile(t, res, "index.html", "partial")
+	if _, err := svc.Activate(ctx, "partial", res.DeployID); err != nil {
+		t.Fatal(err)
+	}
+	releaseDir := filepath.Join(root, "sites", "partial", "releases", res.DeployID)
+	files, bytes, hash, err := validateTreeAndHash(releaseDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeManifest(releaseDir, Manifest{
+		FormatVersion: "1.0",
+		Site:          "partial",
+		Release:       res.DeployID,
+		Files:         files,
+		Bytes:         bytes,
+		ContentHash:   "sha256:" + hash,
+		Deployer:      "tester",
+		SourceHost:    "test",
+		CreatedAt:     time.Now().UTC().Format(time.RFC3339Nano),
+		PublicKey:     strings.Repeat("A", 43) + "=",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	verify, err := svc.VerifyReleases(ctx, "partial", res.DeployID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verify.OK || len(verify.Failures) == 0 || !strings.Contains(verify.Failures[0], "invalid signature") {
+		t.Fatalf("partial signature verify=%+v", verify)
 	}
 }
 

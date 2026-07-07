@@ -76,6 +76,55 @@ func addAdminFlags(fs *flag.FlagSet, f *adminFlags) {
 	fs.StringVar(&f.root, "root", config.RootFromEnv(), "quickd root")
 }
 
+type flagBoolValue interface {
+	IsBoolFlag() bool
+}
+
+func parseIntermixedFlagSet(fs *flag.FlagSet, args []string) error {
+	flags := make([]string, 0, len(args))
+	positionals := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			positionals = append(positionals, args[i+1:]...)
+			break
+		}
+		name, isFlag := intermixedFlagName(arg)
+		if !isFlag {
+			positionals = append(positionals, arg)
+			continue
+		}
+		flags = append(flags, arg)
+		f := fs.Lookup(name)
+		if f == nil || strings.Contains(arg, "=") {
+			continue
+		}
+		if bf, ok := f.Value.(flagBoolValue); ok && bf.IsBoolFlag() {
+			continue
+		}
+		if i+1 < len(args) {
+			i++
+			flags = append(flags, args[i])
+		}
+	}
+	flags = append(flags, positionals...)
+	return fs.Parse(flags)
+}
+
+func intermixedFlagName(arg string) (string, bool) {
+	if len(arg) < 2 || arg[0] != '-' || arg == "-" {
+		return "", false
+	}
+	name := arg[1:]
+	if strings.HasPrefix(name, "-") {
+		name = name[1:]
+	}
+	if idx := strings.IndexByte(name, '='); idx >= 0 {
+		name = name[:idx]
+	}
+	return name, true
+}
+
 func loadAdmin(root string) (config.Config, *store.Store, error) {
 	cfg, err := config.LoadForRoot(root)
 	if err != nil {
@@ -344,7 +393,7 @@ func parseSitesAdminArgs(args []string) (adminFlags, string, error) {
 
 func sitesCmd(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: quickd sites <get|delete> <site> [--json]")
+		return errors.New("usage: quickd sites <get|delete|public|restore|purge> ... [--json]")
 	}
 	switch args[0] {
 	case "get":
@@ -389,43 +438,59 @@ func sitesCmd(args []string) error {
 	}
 }
 
-func sitesRestoreCmd(args []string) error {
+func parseSitesRestoreArgs(args []string) (adminFlags, string, string, error) {
 	fs := flag.NewFlagSet("quickd sites restore", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var af adminFlags
 	var archive string
 	addAdminFlags(fs, &af)
 	fs.StringVar(&archive, "from", "", "archive path returned by delete")
-	if err := fs.Parse(args); err != nil {
-		return err
+	if err := parseIntermixedFlagSet(fs, args); err != nil {
+		return af, "", "", err
 	}
 	if fs.NArg() != 1 || archive == "" {
-		return errors.New("usage: quickd sites restore <site> --from <archive> [--json]")
+		return af, "", "", errors.New("usage: quickd sites restore <site> --from <archive> [--json]")
+	}
+	return af, fs.Arg(0), archive, nil
+}
+
+func sitesRestoreCmd(args []string) error {
+	af, siteName, archive, err := parseSitesRestoreArgs(args)
+	if err != nil {
+		return err
 	}
 	cfg, st, err := loadAdmin(af.root)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
-	res, err := deploy.New(cfg, st).RestoreSite(context.Background(), fs.Arg(0), archive)
+	res, err := deploy.New(cfg, st).RestoreSite(context.Background(), siteName, archive)
 	if err != nil {
 		return err
 	}
 	return printResult(af.json, res)
 }
 
-func sitesPurgeCmd(args []string) error {
+func parseSitesPurgeArgs(args []string) (adminFlags, string, error) {
 	fs := flag.NewFlagSet("quickd sites purge", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var af adminFlags
 	var archive string
 	addAdminFlags(fs, &af)
 	fs.StringVar(&archive, "from", "", "archive path returned by delete")
-	if err := fs.Parse(args); err != nil {
-		return err
+	if err := parseIntermixedFlagSet(fs, args); err != nil {
+		return af, "", err
 	}
-	if archive == "" {
-		return errors.New("usage: quickd sites purge --from <archive> [--json]")
+	if fs.NArg() != 0 || archive == "" {
+		return af, "", errors.New("usage: quickd sites purge --from <archive> [--json]")
+	}
+	return af, archive, nil
+}
+
+func sitesPurgeCmd(args []string) error {
+	af, archive, err := parseSitesPurgeArgs(args)
+	if err != nil {
+		return err
 	}
 	cfg, st, err := loadAdmin(af.root)
 	if err != nil {
@@ -517,8 +582,11 @@ func releasesCmd(args []string) error {
 		var siteName string
 		addAdminFlags(fs, &af)
 		fs.StringVar(&siteName, "site", "", "site slug")
-		if err := fs.Parse(args[1:]); err != nil {
+		if err := parseIntermixedFlagSet(fs, args[1:]); err != nil {
 			return err
+		}
+		if fs.NArg() != 0 {
+			return errors.New("usage: quickd releases list --site <site> [--json]")
 		}
 		if siteName == "" {
 			return errors.New("--site is required")
@@ -541,8 +609,11 @@ func releasesCmd(args []string) error {
 		addAdminFlags(fs, &af)
 		fs.StringVar(&siteName, "site", "", "site slug")
 		fs.StringVar(&release, "release", "", "release id")
-		if err := fs.Parse(args[1:]); err != nil {
+		if err := parseIntermixedFlagSet(fs, args[1:]); err != nil {
 			return err
+		}
+		if fs.NArg() != 0 {
+			return errors.New("usage: quickd releases verify --site <site> [--release <release>] [--json]")
 		}
 		if siteName == "" {
 			return errors.New("--site is required")
@@ -567,8 +638,11 @@ func releasesCmd(args []string) error {
 		fs.StringVar(&release, "to", "", "release id to restore; defaults to previous")
 		fs.StringVar(&release, "release", "", "release id to restore; defaults to previous")
 		fs.StringVar(&deployerName, "deployer", defaultDeployer(), "deployer identity")
-		if err := fs.Parse(args[1:]); err != nil {
+		if err := parseIntermixedFlagSet(fs, args[1:]); err != nil {
 			return err
+		}
+		if fs.NArg() != 0 {
+			return errors.New("usage: quickd releases rollback --site <site> [--to <release>] [--deployer <identity>] [--json]")
 		}
 		if siteName == "" {
 			return errors.New("--site is required")
@@ -688,7 +762,13 @@ func assessDomainReadiness(ctx context.Context, domain string, lookup domainLook
 			Remediation: "create A/AAAA or CNAME records that point this domain at the OpenQuick host, then retry after DNS propagates",
 		}
 	}
-	return domainReadiness{Status: "ok", DNS: "ok", TLS: "ok", Addresses: addrs}
+	return domainReadiness{
+		Status:      "pending",
+		DNS:         "ok",
+		TLS:         "pending",
+		Addresses:   addrs,
+		Remediation: "DNS resolves; wait for HTTPS certificate issuance and retry after the certificate is serving",
+	}
 }
 
 func domainsWithReadiness(ctx context.Context, recs []store.DomainRecord, lookup domainLookupFunc) []domainListRecord {

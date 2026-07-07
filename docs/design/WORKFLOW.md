@@ -360,8 +360,8 @@ flowchart TD
 8. leave failed staging directories for debugging for 24 hours, then garbage
    collect them.
 
-Rollback is not in the requested v0 command list, but the layout should make a
-future `quick rollback <site> <release>` a symlink swap plus an audit record.
+Rollback is an explicit recovery workflow: `quick rollback SITE [--to RELEASE]`
+swaps `current` to the previous or selected release and records an audit event.
 
 ### Deploy output
 

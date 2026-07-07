@@ -18,7 +18,8 @@ OpenQuick is inspired by [Shopify Quick](https://shopify.engineering/quick); it 
 
 Run the host install command once per host.
 It writes or updates the local `lab` profile and prints the host install plan.
-Add `--execute` when you are ready to copy a local `quickd` over SSH and install the systemd service on the host. Execute mode creates a remote backup of the existing quickd binary/config/unit before replacing them and restores that backup automatically if the post-install host doctor fails.
+Add `--execute` when you are ready to copy a local `quickd` over SSH and install the systemd service on the host.
+Execute mode creates a remote backup of the existing quickd binary/config/unit before replacing them and restores that backup automatically if the post-install host doctor fails.
 
 ```bash
 quick serve install --profile lab --host quick@box --remote-root /srv/quick --domain quick.example.com --iap tailscale
@@ -61,7 +62,7 @@ Global flags: `--help` (`-h`), `--version`, `--debug` (`-d`), `--quiet` (`-q`), 
 | `quick init [path]` | Scaffold a static site with `index.html`, `quick.json`, `AGENTS.md`, API notes, and `.quickignore`. | `--template <blank\|realtime\|list>`, `--name <name>`, `--profile <profile>`, `--adopt` |
 | `quick templates` | List bundled site templates, generated files, and whether they demonstrate SDK APIs. | none |
 | `quick deploy [path]` | Build if configured, transfer a folder or ZIP, and publish a new release through `quickd`. | `--site <site>`, `--subdomain <subdomain>`, `--profile <profile>`, `--dry-run`, `--no-build`, `--no-delete`, `--open`, `--bootstrap`, `--allow-unpublished`, `--checksum`, `--yes` |
-| `quick serve --dev` or `quick serve install` | Run local dev `quickd`, proxy remote APIs for dev, or print/install host setup steps. | `--dev`, `--port <port>`, `--identity <email>`, `--remote-api <profile>`, `--profile <profile>`, `--host <host>`, `--remote-root <path>`, `--domain <domain>`, `--iap <tailscale\|cloudflare\|none>`, `--execute`, `--allow-public-unsafe` |
+| `quick serve --dev` or `quick serve install` | Run local dev `quickd`, proxy remote APIs for dev, or print/install host setup steps. | `--dev`, `--port <port>`, `--identity <email>`, `--remote-api <profile>`, `--profile <profile>`, `--host <host>`, `--remote-root <path>`, `--domain <domain>`, `--iap <tailscale\|tailscale-localapi\|tailscale-serve\|tailscale-tsnet\|cloudflare\|cloudflare-access\|none>`, `--execute`, `--allow-public-unsafe` |
 | `quick open [site]` | Open or print the resolved site URL. | `--profile <profile>`, `--copy`, `--plain` |
 | `quick list` | List local deployment records and remote host rows with deterministic filtering/sorting. | `--profile <profile>`, `--remote`, `--filter <query>`, `--sort <name\|updated\|source>`, `--json` |
 | `quick config show` | Show resolved config/profile/target values and their source precedence. | `--profile <profile>`, `--site <site>`, `--subdomain <subdomain>`, `--json` |
@@ -82,13 +83,18 @@ Useful environment variables include `QUICK_CONFIG_PATH`, `QUICK_PROFILE`, `QUIC
 
 Run `quick` with no arguments on an interactive terminal. It opens the keyboard-driven dashboard unless JSON output is active. The hidden `quick menu` command opens the same TUI.
 
-Use the TUI to browse sites, deploy a site, create a new site, run doctor checks, start a local dev server, generate a host install guide, and edit profile or site settings. Main-menu descriptions and Help expose the equivalent CLI commands for non-fullscreen or screen-reader workflows. Profile edits show an unsaved-changes warning on Back with save, discard, or cancel options. Cancelled deploys report whether remote staging was cleaned or which staging path remains.
+Use the TUI to browse sites, deploy a site, create a new site, run doctor checks, start a local dev server, generate a host install guide, and edit profile or site settings.
+Main-menu descriptions and Help expose the equivalent CLI commands for non-fullscreen or screen-reader workflows.
+Profile edits show an unsaved-changes warning on Back with save, discard, or cancel options.
+Cancelled deploys report whether remote staging was cleaned or which staging path remains.
 Default builds include the TUI.
 Build with `zig build -Denable-tui=false` for a headless CLI.
 
 ### `quickd` host daemon
 
-`quickd` runs on one host. It serves static files (including `.br`/`.gz` precompressed assets when requested), routes wildcard subdomains, exposes `/_quick/*`, stores catalog data in SQLite, performs host-side deploy activation, and can export an audit log with `quickd audit export --json`.
+`quickd` runs on one host.
+It serves static files (including `.br`/`.gz` precompressed assets when requested), routes wildcard subdomains, exposes `/_quick/*`, and stores catalog data in SQLite.
+It performs host-side deploy activation and can export an audit log with `quickd audit export --json`.
 
 A deploy is staged before it is served:
 
@@ -96,7 +102,9 @@ A deploy is staged before it is served:
 2. `quick deploy` mirrors files with `rsync` or uploads a ZIP for host extraction.
 3. `quickd deploy activate` validates the staging tree, writes `.quick-release.json`, moves it into `releases/<release-id>`, swaps `current` atomically, records the deploy, and prunes old releases.
 
-`quick deploy --dry-run` prints the planned transfer command plus a local diff summary against the last successful deploy manifest: added, changed, deleted, and `.quickignore`-excluded paths. Human output highlights destructive deletes; JSON includes the category arrays for automation. If transfer fails, CLI output includes the failed phase, remote staging cleanup status, and retry guidance.
+`quick deploy --dry-run` prints the planned transfer command plus a local diff summary against the last successful deploy manifest: added, changed, deleted, and `.quickignore`-excluded paths.
+Human output highlights destructive deletes; JSON includes the category arrays for automation.
+If transfer fails, CLI output includes the failed phase, remote staging cleanup status, and retry guidance.
 
 A browser sees either the previous complete release or the next complete release. It never sees an in-progress transfer.
 
@@ -144,7 +152,11 @@ The SDK calls same-origin OpenQuick APIs with credentials, using `/_quick/*` on 
 The stable surface is `quick.identity.current()`, `quick.identity.onChange()`, `quick.db.collection()`, `quick.realtime.channel()`, `quick.uploads.put/get/list/remove()`,
 `quick.ai.chat/image()`, `quick.warehouse.metadata/query()`, and `quick.capabilities()`.
 
-Identity, DB, realtime, and uploads are core host APIs. DB list endpoints support pagination plus equality `filter` JSON and deterministic `sort` keys (`created_at`, `updated_at`, `id`). Uploads can be listed and SDK uploads accept `onProgress` plus `AbortSignal`. AI calls also propagate `AbortSignal` and throw typed `OpenQuickError` aborts. AI and warehouse stay unavailable until the host advertises `capabilities().ai === true` or `capabilities().warehouse === true`.
+Identity, DB, realtime, and uploads are core host APIs.
+DB list endpoints support pagination plus equality `filter` JSON and deterministic `sort` keys (`created_at`, `updated_at`, `id`).
+Uploads can be listed and SDK uploads accept `onProgress` plus `AbortSignal`.
+AI calls also propagate `AbortSignal` and throw typed `OpenQuickError` aborts.
+AI and warehouse stay unavailable until the host advertises `capabilities().ai === true` or `capabilities().warehouse === true`.
 
 ### Examples
 
@@ -184,7 +196,8 @@ These surfaces are off by default or empty by default. Enable them deliberately 
   The ask endpoint allows only cataloged domains from loopback or trusted proxies.
 - **Dev remote-API proxy:** set `dev_proxy.enabled`, then use `quick serve --dev --remote-api <profile>` to serve local static files while forwarding `/_quick/*` to a deployed site.
 - **AI and warehouse:** set `ai.enabled` with providers and model allowlists, or `warehouse.enabled` with named read-only queries. Browser code never receives provider keys or database URLs.
-- **Friendly error pages:** add `404.html` or `403.html` to a site to brand missing or unavailable content. Without `403.html`, OpenQuick returns a generic no-leak page with a home link for forbidden static paths such as symlink escapes.
+- **Friendly error pages:** add `404.html` or `403.html` to a site to brand missing or unavailable content.
+  Without `403.html`, OpenQuick returns a generic no-leak page with a home link for forbidden static paths such as symlink escapes.
 
 ## Philosophy
 
@@ -202,7 +215,8 @@ Run one host first. Use audit records, release manifests, SSH identity, and roll
 ## Container
 
 Build the container image.
-The Docker build creates the SDK artifact, runs Go vet/tests and Zig tests unless `SKIP_TESTS=1`, and builds a release CLI without the TUI for deterministic Linux container builds.
+The Docker build creates the SDK artifact, runs Go vet/tests and Zig tests unless `SKIP_TESTS=1`, and builds a release CLI with TUI support enabled.
+Terminfo styling and PTY terminal scenarios stay disabled for deterministic Linux container builds.
 
 ```bash
 docker build -t openquick:test .
