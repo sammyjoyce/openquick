@@ -57,15 +57,29 @@ if ! printf '%s\n' "$checklist_section" | grep -q "quick doctor --profile"; then
   exit 1
 fi
 
+stage=
 tmp=$(mktemp "${TMPDIR:-/tmp}/openquick-deploy.XXXXXX.zip")
-trap 'rm -f "$tmp"' EXIT HUP INT TERM
+cleanup() {
+  rm -f "$tmp"
+  if [ -n "$stage" ]; then
+    rm -rf "$stage"
+  fi
+}
+trap cleanup EXIT HUP INT TERM
 rm -f "$tmp"
+stage=$(mktemp -d "${TMPDIR:-/tmp}/openquick-deploy-stage.XXXXXX")
 
 mkdir -p "$(dirname "$out")"
+cp -R "$src_dir/." "$stage/"
 (
-  cd "$src_dir"
-  zip -X -q -r "$tmp" SKILL.md references
+  cd "$stage"
+  TZ=UTC
+  LC_ALL=C
+  export TZ LC_ALL
+  find SKILL.md references -exec touch -t 198001010000 {} +
+  find SKILL.md references -print | sort | zip -X -q "$tmp" -@
 )
 
 mv "$tmp" "$out"
+cleanup
 trap - EXIT HUP INT TERM
