@@ -536,7 +536,7 @@ class WidthAwareText implements Component {
 	private readonly lines: string[];
 
 	constructor(text: string | string[]) {
-		this.lines = Array.isArray(text) ? text : text.split("\n");
+		this.lines = (Array.isArray(text) ? text : [text]).flatMap((line) => line.split("\n"));
 	}
 
 	render(width: number): string[] {
