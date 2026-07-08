@@ -1,7 +1,7 @@
 # OpenQuick high-level architecture
 
-Status: design draft  
-Audience: implementers deciding the repo split, host daemon, IAP adapters, and v0/v1 boundaries.  
+Status: design draft
+Audience: implementers deciding the repo split, host daemon, IAP adapters, and v0/v1 boundaries.
 Deferred/backlog dispositions: [DEFERRED_ASSESSMENT.md](./DEFERRED_ASSESSMENT.md)
 
 ## Executive recommendation

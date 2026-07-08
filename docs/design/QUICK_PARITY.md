@@ -2,8 +2,8 @@
 
 <!-- markdownlint-disable MD013 MD052 -->
 
-Status: implementation-audited parity note  
-Audience: OpenQuick maintainers and orchestrator agents  
+Status: implementation-audited parity note
+Audience: OpenQuick maintainers and orchestrator agents
 Scope: compare public Shopify Quick capabilities/design choices to OpenQuick as of this repo state.
 
 Deferred/backlog verdicts are ratified in [DEFERRED_ASSESSMENT.md](./DEFERRED_ASSESSMENT.md). This matrix reflects the accepted deferred-items implementation, including config-gated high-trust APIs landing in the same commit.

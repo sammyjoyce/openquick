@@ -9,7 +9,8 @@ quick          # with no arguments on an interactive terminal
 quick menu     # hidden command; opens the same dashboard
 ```
 
-A bare `quick` starts the TUI only on an interactive terminal. If JSON output is enabled, the TUI refuses to start because machine JSON output and a full-screen interface share the same terminal stream. Default builds include the TUI; `zig build -Denable-tui=false` omits it.
+A bare `quick` starts the TUI only on an interactive terminal. If JSON output is enabled, the TUI refuses to start because machine JSON output and a
+full-screen interface share the same terminal stream. Default builds include the TUI; `zig build -Denable-tui=false` omits it.
 
 The dashboard subtitle shows the active default profile and the profile config path, for example:
 
@@ -88,7 +89,9 @@ Deploy is a plan -> progress -> result flow.
 
 ### 1. Resolve the plan
 
-Deploy reloads profiles first. If you launched Deploy from the dashboard, and the current directory does not contain `quick.json`, it asks for a site directory path; blank means the current directory. Deploys launched from Sites or the New site result pass a site name override instead of showing that path prompt.
+Deploy reloads profiles first. If you launched Deploy from the dashboard, and the current directory does not contain `quick.json`, it asks for a site
+directory path; blank means the current directory. Deploys launched from Sites or the New site result pass a site name override instead of showing that
+path prompt.
 
 Next, choose a profile. When no profiles are configured, the fallback profile name is `local`. The TUI resolves a preliminary plan, then prompts for:
 
@@ -126,7 +129,8 @@ Progress reports the shared deploy phases:
 - activate
 - record
 
-Use `Ctrl-C` to cancel while progress is running. There is no Esc key handler during the progress bar; cancellation comes from the interrupt signal passed into the deploy operation. A cancelled deploy reports:
+Use `Ctrl-C` to cancel while progress is running. There is no Esc key handler during the progress bar; cancellation comes from the interrupt signal
+passed into the deploy operation. A cancelled deploy reports:
 
 ```text
 Deploy was cancelled before completion.
@@ -147,7 +151,8 @@ Keys:
 - `o`: open the deployed URL.
 - `Enter`, `Esc`, or `q`: close the result.
 
-A failure panel shows the failed phase, the failure message, and remediation. When the deploy result includes a bootstrap install command, that command is shown as the remediation; otherwise the panel tells you to fix the reported issue and run Deploy again.
+A failure panel shows the failed phase, the failure message, and remediation. When the deploy result includes a bootstrap install command, that command
+is shown as the remediation; otherwise the panel tells you to fix the reported issue and run Deploy again.
 
 ## New site
 
@@ -191,7 +196,8 @@ Icons map to check status:
 - `✗`: fail
 - `-`: skip
 
-The subtitle shows the overall result. Press `Enter` on a check to open its detail panel. Detail fields are `group`, `status`, `name`, `detail`, and `remediation`. `Enter`, `Esc`, or `q` closes the detail panel.
+The subtitle shows the overall result. Press `Enter` on a check to open its detail panel. Detail fields are `group`, `status`, `name`, `detail`, and
+`remediation`. `Enter`, `Esc`, or `q` closes the detail panel.
 
 ## Serve
 
@@ -244,7 +250,8 @@ Settings edits profiles and site config in memory first. Writes are explicit.
 
 ### Profiles
 
-Profiles opens a searchable list of configured profiles plus `New profile` and Back. Each profile row shows the profile name, whether it is the default, its SSH target or `local/no-ssh`, and its base domain when present.
+Profiles opens a searchable list of configured profiles plus `New profile` and Back. Each profile row shows the profile name, whether it is the default,
+its SSH target or `local/no-ssh`, and its base domain when present.
 
 `New profile` prompts for a profile name and validates it before creating an in-memory profile.
 
@@ -269,7 +276,9 @@ Profile keys:
 - `w`: confirm and write the profile config file to disk.
 - `Esc`/`q`: return.
 
-Editable profile fields are `ssh`, `remote_root`, `base_domain`, `base_url`, `iap.type`, `iap.mode`, `iap.team_domain`, `iap.audience`, `deploy.delete`, and `deploy.open_after_deploy`. String fields use blank input to clear the field. Boolean deploy fields accept `true`/`false` or `1`/`0`; blank leaves the current boolean unchanged.
+Editable profile fields are `ssh`, `remote_root`, `base_domain`, `base_url`, `iap.type`, `iap.mode`, `iap.team_domain`, `iap.audience`,
+`deploy.delete`, and `deploy.open_after_deploy`. String fields use blank input to clear the field. Boolean deploy fields accept `true`/`false` or
+`1`/`0`; blank leaves the current boolean unchanged.
 
 Write before leaving the profile panel if you want changes to persist. The Profiles list reloads profile config from disk when it is shown again.
 
@@ -286,7 +295,8 @@ The editable fields are:
 - build
 - profile
 
-Selecting a field opens an input dialog. `name` and `subdomain` are normalized to DNS labels when non-empty. `profile` must be a safe profile name when non-empty. Blank `source` or `output` becomes `.`; blank `build` or `profile` clears the field.
+Selecting a field opens an input dialog. `name` and `subdomain` are normalized to DNS labels when non-empty. `profile` must be a safe profile name when
+non-empty. Blank `source` or `output` becomes `.`; blank `build` or `profile` clears the field.
 
 Choose `Write quick.json` to validate and write. The write step requires a valid site name and, when present, a valid subdomain, then asks for confirmation.
 
@@ -308,4 +318,5 @@ Local deployment state lives under the site root:
 .quick/deployments/<profile>.json
 ```
 
-A successful deploy writes `profile`, `site`, `url`, `release`, and `deployed_at`. Sites reads this local record for the resolved site root/profile and also reads remote rows when SSH is configured. `.quick/` is local state; generated `.quickignore` files exclude it from deploy transfers.
+A successful deploy writes `profile`, `site`, `url`, `release`, and `deployed_at`. Sites reads this local record for the resolved site root/profile and
+also reads remote rows when SSH is configured. `.quick/` is local state; generated `.quickignore` files exclude it from deploy transfers.

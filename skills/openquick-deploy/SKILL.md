@@ -79,7 +79,7 @@ Global flags work with the command surface. Prefer command-specific `--json` whe
 | `quick serve --dev` | Run local dev `quickd`. | Flags: `--port PORT`, `--identity EMAIL`, `--remote-api PROFILE`, `--profile PROFILE`. Example: `quick serve --dev --port 9366 --identity sam@example.com`. |
 | `quick serve install` | Print or execute host setup steps. | Flags: `--profile PROFILE`, `--host HOST`, `--remote-root PATH`, `--domain DOMAIN`, `--iap IAP`, `--execute`, `--allow-public-unsafe`. Example: `quick serve install --profile lab --host quick@box --remote-root /srv/quick --domain quick.example.com --iap tailscale`. |
 | `quick open [site]` | Open or print a site URL. | Flags: `--profile PROFILE`, `--copy`, `--plain`. Example: `quick open lunch-vote --profile lab --plain`. |
-| `quick list` | List local and remote deployments. | Flags: `--profile PROFILE`, `--remote`, `--filter QUERY`, `--sort name|updated|updated_at|source`, `--json`. Example: `quick list --profile lab --remote --json`. |
+| `quick list` | List local and remote deployments. | Flags: `--profile PROFILE`, `--remote`, `--filter QUERY`, `--sort name\|updated\|updated_at\|source`, `--json`. Example: `quick list --profile lab --remote --json`. |
 | `quick info` | Display application metadata. | Example: `quick --json info`. |
 | `quick config show` | Show the resolved profile/config target and source precedence before mutating a host. | Flags: `--profile PROFILE`, `--site SITE`, `--json`. Example: `quick config show --profile lab --json`. |
 | `quick doctor [site]` | Run local, remote, and edge diagnostics. | Flags: `--profile PROFILE`, `--remote`, `--site SITE`, `--deep`, `--json`. Example: `quick doctor --profile lab --remote --site lunch-vote --json`. |

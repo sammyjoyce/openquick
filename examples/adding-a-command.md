@@ -1,6 +1,7 @@
 # Example: Adding an OpenQuick Command
 
-OpenQuick commands are registered in one table (`src/cli/commands.c`). That table drives dispatch, help, and `quick opencli`, so a new command needs a handler, metadata, build wiring, a regenerated contract, and tests.
+OpenQuick commands are registered in one table (`src/cli/commands.c`). That table drives dispatch, help, and `quick opencli`, so a new command needs
+a handler, metadata, build wiring, a regenerated contract, and tests.
 
 This example adds a real product-shaped command: `quick status [site]`, which resolves the current OpenQuick target and prints the URL/profile without contacting the host.
 

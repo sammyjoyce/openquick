@@ -1,7 +1,7 @@
 # OpenQuick workflow design
 
-Status: design draft  
-Audience: CLI/server implementers and early operators  
+Status: design draft
+Audience: CLI/server implementers and early operators
 Scope: user-visible workflows, config, deployment semantics, and the trust model for OpenQuick.
 
 ## Product stance

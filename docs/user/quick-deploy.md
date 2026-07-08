@@ -31,7 +31,8 @@ Resolution order:
 4. User-global config.
 5. Built-in local dev defaults.
 
-Resolved values include `site`, `subdomain`, `profile`, SSH target, `remote_root`, `base_domain` or `base_url`, and IAP type. The host stores `subdomain` separately from the site name; it defaults to the site name, must be a DNS label, and must be unique on the host.
+Resolved values include `site`, `subdomain`, `profile`, SSH target, `remote_root`, `base_domain` or `base_url`, and IAP type. The host stores
+`subdomain` separately from the site name; it defaults to the site name, must be a DNS label, and must be unique on the host.
 
 ## Overwrite confirmation
 
@@ -73,7 +74,8 @@ The CLI asks the host to create a staging area:
 ssh quick@quickbox quickd deploy prepare --site lunch-vote --subdomain lunch-vote --json
 ```
 
-`quickd` validates the site slug and subdomain label, checks reserved names, verifies subdomain uniqueness, creates the site directory when needed, acquires `deploy.lock`, creates `.incoming/<deploy-id>/files`, and returns the staging path plus an optional `link_dest`.
+`quickd` validates the site slug and subdomain label, checks reserved names, verifies subdomain uniqueness, creates the site directory when needed,
+acquires `deploy.lock`, creates `.incoming/<deploy-id>/files`, and returns the staging path plus an optional `link_dest`.
 
 ### 2. Transfer
 
@@ -100,7 +102,9 @@ rsync -az \
 3. the CLI runs `quickd deploy extract-zip --site <site> --deploy-id <id> --zip <path> --json` over SSH using argv, not shell interpolation;
 4. `activate` publishes the extracted staging tree.
 
-Host extraction rejects unsafe archives: absolute paths, `..` traversal, duplicate entries, symlinks, encrypted entries, more than 1000 entries, more than 50 MiB compressed, or more than 100 MiB uncompressed. Archives with one top-level directory may be stripped so `dist/index.html` deploys as `index.html`.
+Host extraction rejects unsafe archives: absolute paths, `..` traversal, duplicate entries, symlinks, encrypted entries, more than 1000 entries,
+more than 50 MiB compressed, or more than 100 MiB uncompressed. Archives with one top-level directory may be stripped so `dist/index.html`
+deploys as `index.html`.
 
 ### 3. Activate
 
@@ -110,7 +114,9 @@ The CLI asks the host to publish atomically:
 ssh quick@quickbox quickd deploy activate --site lunch-vote --deploy-id <id> --json
 ```
 
-`quickd` validates staging, writes `.quick-release.json`, renames staging files into `releases/<release-id>`, creates a new symlink, atomically renames it over `current`, records the deploy, and prunes old releases. When host signing is enabled, `.quick-release.json` also includes the release signature and public key.
+`quickd` validates staging, writes `.quick-release.json`, renames staging files into `releases/<release-id>`, creates a new symlink,
+atomically renames it over `current`, records the deploy, and prunes old releases. When host signing is enabled, `.quick-release.json` also includes
+the release signature and public key.
 
 Guarantee: a browser sees either the previous complete release or the next complete release, never an rsync-in-progress tree.
 
@@ -141,7 +147,8 @@ Before the first deploy to a profile, run or let the CLI run:
 ssh quick@quickbox quickd doctor --json
 ```
 
-If `quickd` is missing, install with `quick serve install ...`. If `/srv/quick` is missing or unwritable, fix host permissions before transferring. If IAP or DNS is not ready, deploy only with an explicit unpublished/unsafe flag.
+If `quickd` is missing, install with `quick serve install ...`. If `/srv/quick` is missing or unwritable, fix host permissions before transferring.
+If IAP or DNS is not ready, deploy only with an explicit unpublished/unsafe flag.
 
 ## Deleting a site
 
@@ -171,7 +178,9 @@ quick public lunch-vote on
 quick public lunch-vote off --yes
 ```
 
-Turning public access on requires a typed confirmation and a passing static-only scan of the current release. Public sites serve GET/HEAD static assets without identity, but `/_quick/*` always requires auth. Future deploys to a public site are scanned again and fail if they start using OpenQuick dynamic APIs such as `quick.db`, `quick.uploads`, `quick.ai`, `quick.identity`, `quick.realtime`, or `/_quick/` calls.
+Turning public access on requires a typed confirmation and a passing static-only scan of the current release. Public sites serve GET/HEAD static assets
+without identity, but `/_quick/*` always requires auth. Future deploys to a public site are scanned again and fail if they start using OpenQuick dynamic
+APIs such as `quick.db`, `quick.uploads`, `quick.ai`, `quick.identity`, `quick.realtime`, or `/_quick/` calls.
 
 ## Custom domains
 
@@ -183,7 +192,8 @@ quick domain list
 quick domain remove app.example.com
 ```
 
-Domains are validated by the host, must not conflict with reserved names or the apex host, and are resolved before the subdomain fallback. Caddy on-demand TLS can use the host ask endpoint (`/_quick/domains/ask?domain=...`) from loopback or a trusted proxy.
+Domains are validated by the host, must not conflict with reserved names or the apex host, and are resolved before the subdomain fallback. Caddy
+on-demand TLS can use the host ask endpoint (`/_quick/domains/ask?domain=...`) from loopback or a trusted proxy.
 
 ## Directory listing
 
@@ -212,7 +222,10 @@ Operators can enable browser ZIP deploys on the apex host:
 }
 ```
 
-When enabled and the viewer is authorized, the site directory shows a deploy panel with drag-and-drop ZIP upload, a site name field, and overwrite-confirm handling. The portal uses the same host lifecycle as the CLI (`prepare -> extract ZIP -> scan when public -> activate`). It is config-gated, accepts only same-origin browser requests on the apex host, and requires either a valid bearer token configured by the operator or an authenticated identity in `allow_identities`.
+When enabled and the viewer is authorized, the site directory shows a deploy panel with drag-and-drop ZIP upload, a site name field, and overwrite-confirm
+handling. The portal uses the same host lifecycle as the CLI (`prepare -> extract ZIP -> scan when public -> activate`). It is config-gated, accepts only
+same-origin browser requests on the apex host, and requires either a valid bearer token configured by the operator or an authenticated identity in
+`allow_identities`.
 
 ## Publishing a shared library site
 
@@ -247,7 +260,8 @@ OpenQuick reflects CORS only for GET/HEAD static assets requested from sibling s
 
 ## Browser site directory
 
-Authenticated viewers can open the apex host, such as `https://quick.example.com/`, or the path-fallback root `https://quick.example.com/~/`, to see the built-in site directory. It lists cataloged sites with their URLs, current release, update time, and deployer. Operators can disable it with:
+Authenticated viewers can open the apex host, such as `https://quick.example.com/`, or the path-fallback root `https://quick.example.com/~/`, to see
+the built-in site directory. It lists cataloged sites with their URLs, current release, update time, and deployer. Operators can disable it with:
 
 ```json
 {

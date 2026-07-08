@@ -200,7 +200,8 @@ if (result.status == TUI_MENU_OK) {
 }
 ```
 
-`&` in a label marks the mnemonic key (`&&` is a literal `&`). `result.status` is one of `TUI_MENU_OK`, `TUI_MENU_CANCELLED`, `TUI_MENU_MENU` (Esc with `.enable_menu_key`), `TUI_MENU_INTERRUPTED`, `TUI_MENU_TOO_SMALL`, `TUI_MENU_INVALID_ARG`, or `TUI_MENU_NO_MEMORY`.
+`&` in a label marks the mnemonic key (`&&` is a literal `&`). `result.status` is one of `TUI_MENU_OK`, `TUI_MENU_CANCELLED`,
+`TUI_MENU_MENU` (Esc with `.enable_menu_key`), `TUI_MENU_INTERRUPTED`, `TUI_MENU_TOO_SMALL`, `TUI_MENU_INVALID_ARG`, or `TUI_MENU_NO_MEMORY`.
 
 ## 4. Theming
 

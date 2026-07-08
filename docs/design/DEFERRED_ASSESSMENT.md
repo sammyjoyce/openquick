@@ -2,8 +2,8 @@
 
 <!-- markdownlint-disable MD013 -->
 
-Status: assessment ratified; user lifted blanket v2/v3 deferral  
-Date: June 2026  
+Status: assessment ratified; user lifted blanket v2/v3 deferral
+Date: June 2026
 Related parity baseline: [QUICK_PARITY.md](./QUICK_PARITY.md)
 
 ## Evidence note
