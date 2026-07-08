@@ -1,63 +1,49 @@
 import { createHash } from "node:crypto";
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import { dirname, join, relative, resolve, sep } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { mkdir, realpath, rm, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { StringEnum, Type, type Static } from "@earendil-works/pi-ai";
+import {
+	CONFIG_DIR_NAME,
+	DEFAULT_MAX_BYTES,
+	DEFAULT_MAX_LINES,
+	defineTool,
+	formatSize,
+	truncateTail,
+	type ExtensionAPI,
+	type Theme,
+	type TruncationResult,
+	withFileMutationQueue,
+} from "@earendil-works/pi-coding-agent";
+import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
 
 const PROFILE = "cf";
-const ARTIFACT_ROOT = join(".pi", "openquick-artifacts");
-const MAX_OUTPUT_LINES = 2_000;
-const MAX_OUTPUT_BYTES = 50 * 1024;
-const MAX_OUTPUT_LABEL = "50 KiB";
+const ARTIFACT_ROOT = join(CONFIG_DIR_NAME, "openquick-artifacts");
 
-const ArtifactParamsSchema = {
-	type: "object",
-	additionalProperties: false,
-	properties: {
-		title: { type: "string", description: "Optional string. Human-readable title. If `site` is omitted, it contributes to the generated site slug; in `mode: \"codemode\"`, it also labels the generated editor page. If omitted, the generated slug base defaults to `codemode` for Code Mode and `artifact` otherwise; the generated Code Mode page title falls back to an explicit `site`, then `OpenQuick Code Mode`." },
-		site: { type: "string", description: "Optional OpenQuick site slug string. Must contain only lowercase letters, digits, and hyphens, start and end with a letter or digit, and be at most 63 characters. If omitted, the tool generates deterministic `artifact-<base>-<10-hex-content-hash>` where `<base>` is the slugified `title` or mode default (`codemode`/`artifact`), clipped to 34 characters with trailing hyphens removed; the final slug is validated. The deployed or planned URL is `https://<site>.sammy.sh`. For an explicit existing site, set `overwrite: true` only when intentionally updating it." },
-		html: { type: "string", description: "Optional UTF-8 HTML string shortcut for `index.html`. In static mode, either `html` or `files` must provide an `index.html`; `html` is mapped first, so a later `files` entry whose normalized path is `index.html` overwrites it. In Code Mode, this becomes starter `index.html` content embedded inside the generated editor instead of a directly published file." },
-		files: {
-			type: "array",
-			description: "Optional array of text files with `{ path, content }`. In static mode, files are written under `.pi/openquick-artifacts/<site>` and must include `index.html` unless `html` is provided. In Code Mode, entries become editable starter files embedded in the generated editor; missing `index.html`, `style.css`, and `script.js` are defaulted. Duplicate normalized paths are resolved by the later entry winning.",
-			items: {
-				type: "object",
-				additionalProperties: false,
-				required: ["path", "content"],
-				properties: {
-					path: { type: "string", description: "Required string path relative to the artifact root or Code Mode starter bundle, such as `index.html` or `assets/app.js`. Backslashes are normalized to `/` and one leading `./` is stripped. No globbing, regex, shell expansion, absolute paths, empty paths, NUL bytes, empty segments, `.` segments, or `..` segments. Path segments named `.git`, `.quick`, `.ssh`, `node_modules`, or starting with `.env` are rejected; resolved static output paths must stay inside the artifact directory." },
-					content: { type: "string", description: "Required string. Written as UTF-8 text in static mode, or embedded as starter-file text in the Code Mode editor. Binary upload/object content is not supported by this parameter." },
+const ArtifactParamsSchema = Type.Object(
+	{
+		title: Type.Optional(Type.String({ description: "Optional string. Human-readable title. If `site` is omitted, it contributes to the generated site slug; in `mode: \"codemode\"`, it also labels the generated editor page. If omitted, the generated slug base defaults to `codemode` for Code Mode and `artifact` otherwise; the generated Code Mode page title falls back to an explicit `site`, then `OpenQuick Code Mode`." })),
+		site: Type.Optional(Type.String({ description: "Optional OpenQuick site slug string. Must contain only lowercase letters, digits, and hyphens, start and end with a letter or digit, and be at most 63 characters. If omitted, the tool generates deterministic `artifact-<base>-<10-hex-content-hash>` where `<base>` is the slugified `title` or mode default (`codemode`/`artifact`), clipped to 34 characters with trailing hyphens removed; the final slug is validated. The deployed or planned URL is `https://<site>.sammy.sh`. For an explicit existing site, set `overwrite: true` only when intentionally updating it." })),
+		html: Type.Optional(Type.String({ description: "Optional UTF-8 HTML string shortcut for `index.html`. In static mode, either `html` or `files` must provide an `index.html`; `html` is mapped first, so a later `files` entry whose normalized path is `index.html` overwrites it. In Code Mode, this becomes starter `index.html` content embedded inside the generated editor instead of a directly published file." })),
+		files: Type.Optional(Type.Array(
+			Type.Object(
+				{
+					path: Type.String({ description: "Required string path relative to the artifact root or Code Mode starter bundle, such as `index.html` or `assets/app.js`. Backslashes are normalized to `/` and one leading `./` is stripped. No globbing, regex, shell expansion, absolute paths, empty paths, NUL bytes, empty segments, `.` segments, or `..` segments. Path segments named `.git`, `.quick`, `.ssh`, `node_modules`, or starting with `.env` are rejected; resolved static output paths must stay inside the artifact directory." }),
+					content: Type.String({ description: "Required string. Written as UTF-8 text in static mode, or embedded as starter-file text in the Code Mode editor. Binary upload/object content is not supported by this parameter." }),
 				},
-			},
-		},
-		mode: {
-			type: "string",
-			enum: ["static", "codemode"],
-			description: "Optional enum string: `\"static\"` or `\"codemode\"`. Defaults to `\"static\"`. `static` publishes the provided files directly and requires an `index.html`. `codemode` publishes exactly one generated `index.html` containing an SDK-backed editor shell, sandboxed live preview, and `quick.db.collection('codemode_files')` persistence; supplied `html`/`files` are starter content, not separately published files. Use static mode with `sdk: true` when the final page itself should call OpenQuick APIs.",
-		},
-		sdk: {
-			type: "boolean",
-			description: "Optional boolean. Defaults to `false` in static mode. In static mode, `true` injects a bridge into `index.html` unless the HTML already contains `/_quick/sdk.js` or `openquick:sdk-ready`; the bridge imports `/_quick/sdk.js`, sets `window.quick`, and dispatches `openquick:sdk-ready`. In Code Mode, this parameter has no effect on generation because the editor shell always imports the SDK and returned details report `sdk: true`.",
-		},
-		dryRun: { type: "boolean", description: "Optional boolean, default `false`. When `true`, append `--dry-run` to `quick deploy` and return the planned URL if the command succeeds. The tool still deletes/recreates the local artifact directory, writes files, and runs `quick deploy`; only remote publishing is dry-run." },
-		overwrite: { type: "boolean", description: "Optional boolean, default `false`. When `true`, append `--yes` to `quick deploy` to intentionally update or replace an existing site. Leave `false` unless the user explicitly wants to overwrite; with an explicit existing `site`, OpenQuick's overwrite guard can fail and the error includes a hint to retry with `overwrite: true`." },
+				{ additionalProperties: false },
+			),
+			{ description: "Optional array of text files with `{ path, content }`. In static mode, files are written under `.pi/openquick-artifacts/<site>` and must include `index.html` unless `html` is provided. In Code Mode, entries become editable starter files embedded in the generated editor; missing `index.html`, `style.css`, and `script.js` are defaulted. Duplicate normalized paths are resolved by the later entry winning." },
+		)),
+		mode: Type.Optional(StringEnum(["static", "codemode"] as const, { description: "Optional enum string: `\"static\"` or `\"codemode\"`. Defaults to `\"static\"`. `static` publishes the provided files directly and requires an `index.html`. `codemode` publishes exactly one generated `index.html` containing an SDK-backed editor shell, sandboxed live preview, and `quick.db.collection('codemode_files')` persistence; supplied `html`/`files` are starter content, not separately published files. Use static mode with `sdk: true` when the final page itself should call OpenQuick APIs." })),
+		sdk: Type.Optional(Type.Boolean({ description: "Optional boolean. Defaults to `false` in static mode. In static mode, `true` injects a bridge into `index.html` unless the HTML already contains `/_quick/sdk.js` or `openquick:sdk-ready`; the bridge imports `/_quick/sdk.js`, sets `window.quick`, and dispatches `openquick:sdk-ready`. In Code Mode, this parameter has no effect on generation because the editor shell always imports the SDK and returned details report `sdk: true`." })),
+		dryRun: Type.Optional(Type.Boolean({ description: "Optional boolean, default `false`. When `true`, append `--dry-run` to `quick deploy` and return the planned URL if the command succeeds. The tool still deletes/recreates the local artifact directory, writes files, and runs `quick deploy`; only remote publishing is dry-run." })),
+		overwrite: Type.Optional(Type.Boolean({ description: "Optional boolean, default `false`. When `true`, append `--yes` to `quick deploy` to intentionally update or replace an existing site. Leave `false` unless the user explicitly wants to overwrite; with an explicit existing `site`, OpenQuick's overwrite guard can fail and the error includes a hint to retry with `overwrite: true`." })),
 	},
-} as const;
+	{ additionalProperties: false },
+);
 
-type ArtifactFileParam = {
-	path: string;
-	content: string;
-};
-
-type ArtifactParams = {
-	title?: string;
-	site?: string;
-	html?: string;
-	files?: ArtifactFileParam[];
-	mode?: "static" | "codemode";
-	sdk?: boolean;
-	dryRun?: boolean;
-	overwrite?: boolean;
-};
+type ArtifactParams = Static<typeof ArtifactParamsSchema>;
+type ArtifactFileParam = NonNullable<ArtifactParams["files"]>[number];
 
 type DeployJson = {
 	format_version?: string;
@@ -77,6 +63,20 @@ type DeployJson = {
 	};
 };
 
+type OutputTruncationDetails = {
+	wasTruncated: boolean;
+	originalSize: string;
+	originalBytes: number;
+	originalLines: number;
+	outputSize: string;
+	outputBytes: number;
+	outputLines: number;
+	truncatedBy: TruncationResult["truncatedBy"];
+	maxLines: number;
+	maxSize: string;
+	maxBytes: number;
+};
+
 type ArtifactDetails = {
 	site: string;
 	profile: string;
@@ -92,6 +92,8 @@ type ArtifactDetails = {
 	stderr: string;
 	stdoutTruncated: boolean;
 	stderrTruncated: boolean;
+	stdoutTruncation: OutputTruncationDetails;
+	stderrTruncation: OutputTruncationDetails;
 	deploy?: DeployJson;
 };
 
@@ -123,7 +125,8 @@ function validateSiteSlug(site: string): string {
 }
 
 function normalizeArtifactPath(path: string): string {
-	const cleaned = path.replace(/\\/g, "/").replace(/^\.\//, "");
+	const withoutArtifactSigil = path.startsWith("@") ? path.slice(1) : path;
+	const cleaned = withoutArtifactSigil.replace(/\\/g, "/").replace(/^\.\//, "");
 	if (!cleaned || cleaned.startsWith("/") || cleaned.includes("\0")) {
 		throw new Error(`Invalid artifact file path ${JSON.stringify(path)}.`);
 	}
@@ -402,13 +405,56 @@ function deriveSite(params: ArtifactParams, files: ArtifactFileParam[]): string 
 	return validateSiteSlug(`artifact-${title}-${hash}`.slice(0, 63).replace(/-+$/g, ""));
 }
 
-async function writeArtifactFiles(root: string, files: ArtifactFileParam[]) {
+function isErrnoException(error: unknown): error is { code?: string } {
+	return typeof error === "object" && error !== null && "code" in error;
+}
+
+function isPathWithin(root: string, target: string): boolean {
+	const rel = relative(root, target);
+	return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
+async function realpathNearestExistingAncestor(target: string): Promise<{ ancestor: string; realAncestor: string }> {
+	let current = resolve(target);
+	while (true) {
+		try {
+			return { ancestor: current, realAncestor: await realpath(current) };
+		} catch (error) {
+			if (!isErrnoException(error) || error.code !== "ENOENT") throw error;
+			const parent = dirname(current);
+			if (parent === current) throw error;
+			current = parent;
+		}
+	}
+}
+
+async function resolveThroughNearestRealpath(target: string): Promise<string> {
+	const resolvedTarget = resolve(target);
+	const { ancestor, realAncestor } = await realpathNearestExistingAncestor(resolvedTarget);
+	const remainder = relative(ancestor, resolvedTarget);
+	return remainder === "" ? realAncestor : resolve(realAncestor, remainder);
+}
+
+async function assertArtifactDirSafe(workspaceRoot: string, artifactBase: string, artifactDir: string) {
+	const resolvedWorkspaceRoot = await resolveThroughNearestRealpath(workspaceRoot);
+	const resolvedArtifactBase = await resolveThroughNearestRealpath(artifactBase);
+	const resolvedArtifactDir = await resolveThroughNearestRealpath(artifactDir);
+	if (!isPathWithin(resolvedWorkspaceRoot, resolvedArtifactBase)) {
+		throw new Error(`Refusing to use artifact base outside workspace: ${artifactBase}`);
+	}
+	if (!isPathWithin(resolvedWorkspaceRoot, resolvedArtifactDir)) {
+		throw new Error(`Refusing to write artifact outside workspace: ${artifactDir}`);
+	}
+}
+
+async function writeArtifactFiles(workspaceRoot: string, artifactBase: string, root: string, files: ArtifactFileParam[]) {
+	await assertArtifactDirSafe(workspaceRoot, artifactBase, root);
 	await rm(root, { recursive: true, force: true });
 	await mkdir(root, { recursive: true });
 	for (const file of files) {
 		const target = resolve(root, file.path);
 		const rel = relative(root, target);
-		if (rel.startsWith("..") || rel === "" || rel.split(sep).includes("..")) {
+		if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
 			throw new Error(`Resolved artifact file escaped artifact root: ${file.path}`);
 		}
 		await mkdir(dirname(target), { recursive: true });
@@ -430,34 +476,84 @@ function parseDeployJson(stdout: string): DeployJson | undefined {
 	return undefined;
 }
 
-function truncateOutput(text: string) {
-	let bytes = 0;
-	const lines = text.split(/\r?\n/);
-	const kept: string[] = [];
-	let truncated = false;
-	for (let i = lines.length - 1; i >= 0; i--) {
-		const line = lines[i] ?? "";
-		const lineBytes = Buffer.byteLength(line, "utf8") + 1;
-		if (kept.length >= MAX_OUTPUT_LINES || bytes + lineBytes > MAX_OUTPUT_BYTES) {
-			truncated = true;
-			break;
-		}
-		kept.push(line);
-		bytes += lineBytes;
-	}
-	kept.reverse();
-	const content = kept.join("\n");
+function outputTruncationDetails(truncation: TruncationResult): OutputTruncationDetails {
 	return {
-		text: truncated ? `[Output truncated to last ${MAX_OUTPUT_LINES} lines / ${MAX_OUTPUT_LABEL}]\n${content}` : content,
-		truncated,
+		wasTruncated: truncation.truncated,
+		originalSize: formatSize(truncation.totalBytes),
+		originalBytes: truncation.totalBytes,
+		originalLines: truncation.totalLines,
+		outputSize: formatSize(truncation.outputBytes),
+		outputBytes: truncation.outputBytes,
+		outputLines: truncation.outputLines,
+		truncatedBy: truncation.truncatedBy,
+		maxLines: truncation.maxLines,
+		maxSize: formatSize(truncation.maxBytes),
+		maxBytes: truncation.maxBytes,
 	};
 }
 
+function truncatedOutputText(truncation: TruncationResult): string {
+	if (!truncation.truncated) return truncation.content;
+	return `[Output truncated to last ${truncation.outputLines} of ${truncation.totalLines} lines / ${formatSize(truncation.outputBytes)} of ${formatSize(truncation.totalBytes)}]\n${truncation.content}`;
+}
+
+function truncationIndicator(details: ArtifactDetails): string {
+	const truncated: string[] = [];
+	if (details.stdoutTruncation.wasTruncated) truncated.push(`stdout ${details.stdoutTruncation.originalSize}`);
+	if (details.stderrTruncation.wasTruncated) truncated.push(`stderr ${details.stderrTruncation.originalSize}`);
+	return truncated.length > 0 ? `output: truncated ${truncated.join(", ")}` : "output: complete";
+}
+
+function displayArg(arg: string): string {
+	return /^[A-Za-z0-9_./:@%+=,-]+$/.test(arg) ? arg : JSON.stringify(arg);
+}
+
+function deploySummaryLines(deploy: DeployJson | undefined, theme: Theme): string[] {
+	if (!deploy) return [theme.fg("dim", "deploy JSON: not parsed")];
+	const parts = [
+		deploy.site ? `site=${deploy.site}` : undefined,
+		deploy.release ? `release=${deploy.release}` : undefined,
+		deploy.url ? `url=${deploy.url}` : undefined,
+		deploy.dry_run !== undefined ? `dry_run=${deploy.dry_run}` : undefined,
+		deploy.changed !== undefined ? `changed=${deploy.changed}` : undefined,
+		deploy.reused !== undefined ? `reused=${deploy.reused}` : undefined,
+		deploy.deleted !== undefined ? `deleted=${deploy.deleted}` : undefined,
+	].filter((part): part is string => part !== undefined);
+	const lines = [theme.fg("muted", `deploy JSON: ${parts.join(" · ") || "parsed"}`)];
+	if (deploy.summary) {
+		const summary = [
+			deploy.summary.added_count !== undefined ? `added=${deploy.summary.added_count}` : undefined,
+			deploy.summary.changed_count !== undefined ? `changed=${deploy.summary.changed_count}` : undefined,
+			deploy.summary.deleted_count !== undefined ? `deleted=${deploy.summary.deleted_count}` : undefined,
+			deploy.summary.excluded_count !== undefined ? `excluded=${deploy.summary.excluded_count}` : undefined,
+		].filter((part): part is string => part !== undefined);
+		if (summary.length > 0) lines.push(theme.fg("muted", `deploy summary: ${summary.join(" · ")}`));
+	}
+	return lines;
+}
+
+class WidthAwareText implements Component {
+	private readonly lines: string[];
+
+	constructor(text: string | string[]) {
+		this.lines = (Array.isArray(text) ? text : [text]).flatMap((line) => line.split("\n"));
+	}
+
+	render(width: number): string[] {
+		const maxWidth = Math.max(0, width);
+		return this.lines.map((line) => truncateToWidth(line, maxWidth));
+	}
+
+	invalidate(): void {
+		// Immutable render input; no cache to clear.
+	}
+}
+
 export default function (pi: ExtensionAPI) {
-	pi.registerTool({
+	const artifactTool = defineTool({
 		name: "artifact",
 		label: "Artifact",
-		description: `Create a previewable OpenQuick web artifact from UTF-8 text files, or a generated Code Mode editor artifact, under \`${ARTIFACT_ROOT}/<site>\` and run \`quick deploy <artifact-dir> --site <site> --profile ${PROFILE} --no-build --json\` for \`https://<site>.sammy.sh\`. Use for shareable static demos, mockups, HTML/CSS/JS pages or sites, and \`mode: "codemode"\` code-playground artifacts. Do not use for custom servers, backend code, secrets, environment variables, or binary asset uploads. Side effects: deletes/recreates \`${ARTIFACT_ROOT}/<site>\` under the current workspace and writes files before deploy, even with \`dryRun: true\` or if deploy later fails. \`dryRun: true\` adds \`--dry-run\` so OpenQuick produces a deploy plan instead of publishing. On success, details include site, URL, mode, SDK flag, artifact directory, written paths, command, and truncated stdout/stderr; stdout/stderr in details and failures are limited to the last ${MAX_OUTPUT_LINES} lines or ${MAX_OUTPUT_LABEL}.`,
+		description: `Create a previewable OpenQuick web artifact from UTF-8 text files, or a generated Code Mode editor artifact, under \`${ARTIFACT_ROOT}/<site>\` and run \`quick deploy <artifact-dir> --site <site> --profile ${PROFILE} --no-build --json\` for \`https://<site>.sammy.sh\`. Use for shareable static demos, mockups, HTML/CSS/JS pages or sites, and \`mode: "codemode"\` code-playground artifacts. Do not use for custom servers, backend code, secrets, environment variables, or binary asset uploads. Side effects: deletes/recreates \`${ARTIFACT_ROOT}/<site>\` under the current workspace and writes files before deploy, even with \`dryRun: true\` or if deploy later fails. \`dryRun: true\` adds \`--dry-run\` so OpenQuick produces a deploy plan instead of publishing. On success, details include site, URL, mode, SDK flag, artifact directory, written paths, command, truncated stdout/stderr, and truncation metadata; stdout/stderr in details and failures are limited to the last ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}.`,
 		promptSnippet: `Create and publish static HTML/CSS/JS artifacts with OpenQuick (quick deploy --profile ${PROFILE}). Use mode='codemode' for an SDK-backed code editor/live-preview artifact.`,
 		promptGuidelines: [
 			"Use artifact when the user asks for a previewable web artifact, static demo, mockup, or shareable HTML/CSS/JS page.",
@@ -467,70 +563,117 @@ export default function (pi: ExtensionAPI) {
 			"artifact is for static files only. Do not use artifact for custom servers, secrets, environment variables, or backend code.",
 		],
 		parameters: ArtifactParamsSchema,
+		executionMode: "sequential",
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			const mode = params.mode ?? "static";
 			const files = filesFromParams(params);
 			const site = deriveSite(params, files);
-			const artifactDir = resolve(ctx.cwd, ARTIFACT_ROOT, site);
+			const workspaceRoot = resolve(ctx.cwd);
+			const artifactBase = resolve(ctx.cwd, ARTIFACT_ROOT);
+			const artifactDir = resolve(artifactBase, site);
 
-			onUpdate?.({ content: [{ type: "text", text: `Writing ${files.length} artifact file(s) for ${site}...` }], details: { site, mode, artifactDir } });
-			await writeArtifactFiles(artifactDir, files);
+			return withFileMutationQueue(artifactDir, async () => {
+				onUpdate?.({ content: [{ type: "text", text: `Writing ${files.length} artifact file(s) for ${site}...` }], details: { site, mode, artifactDir } });
+				await writeArtifactFiles(workspaceRoot, artifactBase, artifactDir, files);
 
-			const command = [
-				"deploy",
-				artifactDir,
-				"--site",
-				site,
-				"--profile",
-				PROFILE,
-				"--no-build",
-			];
-			if (params.overwrite === true) command.push("--yes");
-			if (params.dryRun) command.push("--dry-run");
-			command.push("--json");
+				const command = [
+					"deploy",
+					artifactDir,
+					"--site",
+					site,
+					"--profile",
+					PROFILE,
+					"--no-build",
+				];
+				if (params.overwrite === true) command.push("--yes");
+				if (params.dryRun) command.push("--dry-run");
+				command.push("--json");
 
-			onUpdate?.({ content: [{ type: "text", text: `${params.dryRun ? "Dry-running" : "Deploying"} ${site} with quick deploy --profile ${PROFILE}...` }], details: { site, mode, artifactDir, command } });
-			const result = await pi.exec("quick", command, { signal });
-			const stdout = truncateOutput(result.stdout ?? "");
-			const stderr = truncateOutput(result.stderr ?? "");
-			const deploy = parseDeployJson(result.stdout ?? "");
-			const url = deploy?.url ?? `https://${site}.sammy.sh`;
+				onUpdate?.({ content: [{ type: "text", text: `${params.dryRun ? "Dry-running" : "Deploying"} ${site} with quick deploy --profile ${PROFILE}...` }], details: { site, mode, artifactDir, command } });
+				const result = await pi.exec("quick", command, { signal });
+				const stdoutTruncation = truncateTail(result.stdout ?? "");
+				const stderrTruncation = truncateTail(result.stderr ?? "");
+				const stdoutText = truncatedOutputText(stdoutTruncation);
+				const stderrText = truncatedOutputText(stderrTruncation);
+				const deploy = parseDeployJson(result.stdout ?? "");
+				const url = deploy?.url ?? `https://${site}.sammy.sh`;
 
-			const details: ArtifactDetails = {
-				site,
-				profile: PROFILE,
-				url,
-				release: deploy?.release,
-				mode,
-				sdk: mode === "codemode" || Boolean(params.sdk),
-				dryRun: Boolean(params.dryRun),
-				artifactDir,
-				files: files.map((file) => file.path),
-				command: ["quick", ...command],
-				stdout: stdout.text,
-				stderr: stderr.text,
-				stdoutTruncated: stdout.truncated,
-				stderrTruncated: stderr.truncated,
-				deploy,
-			};
+				const details: ArtifactDetails = {
+					site,
+					profile: PROFILE,
+					url,
+					release: deploy?.release,
+					mode,
+					sdk: mode === "codemode" || Boolean(params.sdk),
+					dryRun: Boolean(params.dryRun),
+					artifactDir,
+					files: files.map((file) => file.path),
+					command: ["quick", ...command],
+					stdout: stdoutText,
+					stderr: stderrText,
+					stdoutTruncated: stdoutTruncation.truncated,
+					stderrTruncated: stderrTruncation.truncated,
+					stdoutTruncation: outputTruncationDetails(stdoutTruncation),
+					stderrTruncation: outputTruncationDetails(stderrTruncation),
+					deploy,
+				};
 
-			if (result.code !== 0) {
-				const overwriteHint = params.site && params.overwrite !== true
-					? "\nIf you intended to update an existing site, pass overwrite: true to opt into quick deploy --yes."
-					: "";
-				throw new Error(`quick deploy failed with exit code ${result.code}.\nstdout:\n${stdout.text}\nstderr:\n${stderr.text}${overwriteHint}`);
+				if (result.code !== 0) {
+					const overwriteHint = params.site && params.overwrite !== true
+						? "\nIf you intended to update an existing site, pass overwrite: true to opt into quick deploy --yes."
+						: "";
+					throw new Error(`quick deploy failed with exit code ${result.code}.\nstdout:\n${stdoutText}\nstderr:\n${stderrText}${overwriteHint}`);
+				}
+
+				const summary = params.dryRun
+					? `Artifact ${mode} dry run succeeded for ${site}. Planned URL: ${url}`
+					: mode === "codemode"
+						? `OpenQuick Code Mode artifact deployed: ${url}`
+						: `Artifact deployed: ${url}`;
+				return {
+					content: [{ type: "text", text: summary }],
+					details,
+				};
+			});
+		},
+
+		renderCall(args, theme, _context) {
+			const mode = args.mode ?? "static";
+			const site = args.site ? `site:${args.site}` : "site:auto";
+			const flags = [args.dryRun ? "dry-run" : undefined, args.overwrite ? "overwrite" : undefined].filter((flag): flag is string => flag !== undefined);
+			const suffix = flags.length > 0 ? ` ${flags.join(" ")}` : "";
+			return new WidthAwareText(theme.fg("toolTitle", theme.bold("artifact ")) + theme.fg("accent", mode) + theme.fg("muted", ` ${site}${suffix}`));
+		},
+
+		renderResult(result, { expanded, isPartial }, theme, _context) {
+			if (isPartial) {
+				return new WidthAwareText(theme.fg("warning", "artifact running..."));
 			}
 
-			const summary = params.dryRun
-				? `Artifact ${mode} dry run succeeded for ${site}. Planned URL: ${url}`
-				: mode === "codemode"
-					? `OpenQuick Code Mode artifact deployed: ${url}`
-					: `Artifact deployed: ${url}`;
-			return {
-				content: [{ type: "text", text: summary }],
-				details,
-			};
+			const details = result.details as ArtifactDetails | undefined;
+			if (!details) {
+				const text = result.content[0];
+				return new WidthAwareText(text?.type === "text" ? text.text : "");
+			}
+
+			const status = details.dryRun ? "Artifact dry run" : "Artifact deployed";
+			const lines = [
+				theme.fg("success", `✓ ${status}: ${details.url ?? `https://${details.site}.sammy.sh`}`),
+				theme.fg("muted", `mode: ${details.mode} · files: ${details.files.length} · ${truncationIndicator(details)}`),
+			];
+
+			if (expanded) {
+				lines.push(theme.fg("dim", `command: ${details.command.map(displayArg).join(" ")}`));
+				lines.push(theme.fg("dim", `artifactDir: ${details.artifactDir}`));
+				lines.push(theme.fg("muted", "files:"));
+				for (const file of details.files) lines.push(theme.fg("dim", `  - ${file}`));
+				lines.push(...deploySummaryLines(details.deploy, theme));
+			}
+
+			return new WidthAwareText(lines);
 		},
 	});
+
+	pi.registerTool(artifactTool);
 }
