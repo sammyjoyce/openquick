@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -15,10 +16,10 @@ import (
 )
 
 type warehouseQueryMetadata struct {
-	Name    string                          `json:"name"`
-	Params  []config.WarehouseParamConfig   `json:"params"`
-	MaxRows int                             `json:"max_rows"`
-	Columns []string                        `json:"columns"`
+	Name    string                        `json:"name"`
+	Params  []config.WarehouseParamConfig `json:"params"`
+	MaxRows int                           `json:"max_rows"`
+	Columns []string                      `json:"columns"`
 }
 
 type warehouseResult struct {
@@ -106,9 +107,6 @@ func (s *Server) warehouseMetadata(r *http.Request) ([]warehouseQueryMetadata, e
 }
 
 func (s *Server) warehouseColumns(r *http.Request, q config.WarehouseQueryConfig) ([]string, error) {
-	if s.Store == nil || s.Store.DB == nil {
-		return nil, errors.New("store unavailable")
-	}
 	sqlText, err := config.CleanWarehouseSQL(q.SQL)
 	if err != nil {
 		return nil, err
@@ -124,7 +122,11 @@ func (s *Server) warehouseColumns(r *http.Request, q config.WarehouseQueryConfig
 			args = append(args, "")
 		}
 	}
-	rows, err := s.Store.DB.QueryContext(r.Context(), "SELECT * FROM ("+sqlText+") LIMIT 0", args...)
+	db, err := s.openWarehouseReadOnlyDB(r.Context())
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.QueryContext(r.Context(), "SELECT * FROM ("+sqlText+") LIMIT 0", args...)
 	if err != nil {
 		return nil, err
 	}
@@ -232,24 +234,20 @@ func asFloat64(v any) (float64, error) {
 	}
 }
 
-func (s *Server) runWarehouseQuery(r *http.Request, query config.WarehouseQueryConfig, args []any) (warehouseResult, error) {
-	if s.Store == nil || s.Store.DSN == "" {
-		return warehouseResult{}, errors.New("store unavailable")
+func (s *Server) openWarehouseReadOnlyDB(ctx context.Context) (*sql.DB, error) {
+	if s.Store == nil {
+		return nil, errors.New("store unavailable")
 	}
+	return s.Store.ReadOnlyDB(ctx)
+}
+
+func (s *Server) runWarehouseQuery(r *http.Request, query config.WarehouseQueryConfig, args []any) (warehouseResult, error) {
 	sqlText, err := config.CleanWarehouseSQL(query.SQL)
 	if err != nil {
 		return warehouseResult{}, err
 	}
-	db, err := sql.Open("sqlite", s.Store.DSN)
+	db, err := s.openWarehouseReadOnlyDB(r.Context())
 	if err != nil {
-		return warehouseResult{}, err
-	}
-	defer db.Close()
-	db.SetMaxOpenConns(1)
-	if _, err := db.ExecContext(r.Context(), `PRAGMA query_only=ON`); err != nil {
-		return warehouseResult{}, err
-	}
-	if _, err := db.ExecContext(r.Context(), `PRAGMA busy_timeout=5000`); err != nil {
 		return warehouseResult{}, err
 	}
 	rows, err := db.QueryContext(r.Context(), sqlText, args...)

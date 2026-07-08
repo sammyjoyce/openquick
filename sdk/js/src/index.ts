@@ -31,8 +31,8 @@ export interface DbSubscriptionHandlers<T = DocumentRecord> {
 export interface Collection<T = DocumentRecord> {
   create(data: Record<string, unknown>, options?: RequestOptions): Promise<T>;
   get(id: string, options?: RequestOptions): Promise<T>;
-  update(id: string, patch: Record<string, unknown>, options?: RequestOptions): Promise<T>;
-  remove(id: string, options?: RequestOptions): Promise<void>;
+  update(id: string, patch: Record<string, unknown>, options?: DbWriteOptions): Promise<T>;
+  remove(id: string, options?: DbWriteOptions): Promise<void>;
   list(options?: DbListOptions): Promise<ListResult<T>>;
   subscribe(handlers: DbSubscriptionHandlers<T>): Promise<() => void>;
 }
@@ -41,11 +41,15 @@ export interface RequestOptions {
   signal?: AbortSignal;
 }
 
+export interface DbWriteOptions extends RequestOptions {
+  revision?: string;
+}
+
 export interface DbListOptions extends RequestOptions {
   limit?: number;
   cursor?: string;
   filter?: Record<string, unknown> | string;
-  sort?: string | string[];
+  sort?: string;
 }
 
 export interface ListResult<T = DocumentRecord> extends Array<T> {
@@ -223,7 +227,10 @@ export class OpenQuickError extends Error {
   readonly retryAfter?: number;
 
   constructor(message: string, options: { status: number; code?: string; details?: unknown; retryAfter?: number; cause?: unknown }) {
-    super(message, options.cause !== undefined ? { cause: options.cause } : undefined);
+    super(message);
+    if (options.cause !== undefined) {
+      (this as { cause?: unknown }).cause = options.cause;
+    }
     this.name = 'OpenQuickError';
     this.status = options.status;
     this.code = options.code;
@@ -311,6 +318,7 @@ function isAbortError(err: unknown): boolean {
 
 function throwAbortError(err: unknown): never {
   throw new OpenQuickError('OpenQuick request aborted', {
+    status: 0,
     code: 'aborted',
     details: { error: 'aborted', cause: err instanceof Error ? err.message : String(err) },
   });
@@ -384,24 +392,29 @@ function dbListPath(base: string, options: DbListOptions): string {
     params.set('filter', typeof options.filter === 'string' ? options.filter : JSON.stringify(options.filter));
   }
   if (options.sort !== undefined) {
-    params.set('sort', Array.isArray(options.sort) ? options.sort.join(',') : options.sort);
+    params.set('sort', options.sort);
   }
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
 }
 
+function dbWriteHeaders(options: DbWriteOptions, baseHeaders: HeadersInit = {}): Headers {
+  const headers = new Headers(baseHeaders);
+  if (options.revision !== undefined) {
+    headers.set('If-Match', options.revision);
+  }
+  return headers;
+}
+
 // quickd wraps document fields in a `data` envelope alongside server
 // metadata. Flatten to the documented DocumentRecord shape: `id` plus the
-// caller's fields, with metadata kept unless shadowed by user fields.
+// caller's fields, while keeping server metadata authoritative over any
+// same-named user fields in `data`.
 function normalizeDocument<T>(value: unknown): T {
   if (value && typeof value === 'object' && 'data' in value) {
     const { data, ...meta } = value as { data?: unknown; id?: unknown };
     if (data && typeof data === 'object' && !Array.isArray(data)) {
-      const result = { ...meta, ...(data as Record<string, unknown>) } as Record<string, unknown>;
-      if (Object.prototype.hasOwnProperty.call(value, 'id')) {
-        result.id = (value as { id?: unknown }).id;
-      }
-      return result as T;
+      return { ...(data as Record<string, unknown>), ...meta } as T;
     }
   }
   return value as T;
@@ -703,20 +716,21 @@ function collection<T = DocumentRecord>(name: string): Collection<T> {
       return normalizeDocument<T>(await requestJson<unknown>(`${base}/${encodeURIComponent(requireId(id, 'document id'))}`, { signal: options.signal }));
     },
 
-    async update(id: string, patch: Record<string, unknown>, options: RequestOptions = {}): Promise<T> {
+    async update(id: string, patch: Record<string, unknown>, options: DbWriteOptions = {}): Promise<T> {
       return normalizeDocument<T>(
         await requestJson<unknown>(`${base}/${encodeURIComponent(requireId(id, 'document id'))}`, {
           method: 'PATCH',
-          headers: jsonHeaders,
+          headers: dbWriteHeaders(options, jsonHeaders),
           body: JSON.stringify(patch),
           signal: options.signal,
         }),
       );
     },
 
-    async remove(id: string, options: RequestOptions = {}): Promise<void> {
+    async remove(id: string, options: DbWriteOptions = {}): Promise<void> {
       await requestJson<void>(`${base}/${encodeURIComponent(requireId(id, 'document id'))}`, {
         method: 'DELETE',
+        headers: dbWriteHeaders(options),
         signal: options.signal,
       });
     },

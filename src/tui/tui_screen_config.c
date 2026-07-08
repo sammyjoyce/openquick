@@ -1,5 +1,3 @@
-#include "tui_app_state.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,6 +5,7 @@
 #include "../core/deploy_plan.h"
 #include "../core/site_config.h"
 #include "tui.h"
+#include "tui_app_state.h"
 #include "tui_internal.h"
 #include "tui_panel.h"
 #include "tui_product_model.h"
@@ -85,12 +84,15 @@ static void quick_tui_profile_panel_redraw(tui_window_t *window,
               {"iap.audience", p->iap.audience ? p->iap.audience : ""},
               {"deploy.delete", del},
               {"deploy.open_after_deploy", open_after}};
-  for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]) && 3 + (int)i < window->height - 3; i++) {
+  for (size_t i = 0;
+       i < sizeof(rows) / sizeof(rows[0]) && 3 + (int)i < window->height - 3;
+       i++) {
     int y = 3 + (int)i;
     tui_set_color(window->win, TUI_COLOR_DIM);
     mvwaddnstr(window->win, y, 3, rows[i].key, 24);
     tui_unset_color(window->win, TUI_COLOR_DIM);
-    mvwaddnstr(window->win, y, 29, rows[i].value ? rows[i].value : "", window->width - 32);
+    mvwaddnstr(window->win, y, 29, rows[i].value ? rows[i].value : "",
+               window->width - 32);
   }
   if (panel->dirty) {
     tui_set_color(window->win, TUI_COLOR_WARNING);
@@ -124,14 +126,22 @@ static const char *quick_tui_profile_field_value(quick_profile_t *p,
                                                  const char *field,
                                                  char *scratch,
                                                  size_t scratch_size) {
-  if (strcmp(field, "ssh") == 0) return p->ssh ? p->ssh : "";
-  if (strcmp(field, "remote_root") == 0) return p->remote_root ? p->remote_root : "";
-  if (strcmp(field, "base_domain") == 0) return p->base_domain ? p->base_domain : "";
-  if (strcmp(field, "base_url") == 0) return p->base_url ? p->base_url : "";
-  if (strcmp(field, "iap.type") == 0) return p->iap.type ? p->iap.type : "";
-  if (strcmp(field, "iap.mode") == 0) return p->iap.mode ? p->iap.mode : "";
-  if (strcmp(field, "iap.team_domain") == 0) return p->iap.team_domain ? p->iap.team_domain : "";
-  if (strcmp(field, "iap.audience") == 0) return p->iap.audience ? p->iap.audience : "";
+  if (strcmp(field, "ssh") == 0)
+    return p->ssh ? p->ssh : "";
+  if (strcmp(field, "remote_root") == 0)
+    return p->remote_root ? p->remote_root : "";
+  if (strcmp(field, "base_domain") == 0)
+    return p->base_domain ? p->base_domain : "";
+  if (strcmp(field, "base_url") == 0)
+    return p->base_url ? p->base_url : "";
+  if (strcmp(field, "iap.type") == 0)
+    return p->iap.type ? p->iap.type : "";
+  if (strcmp(field, "iap.mode") == 0)
+    return p->iap.mode ? p->iap.mode : "";
+  if (strcmp(field, "iap.team_domain") == 0)
+    return p->iap.team_domain ? p->iap.team_domain : "";
+  if (strcmp(field, "iap.audience") == 0)
+    return p->iap.audience ? p->iap.audience : "";
   if (strcmp(field, "deploy.delete") == 0) {
     snprintf(scratch, scratch_size, "%s",
              (!p->deploy.has_delete || p->deploy.delete) ? "true" : "false");
@@ -147,17 +157,24 @@ static const char *quick_tui_profile_field_value(quick_profile_t *p,
   return "";
 }
 
-static void quick_tui_profile_apply_field(quick_profile_t *p,
-                                          const char *field,
+static void quick_tui_profile_apply_field(quick_profile_t *p, const char *field,
                                           const char *value) {
-  if (strcmp(field, "ssh") == 0) (void)quick_tui_set_string(&p->ssh, value);
-  else if (strcmp(field, "remote_root") == 0) (void)quick_tui_set_string(&p->remote_root, value);
-  else if (strcmp(field, "base_domain") == 0) (void)quick_tui_set_string(&p->base_domain, value);
-  else if (strcmp(field, "base_url") == 0) (void)quick_tui_set_string(&p->base_url, value);
-  else if (strcmp(field, "iap.type") == 0) (void)quick_tui_set_string(&p->iap.type, value);
-  else if (strcmp(field, "iap.mode") == 0) (void)quick_tui_set_string(&p->iap.mode, value);
-  else if (strcmp(field, "iap.team_domain") == 0) (void)quick_tui_set_string(&p->iap.team_domain, value);
-  else if (strcmp(field, "iap.audience") == 0) (void)quick_tui_set_string(&p->iap.audience, value);
+  if (strcmp(field, "ssh") == 0)
+    (void)quick_tui_set_string(&p->ssh, value);
+  else if (strcmp(field, "remote_root") == 0)
+    (void)quick_tui_set_string(&p->remote_root, value);
+  else if (strcmp(field, "base_domain") == 0)
+    (void)quick_tui_set_string(&p->base_domain, value);
+  else if (strcmp(field, "base_url") == 0)
+    (void)quick_tui_set_string(&p->base_url, value);
+  else if (strcmp(field, "iap.type") == 0)
+    (void)quick_tui_set_string(&p->iap.type, value);
+  else if (strcmp(field, "iap.mode") == 0)
+    (void)quick_tui_set_string(&p->iap.mode, value);
+  else if (strcmp(field, "iap.team_domain") == 0)
+    (void)quick_tui_set_string(&p->iap.team_domain, value);
+  else if (strcmp(field, "iap.audience") == 0)
+    (void)quick_tui_set_string(&p->iap.audience, value);
   else if (strcmp(field, "deploy.delete") == 0) {
     bool parsed = false;
     if (quick_tui_parse_bool(value, &parsed)) {
@@ -174,9 +191,14 @@ static void quick_tui_profile_apply_field(quick_profile_t *p,
 }
 
 static bool quick_tui_edit_profile_field(quick_profile_t *profile) {
-  static const char *const fields[] = {"ssh", "remote_root", "base_domain",
-                                       "base_url", "iap.type", "iap.mode",
-                                       "iap.team_domain", "iap.audience",
+  static const char *const fields[] = {"ssh",
+                                       "remote_root",
+                                       "base_domain",
+                                       "base_url",
+                                       "iap.type",
+                                       "iap.mode",
+                                       "iap.team_domain",
+                                       "iap.audience",
                                        "deploy.delete",
                                        "deploy.open_after_deploy"};
   tui_menu_item_t items[sizeof(fields) / sizeof(fields[0])];
@@ -184,15 +206,16 @@ static bool quick_tui_edit_profile_field(quick_profile_t *profile) {
     items[i] = (tui_menu_item_t){.label = fields[i], .id = (int)i + 1};
   }
   tui_menu_result_t r = tui_show_menu(
-      NULL, &(tui_menu_config_t){.title = "Edit profile field",
-                                 .subtitle = "Select a field to edit",
-                                 .items = items,
-                                 .item_count = (int)(sizeof(fields) / sizeof(fields[0])),
-                                 .default_index = 0,
-                                 .frame_height = 18,
-                                 .frame_width = 70,
-                                 .enable_search = true,
-                                 .show_numeric_keys = true});
+      NULL, &(tui_menu_config_t){
+                .title = "Edit profile field",
+                .subtitle = "Select a field to edit",
+                .items = items,
+                .item_count = (int)(sizeof(fields) / sizeof(fields[0])),
+                .default_index = 0,
+                .frame_height = 18,
+                .frame_width = 70,
+                .enable_search = true,
+                .show_numeric_keys = true});
   if (r.status != TUI_MENU_OK || r.selected_id < 1 ||
       (size_t)r.selected_id > sizeof(fields) / sizeof(fields[0])) {
     return false;
@@ -200,9 +223,9 @@ static bool quick_tui_edit_profile_field(quick_profile_t *profile) {
   const char *field = fields[(size_t)r.selected_id - 1U];
   char scratch[32];
   char prompt[256];
-  snprintf(prompt, sizeof(prompt), "%s [%s]:", field,
-           quick_tui_profile_field_value(profile, field, scratch,
-                                         sizeof(scratch)));
+  snprintf(
+      prompt, sizeof(prompt), "%s [%s]:", field,
+      quick_tui_profile_field_value(profile, field, scratch, sizeof(scratch)));
   char value[512];
   if (tui_input_dialog("Edit profile", prompt, value, sizeof(value)) !=
       APP_SUCCESS) {
@@ -219,7 +242,7 @@ static bool quick_tui_edit_profile_field(quick_profile_t *profile) {
 }
 
 typedef enum {
-  QUICK_TUI_UNSAVED_CANCEL = 0,
+  QUICK_TUI_UNSAVED_CANCEL = 1,
   QUICK_TUI_UNSAVED_SAVE,
   QUICK_TUI_UNSAVED_DISCARD,
 } quick_tui_unsaved_decision_t;
@@ -238,17 +261,19 @@ static quick_tui_unsaved_decision_t quick_tui_profile_unsaved_decision(
        .id = QUICK_TUI_UNSAVED_CANCEL},
   };
   char subtitle[192];
-  snprintf(subtitle, sizeof(subtitle), "%s has changes not written to config.json",
+  snprintf(subtitle, sizeof(subtitle),
+           "%s has changes not written to config.json",
            profile_name ? profile_name : "Profile");
   tui_menu_result_t r = tui_show_menu(
-      NULL, &(tui_menu_config_t){.title = "Unsaved profile changes",
-                                 .subtitle = subtitle,
-                                 .items = items,
-                                 .item_count = (int)(sizeof(items) / sizeof(items[0])),
-                                 .default_index = 2,
-                                 .frame_height = 12,
-                                 .frame_width = 72,
-                                 .show_numeric_keys = true});
+      NULL, &(tui_menu_config_t){
+                .title = "Unsaved profile changes",
+                .subtitle = subtitle,
+                .items = items,
+                .item_count = (int)(sizeof(items) / sizeof(items[0])),
+                .default_index = 2,
+                .frame_height = 12,
+                .frame_width = 72,
+                .show_numeric_keys = true});
   if (r.status != TUI_MENU_OK) {
     return QUICK_TUI_UNSAVED_CANCEL;
   }
@@ -265,9 +290,8 @@ static bool quick_tui_write_profiles(quick_tui_app_state_t *state,
                                      const char *title) {
   app_error err = quick_profile_config_write_file(
       quick_tui_profile_config_path(state), &state->profiles);
-  tui_show_message(title,
-                   err == APP_SUCCESS ? "Profile config written."
-                                      : app_strerror(err));
+  tui_show_message(title, err == APP_SUCCESS ? "Profile config written."
+                                             : app_strerror(err));
   return err == APP_SUCCESS;
 }
 
@@ -276,10 +300,8 @@ static void quick_tui_show_profile(quick_tui_app_state_t *state,
   bool open = true;
   bool dirty = false;
   while (open && !tui_interrupted()) {
-    quick_tui_profile_panel_state_t panel = {.state = state,
-                                             .profile = profile,
-                                             .action = 0,
-                                             .dirty = dirty};
+    quick_tui_profile_panel_state_t panel = {
+        .state = state, .profile = profile, .action = 0, .dirty = dirty};
     (void)tui_modal_run(18, 80, "Profile", quick_tui_profile_panel_redraw,
                         quick_tui_profile_panel_key, &panel);
     if (panel.action == 'e') {
@@ -290,7 +312,9 @@ static void quick_tui_show_profile(quick_tui_app_state_t *state,
       (void)quick_tui_set_string(&state->profiles.default_profile,
                                  profile->name);
       dirty = true;
-      tui_show_message("Profile", "Default profile updated in memory. Press w to write config.json.");
+      tui_show_message(
+          "Profile",
+          "Default profile updated in memory. Press w to write config.json.");
     } else if (panel.action == 'w') {
       if (tui_confirm("Write profiles", "Write profile config to disk?")) {
         if (quick_tui_write_profiles(state, "Write profiles")) {
@@ -327,9 +351,12 @@ static void quick_tui_new_profile(quick_tui_app_state_t *state) {
     tui_show_message("New profile", msg);
     return;
   }
-  quick_profile_t *profile = quick_profile_config_upsert(&state->profiles, name);
+  quick_profile_t *profile =
+      quick_profile_config_upsert(&state->profiles, name);
   if (!profile) {
-    tui_show_message("New profile", "Could not create profile (limit reached or out of memory).");
+    tui_show_message(
+        "New profile",
+        "Could not create profile (limit reached or out of memory).");
     return;
   }
   quick_tui_show_profile(state, profile);
@@ -366,30 +393,33 @@ static void quick_tui_profiles_section(quick_tui_app_state_t *state) {
                                        .id = (int)i + 1};
     }
     items[idx++] = (tui_menu_item_t){.kind = TUI_MENU_ITEM_SEPARATOR};
-    items[idx++] = (tui_menu_item_t){.label = "&New profile",
-                                     .description = "Create a profile in memory",
-                                     .id = 900};
-    items[idx++] = (tui_menu_item_t){.label = "&Back",
-                                     .description = "Return to Settings",
-                                     .id = 901};
+    items[idx++] =
+        (tui_menu_item_t){.label = "&New profile",
+                          .description = "Create a profile in memory",
+                          .id = 900};
+    items[idx++] = (tui_menu_item_t){
+        .label = "&Back", .description = "Return to Settings", .id = 901};
     tui_menu_result_t r = tui_show_menu(
-        NULL, &(tui_menu_config_t){.title = "Profiles",
-                                   .subtitle = quick_tui_profile_config_path(state),
-                                   .items = items,
-                                   .item_count = (int)idx,
-                                   .default_index = state->profiles.profile_count > 0 ? 0 : (int)state->profiles.profile_count + 1,
-                                   .frame_height = 18,
-                                   .frame_width = 78,
-                                   .enable_search = true,
-                                   .show_numeric_keys = true});
+        NULL, &(tui_menu_config_t){
+                  .title = "Profiles",
+                  .subtitle = quick_tui_profile_config_path(state),
+                  .items = items,
+                  .item_count = (int)idx,
+                  .default_index = state->profiles.profile_count > 0
+                                       ? 0
+                                       : (int)state->profiles.profile_count + 1,
+                  .frame_height = 18,
+                  .frame_width = 78,
+                  .enable_search = true,
+                  .show_numeric_keys = true});
     if (r.status != TUI_MENU_OK || r.selected_id == 901) {
       open = false;
     } else if (r.selected_id == 900) {
       quick_tui_new_profile(state);
     } else if (r.selected_id >= 1 &&
                (size_t)r.selected_id <= state->profiles.profile_count) {
-      quick_tui_show_profile(state,
-                             &state->profiles.profiles[(size_t)r.selected_id - 1U]);
+      quick_tui_show_profile(
+          state, &state->profiles.profiles[(size_t)r.selected_id - 1U]);
     }
     for (size_t i = 0; i < state->profiles.profile_count; i++) {
       free(labels[i]);
@@ -425,24 +455,35 @@ static bool quick_tui_load_site_config_path(char *path, size_t path_size,
 
 static const char *quick_tui_site_field_value(quick_site_config_t *site,
                                               const char *field) {
-  if (strcmp(field, "name") == 0) return site->name ? site->name : "";
-  if (strcmp(field, "subdomain") == 0) return site->subdomain ? site->subdomain : "";
-  if (strcmp(field, "source") == 0) return site->source ? site->source : ".";
-  if (strcmp(field, "output") == 0) return site->output ? site->output : ".";
-  if (strcmp(field, "build") == 0) return site->build ? site->build : "";
-  if (strcmp(field, "profile") == 0) return site->profile ? site->profile : "";
+  if (strcmp(field, "name") == 0)
+    return site->name ? site->name : "";
+  if (strcmp(field, "subdomain") == 0)
+    return site->subdomain ? site->subdomain : "";
+  if (strcmp(field, "source") == 0)
+    return site->source ? site->source : ".";
+  if (strcmp(field, "output") == 0)
+    return site->output ? site->output : ".";
+  if (strcmp(field, "build") == 0)
+    return site->build ? site->build : "";
+  if (strcmp(field, "profile") == 0)
+    return site->profile ? site->profile : "";
   return "";
 }
 
 static void quick_tui_site_apply_field(quick_site_config_t *site,
-                                       const char *field,
-                                       const char *value) {
-  if (strcmp(field, "name") == 0) (void)quick_tui_set_string(&site->name, value);
-  else if (strcmp(field, "subdomain") == 0) (void)quick_tui_set_string(&site->subdomain, value);
-  else if (strcmp(field, "source") == 0) (void)quick_tui_set_string(&site->source, value[0] ? value : ".");
-  else if (strcmp(field, "output") == 0) (void)quick_tui_set_string(&site->output, value[0] ? value : ".");
-  else if (strcmp(field, "build") == 0) (void)quick_tui_set_string(&site->build, value);
-  else if (strcmp(field, "profile") == 0) (void)quick_tui_set_string(&site->profile, value);
+                                       const char *field, const char *value) {
+  if (strcmp(field, "name") == 0)
+    (void)quick_tui_set_string(&site->name, value);
+  else if (strcmp(field, "subdomain") == 0)
+    (void)quick_tui_set_string(&site->subdomain, value);
+  else if (strcmp(field, "source") == 0)
+    (void)quick_tui_set_string(&site->source, value[0] ? value : ".");
+  else if (strcmp(field, "output") == 0)
+    (void)quick_tui_set_string(&site->output, value[0] ? value : ".");
+  else if (strcmp(field, "build") == 0)
+    (void)quick_tui_set_string(&site->build, value);
+  else if (strcmp(field, "profile") == 0)
+    (void)quick_tui_set_string(&site->profile, value);
 }
 
 static void quick_tui_site_config_section(void) {
@@ -453,8 +494,8 @@ static void quick_tui_site_config_section(void) {
     quick_site_config_destroy(&site);
     return;
   }
-  static const char *const fields[] = {"name", "subdomain", "source",
-                                       "output", "build", "profile"};
+  static const char *const fields[] = {"name",   "subdomain", "source",
+                                       "output", "build",     "profile"};
   bool open = true;
   while (open && !tui_interrupted()) {
     tui_menu_item_t items[sizeof(fields) / sizeof(fields[0]) + 2U];
@@ -466,30 +507,33 @@ static void quick_tui_site_config_section(void) {
       items[idx++] = (tui_menu_item_t){.label = labels[i], .id = (int)i + 1};
     }
     items[idx++] = (tui_menu_item_t){.kind = TUI_MENU_ITEM_SEPARATOR};
-    items[idx++] = (tui_menu_item_t){.label = "&Write quick.json",
-                                     .description = "Validate and write site config",
-                                     .id = 900};
-    tui_menu_result_t r = tui_show_menu(
-        NULL, &(tui_menu_config_t){.title = "Site config",
-                                   .subtitle = path,
-                                   .items = items,
-                                   .item_count = (int)idx,
-                                   .default_index = 0,
-                                   .frame_height = 18,
-                                   .frame_width = 78,
-                                   .enable_search = true,
-                                   .show_numeric_keys = true});
+    items[idx++] =
+        (tui_menu_item_t){.label = "&Write quick.json",
+                          .description = "Validate and write site config",
+                          .id = 900};
+    tui_menu_result_t r =
+        tui_show_menu(NULL, &(tui_menu_config_t){.title = "Site config",
+                                                 .subtitle = path,
+                                                 .items = items,
+                                                 .item_count = (int)idx,
+                                                 .default_index = 0,
+                                                 .frame_height = 18,
+                                                 .frame_width = 78,
+                                                 .enable_search = true,
+                                                 .show_numeric_keys = true});
     if (r.status != TUI_MENU_OK) {
       open = false;
     } else if (r.selected_id == 900) {
       if ((!site.name || !quick_slug_is_valid(site.name)) ||
           (site.subdomain && !quick_slug_is_valid(site.subdomain))) {
-        tui_show_message("Site config", "Name and subdomain must be valid DNS labels before writing.");
+        tui_show_message(
+            "Site config",
+            "Name and subdomain must be valid DNS labels before writing.");
       } else if (tui_confirm("Write site config", "Write quick.json?")) {
         app_error err = quick_site_config_write_file(path, &site);
-        tui_show_message("Write site config",
-                         err == APP_SUCCESS ? "quick.json written."
-                                            : app_strerror(err));
+        tui_show_message("Write site config", err == APP_SUCCESS
+                                                  ? "quick.json written."
+                                                  : app_strerror(err));
       }
     } else if (r.selected_id >= 1 &&
                (size_t)r.selected_id <= sizeof(fields) / sizeof(fields[0])) {
@@ -505,7 +549,8 @@ static void quick_tui_site_config_section(void) {
           char slug[QUICK_SLUG_MAX + 1];
           if (quick_slug_normalize(value, slug) != APP_SUCCESS ||
               !quick_slug_is_valid(slug)) {
-            tui_show_message("Edit site config", "Value is not a valid DNS label.");
+            tui_show_message("Edit site config",
+                             "Value is not a valid DNS label.");
             continue;
           }
           quick_tui_site_apply_field(&site, field, slug);
@@ -539,14 +584,15 @@ void quick_tui_screen_config(quick_tui_app_state_t *state) {
         {.label = "&Back", .description = "Return to OpenQuick", .id = 3},
     };
     tui_menu_result_t r = tui_show_menu(
-        NULL, &(tui_menu_config_t){.title = "Settings",
-                                   .subtitle = quick_tui_profile_config_path(state),
-                                   .items = items,
-                                   .item_count = (int)(sizeof(items) / sizeof(items[0])),
-                                   .default_index = 0,
-                                   .frame_height = 14,
-                                   .frame_width = 74,
-                                   .show_numeric_keys = true});
+        NULL, &(tui_menu_config_t){
+                  .title = "Settings",
+                  .subtitle = quick_tui_profile_config_path(state),
+                  .items = items,
+                  .item_count = (int)(sizeof(items) / sizeof(items[0])),
+                  .default_index = 0,
+                  .frame_height = 14,
+                  .frame_width = 74,
+                  .show_numeric_keys = true});
     if (r.status != TUI_MENU_OK || r.selected_id == 3) {
       open = false;
     } else if (r.selected_id == 1) {

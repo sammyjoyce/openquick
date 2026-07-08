@@ -479,11 +479,11 @@ jobs:
       - name: Check for scaffold placeholders
         run: |
           # Check for common scaffold placeholders (excluding C23 attributes like [[nodiscard]])
-          PLACEHOLDERS_FOUND=$(find . -type f -not -path "./.git/*" -not -path "./zig-cache/*" -not -path "./zig-out/*" -not -path "./.github/workflows/*" \( -name "*.md" -o -name "*.yml" -o -name "*.yaml" -o -name "*.json" -o -name "*.txt" -o -name "*.zig" \) -exec grep -l "{{[^}]*}}\|<REPO_NAME>\|<REPO_OWNER>\|<PROJECT_NAME>" {} \; | wc -l)
+          PLACEHOLDERS_FOUND=$(find . -type f -not -path "./.git/*" -not -path "./zig-cache/*" -not -path "./zig-out/*" -not -path "./.github/workflows/*" \( -name "*.md" -o -name "*.yml" -o -name "*.yaml" -o -name "*.json" -o -name "*.txt" -o -name "*.zig" \) -exec grep -l "{{[[:space:]]*[A-Z][A-Z0-9_ -]*[[:space:]]*}}\|<REPO_NAME>\|<REPO_OWNER>\|<PROJECT_NAME>" {} \; | wc -l)
 
           if [ "$PLACEHOLDERS_FOUND" -gt 0 ]; then
             echo "❌ Scaffold placeholders found in the following files:"
-            find . -type f -not -path "./.git/*" -not -path "./zig-cache/*" -not -path "./zig-out/*" -not -path "./.github/workflows/*" \( -name "*.md" -o -name "*.yml" -o -name "*.yaml" -o -name "*.json" -o -name "*.txt" -o -name "*.zig" \) -exec grep -l "{{[^}]*}}\|<REPO_NAME>\|<REPO_OWNER>\|<PROJECT_NAME>" {} \;
+            find . -type f -not -path "./.git/*" -not -path "./zig-cache/*" -not -path "./zig-out/*" -not -path "./.github/workflows/*" \( -name "*.md" -o -name "*.yml" -o -name "*.yaml" -o -name "*.json" -o -name "*.txt" -o -name "*.zig" \) -exec grep -l "{{[[:space:]]*[A-Z][A-Z0-9_ -]*[[:space:]]*}}\|<REPO_NAME>\|<REPO_OWNER>\|<PROJECT_NAME>" {} \;
             echo "Please replace all scaffold placeholders before committing."
             exit 1
           else

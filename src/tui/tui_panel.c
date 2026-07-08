@@ -50,9 +50,8 @@ static void quick_tui_kv_redraw(tui_window_t *window, void *userdata) {
     quick_tui_write(window->win, y, 3, key_width, row->key ? row->key : "");
     tui_unset_color(window->win, TUI_COLOR_DIM);
     quick_tui_write(window->win, y, 3 + key_width, 2, "  ");
-    tui_color_pair_t color = row->color == TUI_COLOR_DEFAULT
-                                 ? TUI_COLOR_MENU_NORMAL
-                                 : row->color;
+    tui_color_pair_t color =
+        row->color == TUI_COLOR_DEFAULT ? TUI_COLOR_MENU_NORMAL : row->color;
     tui_set_color(window->win, color);
     quick_tui_write(window->win, y, 5 + key_width,
                     window->width - key_width - 8,
@@ -67,8 +66,7 @@ static void quick_tui_kv_redraw(tui_window_t *window, void *userdata) {
 }
 
 static tui_modal_decision_t quick_tui_panel_close_key(tui_window_t *window,
-                                                      int ch,
-                                                      void *userdata) {
+                                                      int ch, void *userdata) {
   (void)window;
   (void)userdata;
   return ch == '\n' || ch == KEY_ENTER || ch == 27 || ch == 'q' || ch == 'Q'
@@ -79,9 +77,8 @@ static tui_modal_decision_t quick_tui_panel_close_key(tui_window_t *window,
 void quick_tui_show_keyvalue_panel(const char *title,
                                    const quick_tui_kv_row_t *rows,
                                    size_t row_count, const char *footer) {
-  quick_tui_kv_state_t state = {.rows = rows,
-                                .row_count = row_count,
-                                .footer = footer};
+  quick_tui_kv_state_t state = {
+      .rows = rows, .row_count = row_count, .footer = footer};
   int height = 8 + (int)row_count;
   if (height < 10) {
     height = 10;
@@ -118,10 +115,9 @@ static void quick_tui_lines_redraw(tui_window_t *window, void *userdata) {
                     state->lines[index] ? state->lines[index] : "");
   }
   char hint[160];
-  snprintf(hint, sizeof(hint), "%s%s", state->footer ? state->footer : "Esc closes",
-           state->line_count > (size_t)(rows > 0 ? rows : 0)
-               ? " · ↑↓ scroll"
-               : "");
+  snprintf(
+      hint, sizeof(hint), "%s%s", state->footer ? state->footer : "Esc closes",
+      state->line_count > (size_t)(rows > 0 ? rows : 0) ? " · ↑↓ scroll" : "");
   tui_set_color(window->win, TUI_COLOR_INFO);
   tui_print_centered(window->win, window->height - 2, hint);
   tui_unset_color(window->win, TUI_COLOR_INFO);
@@ -164,10 +160,8 @@ static tui_modal_decision_t quick_tui_lines_key(tui_window_t *window, int ch,
 
 void quick_tui_show_lines_panel(const char *title, const char *const *lines,
                                 size_t line_count, const char *footer) {
-  quick_tui_lines_state_t state = {.lines = lines,
-                                   .line_count = line_count,
-                                   .footer = footer,
-                                   .scroll = 0};
+  quick_tui_lines_state_t state = {
+      .lines = lines, .line_count = line_count, .footer = footer, .scroll = 0};
   (void)tui_modal_run(18, 78, title, quick_tui_lines_redraw,
                       quick_tui_lines_key, &state);
 }

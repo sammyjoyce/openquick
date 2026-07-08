@@ -64,15 +64,15 @@ app_error app_cmd_doctor(const app_config_t *config, int argc,
   quick_doctor_result_init(&result);
   app_error err = quick_op_doctor(&request, &result);
   if (err == APP_SUCCESS) {
-    if (app_config_is_json_output(config) || quick_cmd_flag(argc, argv, "--json")) {
+    if (app_config_is_json_output(config) ||
+        quick_cmd_flag(argc, argv, "--json")) {
       doctor_print_json(&result);
     } else {
       const app_build_info_t *build = app_build_info();
       app_output_format(config, false, "%s doctor", build->name);
       for (size_t i = 0; i < result.count; i++) {
         app_output_format(config, false, "  %-16s %-8s %-4s %s",
-                          result.checks[i].group,
-                          result.checks[i].name,
+                          result.checks[i].group, result.checks[i].name,
                           quick_doctor_status_string(result.checks[i].status),
                           result.checks[i].detail);
       }

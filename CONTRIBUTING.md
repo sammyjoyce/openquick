@@ -38,7 +38,9 @@ Before opening one, search [existing issues](https://github.com/sammyjoyce/openq
 
 ## Suggesting features
 
-Open an issue describing the use case and how it fits OpenQuick's scope. Keep an eye on [docs/design/ARCHITECTURE.md](docs/design/ARCHITECTURE.md) and [docs/CONTRACTS.md](docs/CONTRACTS.md); the supported seams document what's intentionally in or out.
+Open an issue describing the use case and how it fits OpenQuick's scope. Keep an eye on
+[docs/design/ARCHITECTURE.md](docs/design/ARCHITECTURE.md) and [docs/CONTRACTS.md](docs/CONTRACTS.md);
+the supported seams document what's intentionally in or out.
 
 ## Setting up
 
@@ -96,7 +98,8 @@ Append the path to `base_sources` in `build.zig` (TUI-only files belong in `tui_
 
 ### Adding a command, or a TUI screen
 
-OpenQuick workflow commands live under `src/cli/commands_*.c` and are registered in `src/cli/commands.c`; update `opencli.json` and contract tests with behavior changes. For interactive UI internals, see [examples/custom-tui.md](examples/custom-tui.md).
+OpenQuick workflow commands live under `src/cli/commands_*.c` and are registered in `src/cli/commands.c`; update `opencli.json`
+and contract tests with behavior changes. For interactive UI internals, see [examples/custom-tui.md](examples/custom-tui.md).
 
 ## Pull requests
 

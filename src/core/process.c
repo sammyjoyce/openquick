@@ -327,10 +327,12 @@ app_error quick_process_stream_cancelable(
     struct pollfd fds[2];
     nfds_t nfds = 0;
     if (out_open) {
-      fds[nfds++] = (struct pollfd){.fd = out_pipe[0], .events = POLLIN | POLLHUP | POLLERR};
+      fds[nfds++] = (struct pollfd){.fd = out_pipe[0],
+                                    .events = POLLIN | POLLHUP | POLLERR};
     }
     if (err_open) {
-      fds[nfds++] = (struct pollfd){.fd = err_pipe[0], .events = POLLIN | POLLHUP | POLLERR};
+      fds[nfds++] = (struct pollfd){.fd = err_pipe[0],
+                                    .events = POLLIN | POLLHUP | POLLERR};
     }
     int pr = poll(fds, nfds, 50);
     if (pr < 0) {
@@ -411,9 +413,8 @@ app_error quick_process_stream_cancelable(
 }
 
 app_error quick_process_stream(char *const argv[], const char *cwd,
-                               const char *stdin_text,
-                               quick_stream_cb on_line, void *userdata,
-                               quick_process_result_t *result) {
+                               const char *stdin_text, quick_stream_cb on_line,
+                               void *userdata, quick_process_result_t *result) {
   return quick_process_stream_cancelable(argv, cwd, stdin_text, on_line,
                                          userdata, NULL, result);
 }

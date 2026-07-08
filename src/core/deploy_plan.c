@@ -165,7 +165,8 @@ static app_error quick_mkdir_p(const char *path) {
   return APP_SUCCESS;
 }
 
-app_error quick_slug_normalize(const char *input, char out[QUICK_SLUG_MAX + 1]) {
+app_error quick_slug_normalize(const char *input,
+                               char out[QUICK_SLUG_MAX + 1]) {
   if (!input || !out) {
     return APP_ERROR_INVALID_ARG;
   }
@@ -346,8 +347,8 @@ static const char *quick_first_nonempty(const char *a, const char *b) {
 static char *quick_make_url(const char *subdomain, const char *base_domain,
                             const char *base_url) {
   if (base_domain && base_domain[0] != '\0') {
-    const size_t len = strlen("https://") + strlen(subdomain) + 1U +
-                       strlen(base_domain) + 1U;
+    const size_t len =
+        strlen("https://") + strlen(subdomain) + 1U + strlen(base_domain) + 1U;
     char *url = malloc(len);
     if (!url) {
       return NULL;
@@ -355,8 +356,8 @@ static char *quick_make_url(const char *subdomain, const char *base_domain,
     snprintf(url, len, "https://%s.%s", subdomain, base_domain);
     return url;
   }
-  const char *base = (base_url && base_url[0] != '\0') ? base_url
-                                                       : "http://localhost:9366/~";
+  const char *base =
+      (base_url && base_url[0] != '\0') ? base_url : "http://localhost:9366/~";
   const size_t blen = strlen(base);
   const bool slash = blen > 0 && base[blen - 1] != '/';
   const size_t len = blen + (slash ? 1U : 0U) + strlen(subdomain) + 1U;
@@ -373,7 +374,8 @@ static app_error quick_find_site_root(const char *path, char **root_out,
                                       quick_site_config_t *site_config) {
   char *base = NULL;
   if (path && path[0] != '\0') {
-    base = quick_path_is_absolute(path) ? quick_strdup(path) : quick_path_join(".", path);
+    base = quick_path_is_absolute(path) ? quick_strdup(path)
+                                        : quick_path_join(".", path);
   } else {
     base = quick_cwd_dup();
   }
@@ -456,19 +458,23 @@ app_error quick_deploy_plan_resolve(const quick_plan_overrides_t *overrides,
   const char *env_remote = getenv("QUICK_REMOTE");
   const char *env_base_domain = getenv("QUICK_BASE_DOMAIN");
 
-  const char *profile_name = quick_first_nonempty(overrides ? overrides->profile : NULL,
-                              quick_first_nonempty(env_profile,
-                                  quick_first_nonempty(site.profile,
-                                      profiles ? profiles->default_profile : NULL)));
+  const char *profile_name = quick_first_nonempty(
+      overrides ? overrides->profile : NULL,
+      quick_first_nonempty(
+          env_profile,
+          quick_first_nonempty(site.profile,
+                               profiles ? profiles->default_profile : NULL)));
   if (!profile_name || profile_name[0] == '\0') {
     profile_name = "local";
   }
   snprintf(plan->profile, sizeof(plan->profile), "%s", profile_name);
 
-  const quick_profile_t *profile = profiles ? quick_profile_config_find(profiles, profile_name) : NULL;
+  const quick_profile_t *profile =
+      profiles ? quick_profile_config_find(profiles, profile_name) : NULL;
 
-  const char *site_source = quick_first_nonempty(overrides ? overrides->site : NULL,
-                             quick_first_nonempty(env_site, site.name));
+  const char *site_source =
+      quick_first_nonempty(overrides ? overrides->site : NULL,
+                           quick_first_nonempty(env_site, site.name));
   char normalized[QUICK_SLUG_MAX + 1];
   if (!site_source || site_source[0] == '\0') {
     const char *base = quick_basename_ptr(site_root);
@@ -490,8 +496,9 @@ app_error quick_deploy_plan_resolve(const quick_plan_overrides_t *overrides,
   }
   snprintf(plan->site, sizeof(plan->site), "%s", normalized);
 
-  const char *subdomain_source = quick_first_nonempty(overrides ? overrides->subdomain : NULL,
-                                  quick_first_nonempty(site.subdomain, plan->site));
+  const char *subdomain_source =
+      quick_first_nonempty(overrides ? overrides->subdomain : NULL,
+                           quick_first_nonempty(site.subdomain, plan->site));
   err = quick_slug_normalize(subdomain_source, normalized);
   if (err != APP_SUCCESS || !quick_slug_is_valid(normalized)) {
     free(site_root);
@@ -501,15 +508,21 @@ app_error quick_deploy_plan_resolve(const quick_plan_overrides_t *overrides,
   }
   snprintf(plan->subdomain, sizeof(plan->subdomain), "%s", normalized);
 
-  const char *ssh = quick_first_nonempty(overrides ? overrides->remote : NULL,
-                     quick_first_nonempty(env_remote, profile ? profile->ssh : NULL));
-  const char *remote_root = profile && profile->remote_root ? profile->remote_root : "/srv/quick";
-  const char *base_domain = quick_first_nonempty(overrides ? overrides->base_domain : NULL,
-                            quick_first_nonempty(env_base_domain, profile ? profile->base_domain : NULL));
+  const char *ssh = quick_first_nonempty(
+      overrides ? overrides->remote : NULL,
+      quick_first_nonempty(env_remote, profile ? profile->ssh : NULL));
+  const char *remote_root =
+      profile && profile->remote_root ? profile->remote_root : "/srv/quick";
+  const char *base_domain = quick_first_nonempty(
+      overrides ? overrides->base_domain : NULL,
+      quick_first_nonempty(env_base_domain,
+                           profile ? profile->base_domain : NULL));
   const char *base_url = profile ? profile->base_url : NULL;
 
-  const char *source_rel = site.source && site.source[0] != '\0' ? site.source : ".";
-  const char *output_rel = site.output && site.output[0] != '\0' ? site.output : ".";
+  const char *source_rel =
+      site.source && site.source[0] != '\0' ? site.source : ".";
+  const char *output_rel =
+      site.output && site.output[0] != '\0' ? site.output : ".";
   char *source_dir = quick_path_join(site_root, source_rel);
   char *output_dir = quick_path_join(source_dir, output_rel);
   char *url = quick_make_url(plan->subdomain, base_domain, base_url);
@@ -557,8 +570,8 @@ static char *quick_trim_dup(const char *line) {
     line++;
   }
   const char *end = line + strlen(line);
-  while (end > line && (end[-1] == '\n' || end[-1] == '\r' ||
-                        end[-1] == ' ' || end[-1] == '\t')) {
+  while (end > line && (end[-1] == '\n' || end[-1] == '\r' || end[-1] == ' ' ||
+                        end[-1] == '\t')) {
     end--;
   }
   size_t len = (size_t)(end - line);
@@ -754,8 +767,7 @@ static void quick_utc_now(char out[32]) {
 
 app_error quick_local_state_write_deployment(const char *site_root,
                                              const char *profile,
-                                             const char *site,
-                                             const char *url,
+                                             const char *site, const char *url,
                                              const char *release) {
   if (!site_root || !profile || !site || !url || !release) {
     return APP_ERROR_INVALID_ARG;

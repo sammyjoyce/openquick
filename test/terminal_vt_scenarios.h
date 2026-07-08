@@ -38,8 +38,7 @@ int run_tui_settings_profiles_from_xdg(test_stats_t *stats, const char *binary,
 int run_tui_deploy_plan_panel(test_stats_t *stats, const char *binary,
                               bool tui_enabled);
 int run_tui_deploy_cancel_cleanup_status(test_stats_t *stats,
-                                         const char *binary,
-                                         bool tui_enabled);
+                                         const char *binary, bool tui_enabled);
 int run_tui_serve_install_guide(test_stats_t *stats, const char *binary,
                                 bool tui_enabled);
 

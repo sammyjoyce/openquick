@@ -274,9 +274,9 @@ void app_cli_term_emit_reset(app_cli_term_t *term) {
 //
 // Caching is honest: we commit a process-global result ONLY after a real probe
 // completes (a definitive success or failure of the /dev/tty round-trip). A
-// transient or contextual skip (NO_COLOR/plain config, QUICK_CLI_OSC11=0, CI, no
-// controlling terminal) returns UNKNOWN WITHOUT freezing the cache, so a later
-// call made under different conditions can still probe.
+// transient or contextual skip (NO_COLOR/plain config, QUICK_CLI_OSC11=0, CI,
+// no controlling terminal) returns UNKNOWN WITHOUT freezing the cache, so a
+// later call made under different conditions can still probe.
 app_cli_bg_kind_id app_cli_term_detect_background(const app_cli_term_t *term,
                                                   const app_config_t *config) {
   (void)term;

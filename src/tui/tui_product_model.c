@@ -12,10 +12,10 @@ bool quick_tui_format_site_row(const quick_list_item_t *item, char *buffer,
   }
   const char *name = item->name && item->name[0] ? item->name : "(unnamed)";
   const char *url = item->url && item->url[0] ? item->url : "(no url)";
-  const char *release = item->release && item->release[0] ? item->release : "no release";
-  const char *updated = item->updated_at && item->updated_at[0]
-                            ? item->updated_at
-                            : "unknown";
+  const char *release =
+      item->release && item->release[0] ? item->release : "no release";
+  const char *updated =
+      item->updated_at && item->updated_at[0] ? item->updated_at : "unknown";
   const char *stale = item->stale ? " [stale]" : "";
   int n = snprintf(buffer, size, "%s - %s (%s, %s)%s", name, url, release,
                    updated, stale);
@@ -40,40 +40,45 @@ bool quick_tui_validate_profile_field(const char *field, const char *value,
     if (quick_profile_name_is_safe(v)) {
       return true;
     }
-    quick_tui_validation_message(message, message_size,
-                                 "profile names may use letters, digits, dot, underscore, and dash");
+    quick_tui_validation_message(
+        message, message_size,
+        "profile names may use letters, digits, dot, underscore, and dash");
     return false;
   }
   if (strcmp(field, "ssh") == 0) {
     if (v[0] == '\0' || quick_ssh_target_is_safe(v)) {
       return true;
     }
-    quick_tui_validation_message(message, message_size,
-                                 "SSH targets may not contain spaces or shell metacharacters");
+    quick_tui_validation_message(
+        message, message_size,
+        "SSH targets may not contain spaces or shell metacharacters");
     return false;
   }
   if (strcmp(field, "remote_root") == 0) {
     if (v[0] == '\0' || quick_remote_path_is_safe(v)) {
       return true;
     }
-    quick_tui_validation_message(message, message_size,
-                                 "remote_root must be an absolute safe path without .. segments");
+    quick_tui_validation_message(
+        message, message_size,
+        "remote_root must be an absolute safe path without .. segments");
     return false;
   }
   if (strcmp(field, "base_domain") == 0) {
     if (v[0] == '\0' || quick_domain_is_safe(v)) {
       return true;
     }
-    quick_tui_validation_message(message, message_size,
-                                 "base_domain must be a safe DNS name or localhost");
+    quick_tui_validation_message(
+        message, message_size,
+        "base_domain must be a safe DNS name or localhost");
     return false;
   }
   if (strcmp(field, "iap.type") == 0 || strcmp(field, "iap.mode") == 0) {
     if (v[0] == '\0' || quick_profile_name_is_safe(v)) {
       return true;
     }
-    quick_tui_validation_message(message, message_size,
-                                 "IAP values may use letters, digits, dot, underscore, and dash");
+    quick_tui_validation_message(
+        message, message_size,
+        "IAP values may use letters, digits, dot, underscore, and dash");
     return false;
   }
   if (strcmp(field, "base_url") == 0 || strcmp(field, "iap.team_domain") == 0 ||

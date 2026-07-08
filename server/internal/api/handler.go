@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -215,24 +216,31 @@ func (s *Server) handleDB(w http.ResponseWriter, r *http.Request, site string, i
 			filterRaw := r.URL.Query().Get("filter")
 			sortKey := r.URL.Query().Get("sort")
 			if filterRaw != "" || sortKey != "" {
+				sortSpec, err := parseDocumentSort(sortKey)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
 				docs, err := s.Store.ListDocuments(r.Context(), site, collection)
 				if err != nil {
 					s.writeStoreError(w, err)
 					return
 				}
-				docs, err = filterSortDocuments(docs, filterRaw, sortKey)
+				docs, err = filterSortDocuments(docs, filterRaw, sortSpec)
 				if err != nil {
 					http.Error(w, err.Error(), http.StatusBadRequest)
 					return
 				}
-				if len(docs) > limit {
-					docs = docs[:limit]
+				docs, nextCursor, err := pageFilteredDocuments(docs, limit, r.URL.Query().Get("cursor"), sortSpec)
+				if err != nil {
+					s.writeStoreError(w, err)
+					return
 				}
 				out := make([]map[string]any, 0, len(docs))
 				for _, d := range docs {
 					out = append(out, documentJSON(d))
 				}
-				writeJSON(w, http.StatusOK, map[string]any{"documents": out, "next_cursor": "", "filter": filterRaw, "sort": sortKey})
+				writeJSON(w, http.StatusOK, map[string]any{"documents": out, "next_cursor": nextCursor, "filter": filterRaw, "sort": sortKey})
 				return
 			}
 			page, err := s.Store.ListDocumentsPage(r.Context(), site, collection, limit, r.URL.Query().Get("cursor"))
@@ -283,21 +291,32 @@ func (s *Server) handleDB(w http.ResponseWriter, r *http.Request, site string, i
 			http.NotFound(w, r)
 			return
 		}
+		if documentWildcardPrecondition(r) {
+			http.Error(w, "wildcard revision precondition is not supported", http.StatusBadRequest)
+			return
+		}
 		body, err := readJSONBody(w, r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if current, err := s.Store.GetDocument(r.Context(), site, collection, docID); err != nil {
-			s.writeStoreError(w, err)
-			return
-		} else if !documentPreconditionMatches(r, current) {
-			writeRevisionConflict(w, current)
-			return
+		var doc store.Document
+		if documentPreconditionPresent(r) {
+			current, err := s.Store.GetDocument(r.Context(), site, collection, docID)
+			if err != nil {
+				s.writeStoreError(w, err)
+				return
+			}
+			if !documentPreconditionMatches(r, current) {
+				writeRevisionConflict(w, current)
+				return
+			}
+			doc, err = s.Store.PutDocumentIfUnchanged(r.Context(), site, collection, docID, string(body), actor, current.UpdatedAt, current.DataJSON)
+		} else {
+			doc, err = s.Store.PutDocument(r.Context(), site, collection, docID, string(body), actor)
 		}
-		doc, err := s.Store.PutDocument(r.Context(), site, collection, docID, string(body), actor)
 		if err != nil {
-			s.writeStoreError(w, err)
+			s.writeDocumentWriteError(w, r, site, collection, docID, err)
 			return
 		}
 		out := documentJSON(doc)
@@ -307,6 +326,10 @@ func (s *Server) handleDB(w http.ResponseWriter, r *http.Request, site string, i
 	case http.MethodPatch:
 		if docID == "" {
 			http.NotFound(w, r)
+			return
+		}
+		if documentWildcardPrecondition(r) {
+			http.Error(w, "wildcard revision precondition is not supported", http.StatusBadRequest)
 			return
 		}
 		patch, err := readJSONObject(w, r)
@@ -319,7 +342,7 @@ func (s *Server) handleDB(w http.ResponseWriter, r *http.Request, site string, i
 			s.writeStoreError(w, err)
 			return
 		}
-		if !documentPreconditionMatches(r, old) {
+		if documentPreconditionPresent(r) && !documentPreconditionMatches(r, old) {
 			writeRevisionConflict(w, old)
 			return
 		}
@@ -331,9 +354,14 @@ func (s *Server) handleDB(w http.ResponseWriter, r *http.Request, site string, i
 			current[k] = v
 		}
 		body, _ := json.Marshal(current)
-		doc, err := s.Store.PutDocument(r.Context(), site, collection, docID, string(body), actor)
+		var doc store.Document
+		if documentPreconditionPresent(r) {
+			doc, err = s.Store.PutDocumentIfUnchanged(r.Context(), site, collection, docID, string(body), actor, old.UpdatedAt, old.DataJSON)
+		} else {
+			doc, err = s.Store.PutDocument(r.Context(), site, collection, docID, string(body), actor)
+		}
 		if err != nil {
-			s.writeStoreError(w, err)
+			s.writeDocumentWriteError(w, r, site, collection, docID, err)
 			return
 		}
 		out := documentJSON(doc)
@@ -345,17 +373,27 @@ func (s *Server) handleDB(w http.ResponseWriter, r *http.Request, site string, i
 			http.NotFound(w, r)
 			return
 		}
-		old, err := s.Store.GetDocument(r.Context(), site, collection, docID)
+		if documentWildcardPrecondition(r) {
+			http.Error(w, "wildcard revision precondition is not supported", http.StatusBadRequest)
+			return
+		}
+		var err error
+		if documentPreconditionPresent(r) {
+			old, err := s.Store.GetDocument(r.Context(), site, collection, docID)
+			if err != nil {
+				s.writeStoreError(w, err)
+				return
+			}
+			if !documentPreconditionMatches(r, old) {
+				writeRevisionConflict(w, old)
+				return
+			}
+			err = s.Store.DeleteDocumentIfUnchanged(r.Context(), site, collection, docID, old.UpdatedAt, old.DataJSON)
+		} else {
+			err = s.Store.DeleteDocument(r.Context(), site, collection, docID)
+		}
 		if err != nil {
-			s.writeStoreError(w, err)
-			return
-		}
-		if !documentPreconditionMatches(r, old) {
-			writeRevisionConflict(w, old)
-			return
-		}
-		if err := s.Store.DeleteDocument(r.Context(), site, collection, docID); err != nil {
-			s.writeStoreError(w, err)
+			s.writeDocumentWriteError(w, r, site, collection, docID, err)
 			return
 		}
 		s.Realtime.Publish(site, "db:"+collection, "delete", map[string]any{"id": docID})
@@ -391,7 +429,32 @@ func parseListLimit(raw string) (int, error) {
 	return limit, nil
 }
 
-func filterSortDocuments(docs []store.Document, filterRaw, sortKey string) ([]store.Document, error) {
+type documentSortSpec struct {
+	Key  string
+	Desc bool
+}
+
+type filteredDocumentCursor struct {
+	Key   string `json:"key"`
+	Desc  bool   `json:"desc"`
+	Value string `json:"value"`
+	ID    string `json:"id"`
+}
+
+func parseDocumentSort(sortKey string) (documentSortSpec, error) {
+	key := strings.TrimSpace(sortKey)
+	if key == "" {
+		key = "created_at"
+	}
+	desc := strings.HasPrefix(key, "-")
+	key = strings.TrimPrefix(key, "-")
+	if key != "created_at" && key != "updated_at" && key != "id" {
+		return documentSortSpec{}, fmt.Errorf("unsupported sort key")
+	}
+	return documentSortSpec{Key: key, Desc: desc}, nil
+}
+
+func filterSortDocuments(docs []store.Document, filterRaw string, spec documentSortSpec) ([]store.Document, error) {
 	filtered := docs
 	if strings.TrimSpace(filterRaw) != "" {
 		var filters map[string]any
@@ -421,34 +484,81 @@ func filterSortDocuments(docs []store.Document, filterRaw, sortKey string) ([]st
 			}
 		}
 	}
-	key := strings.TrimSpace(sortKey)
-	if key == "" {
-		key = "created_at"
-	}
-	desc := strings.HasPrefix(key, "-")
-	key = strings.TrimPrefix(key, "-")
-	if key != "created_at" && key != "updated_at" && key != "id" {
-		return nil, fmt.Errorf("unsupported sort key")
-	}
 	sort.SliceStable(filtered, func(i, j int) bool {
-		var a, b string
-		switch key {
-		case "updated_at":
-			a, b = filtered[i].UpdatedAt, filtered[j].UpdatedAt
-		case "id":
-			a, b = filtered[i].ID, filtered[j].ID
-		default:
-			a, b = filtered[i].CreatedAt, filtered[j].CreatedAt
-		}
+		a, b := documentSortValue(filtered[i], spec.Key), documentSortValue(filtered[j], spec.Key)
 		if a == b {
 			a, b = filtered[i].ID, filtered[j].ID
 		}
-		if desc {
+		if spec.Desc {
 			return a > b
 		}
 		return a < b
 	})
 	return filtered, nil
+}
+
+func pageFilteredDocuments(docs []store.Document, limit int, cursor string, spec documentSortSpec) ([]store.Document, string, error) {
+	start := 0
+	if cursor != "" {
+		cur, err := decodeFilteredDocumentCursor(cursor, spec)
+		if err != nil {
+			return nil, "", err
+		}
+		for start < len(docs) && !documentAfterFilteredCursor(docs[start], cur, spec) {
+			start++
+		}
+	}
+	remaining := docs[start:]
+	if len(remaining) <= limit {
+		return remaining, "", nil
+	}
+	page := remaining[:limit]
+	return page, encodeFilteredDocumentCursor(spec, page[len(page)-1]), nil
+}
+
+func encodeFilteredDocumentCursor(spec documentSortSpec, d store.Document) string {
+	body, _ := json.Marshal(filteredDocumentCursor{Key: spec.Key, Desc: spec.Desc, Value: documentSortValue(d, spec.Key), ID: d.ID})
+	return base64.RawURLEncoding.EncodeToString(body)
+}
+
+func decodeFilteredDocumentCursor(cursor string, spec documentSortSpec) (filteredDocumentCursor, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil {
+		return filteredDocumentCursor{}, store.ErrInvalidCursor
+	}
+	var cur filteredDocumentCursor
+	if err := json.Unmarshal(raw, &cur); err != nil {
+		return filteredDocumentCursor{}, store.ErrInvalidCursor
+	}
+	if cur.Key != spec.Key || cur.Desc != spec.Desc || cur.Value == "" || cur.ID == "" {
+		return filteredDocumentCursor{}, store.ErrInvalidCursor
+	}
+	return cur, nil
+}
+
+func documentAfterFilteredCursor(d store.Document, cur filteredDocumentCursor, spec documentSortSpec) bool {
+	value := documentSortValue(d, spec.Key)
+	if value == cur.Value {
+		if spec.Desc {
+			return d.ID < cur.ID
+		}
+		return d.ID > cur.ID
+	}
+	if spec.Desc {
+		return value < cur.Value
+	}
+	return value > cur.Value
+}
+
+func documentSortValue(d store.Document, key string) string {
+	switch key {
+	case "updated_at":
+		return d.UpdatedAt
+	case "id":
+		return d.ID
+	default:
+		return d.CreatedAt
+	}
 }
 
 func documentRevision(d store.Document) string {
@@ -460,20 +570,49 @@ func documentETag(d store.Document) string {
 	return `"` + documentRevision(d) + `"`
 }
 
-func documentPreconditionMatches(r *http.Request, d store.Document) bool {
+func documentPreconditionPresent(r *http.Request) bool {
+	return strings.TrimSpace(r.Header.Get("If-Match")) != "" || strings.TrimSpace(r.URL.Query().Get("revision")) != ""
+}
+
+func documentPreconditionValue(r *http.Request) string {
 	want := strings.TrimSpace(r.Header.Get("If-Match"))
 	if want == "" {
 		want = strings.TrimSpace(r.URL.Query().Get("revision"))
 	}
-	if want == "" || want == "*" {
+	return want
+}
+
+func documentWildcardPrecondition(r *http.Request) bool {
+	return documentPreconditionValue(r) == "*"
+}
+
+func documentPreconditionMatches(r *http.Request, d store.Document) bool {
+	want := documentPreconditionValue(r)
+	if want == "" {
 		return true
 	}
 	rev := documentRevision(d)
 	return want == rev || strings.Trim(want, `"`) == rev
 }
 
+func (s *Server) writeDocumentWriteError(w http.ResponseWriter, r *http.Request, site, collection, docID string, err error) {
+	if errors.Is(err, store.ErrRevisionMismatch) {
+		if current, getErr := s.Store.GetDocument(r.Context(), site, collection, docID); getErr == nil {
+			writeRevisionConflict(w, current)
+			return
+		}
+		writeRevisionMismatch(w)
+		return
+	}
+	s.writeStoreError(w, err)
+}
+
 func writeRevisionConflict(w http.ResponseWriter, d store.Document) {
 	writeJSON(w, http.StatusConflict, map[string]any{"error": "revision mismatch", "code": "revision_mismatch", "current_revision": documentRevision(d)})
+}
+
+func writeRevisionMismatch(w http.ResponseWriter) {
+	writeJSON(w, http.StatusConflict, map[string]any{"error": "revision mismatch", "code": "revision_mismatch"})
 }
 
 func documentJSON(d store.Document) map[string]any {

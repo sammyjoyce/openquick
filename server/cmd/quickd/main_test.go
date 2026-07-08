@@ -226,7 +226,7 @@ func TestDomainReadinessAssessment(t *testing.T) {
 	ok := assessDomainReadiness(context.Background(), "mapped.example.test", func(context.Context, string) ([]string, error) {
 		return []string{"127.0.0.1"}, nil
 	})
-	if ok.Status != "ok" || ok.DNS != "ok" || ok.TLS != "ok" || len(ok.Addresses) != 1 {
+	if ok.Status != "pending" || ok.DNS != "ok" || ok.TLS != "pending" || len(ok.Addresses) != 1 || ok.Remediation == "" {
 		t.Fatalf("mapped readiness = %+v", ok)
 	}
 	fail := assessDomainReadiness(context.Background(), "missing.example.test", func(context.Context, string) ([]string, error) {
@@ -310,6 +310,42 @@ func TestSitesPublicReportsScanFindings(t *testing.T) {
 	err = sitesPublicCmd([]string{"demo", "--on", "--root", root})
 	if err == nil || !strings.Contains(err.Error(), "index.html matched") || !strings.Contains(err.Error(), "/_quick/") {
 		t.Fatalf("expected scan findings error, got %v", err)
+	}
+}
+
+func TestSitesRestoreArgsParseFlagsInEitherPosition(t *testing.T) {
+	root := t.TempDir()
+	archive := filepath.Join(root, ".trash", "sites", "demo-20260612T000000.000000000Z")
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "site-first",
+			args: []string{"demo", "--from", archive, "--json", "--root", root},
+		},
+		{
+			name: "flags-first",
+			args: []string{"--from", archive, "--json", "--root", root, "demo"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			af, siteName, gotArchive, err := parseSitesRestoreArgs(tc.args)
+			if err != nil {
+				t.Fatalf("parseSitesRestoreArgs: %v", err)
+			}
+			if siteName != "demo" || gotArchive != archive || !af.json || af.root != root {
+				t.Fatalf("parsed af=%+v site=%q archive=%q", af, siteName, gotArchive)
+			}
+		})
+	}
+}
+
+func TestSitesPurgeArgsRejectsPositionals(t *testing.T) {
+	_, _, err := parseSitesPurgeArgs([]string{"stale-site", "--from", "/srv/quick/.trash/sites/stale-site-20260612T000000.000000000Z"})
+	if err == nil || !strings.Contains(err.Error(), "usage: quickd sites purge") {
+		t.Fatalf("expected purge positional usage error, got %v", err)
 	}
 }
 

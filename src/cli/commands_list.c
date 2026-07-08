@@ -31,8 +31,7 @@ static bool list_contains_ci(const char *haystack, const char *needle) {
   for (const char *p = haystack; *p; p++) {
     size_t i = 0;
     while (i < nlen && p[i] &&
-           tolower((unsigned char)p[i]) ==
-               tolower((unsigned char)needle[i])) {
+           tolower((unsigned char)p[i]) == tolower((unsigned char)needle[i])) {
       i++;
     }
     if (i == nlen) {
@@ -55,8 +54,10 @@ static bool list_item_matches(const quick_list_item_t *item,
 }
 
 static int list_cmp_str(const char *a, const char *b) {
-  if (!a) a = "";
-  if (!b) b = "";
+  if (!a)
+    a = "";
+  if (!b)
+    b = "";
   return strcmp(a, b);
 }
 
@@ -81,8 +82,9 @@ static int list_item_compare(const void *a, const void *b) {
   if (cmp != 0) {
     return cmp;
   }
-  return list_cmp_str(ia->source == QUICK_LIST_SOURCE_LOCAL ? "local" : "remote",
-                      ib->source == QUICK_LIST_SOURCE_LOCAL ? "local" : "remote");
+  return list_cmp_str(
+      ia->source == QUICK_LIST_SOURCE_LOCAL ? "local" : "remote",
+      ib->source == QUICK_LIST_SOURCE_LOCAL ? "local" : "remote");
 }
 
 static void list_view_destroy(list_view_t *view) {
@@ -94,8 +96,8 @@ static app_error list_view_build(const quick_list_result_t *result,
                                  const char *filter, const char *sort,
                                  list_view_t *view) {
   *view = (list_view_t){.sort = sort && sort[0] ? sort : "name"};
-  view->items = calloc(result->count ? result->count : 1U,
-                       sizeof(*view->items));
+  view->items =
+      calloc(result->count ? result->count : 1U, sizeof(*view->items));
   if (!view->items) {
     return APP_ERROR_MEMORY;
   }
@@ -118,10 +120,9 @@ static void list_write_item_json(const quick_list_item_t *item) {
   app_json_write_string_field(stdout, "updated_at", item->updated_at, &fc);
   app_json_write_string_field(stdout, "deployer", item->deployer, &fc);
   app_json_write_string_field(stdout, "subdomain", item->subdomain, &fc);
-  app_json_write_string_field(stdout, "source",
-                              item->source == QUICK_LIST_SOURCE_LOCAL ? "local"
-                                                                      : "remote",
-                              &fc);
+  app_json_write_string_field(
+      stdout, "source",
+      item->source == QUICK_LIST_SOURCE_LOCAL ? "local" : "remote", &fc);
   if (item->have_public) {
     app_json_write_bool_field(stdout, "public", item->is_public, &fc);
   }
@@ -175,7 +176,8 @@ app_error app_cmd_list(const app_config_t *config, int argc,
   if (sort && sort[0] && strcmp(sort, "name") != 0 &&
       strcmp(sort, "updated") != 0 && strcmp(sort, "updated_at") != 0 &&
       strcmp(sort, "source") != 0) {
-    quick_print_error(config, "list --sort must be name, updated, updated_at, or source");
+    quick_print_error(
+        config, "list --sort must be name, updated, updated_at, or source");
     quick_list_result_destroy(&result);
     return APP_ERROR_VALIDATION;
   }
@@ -186,7 +188,8 @@ app_error app_cmd_list(const app_config_t *config, int argc,
     return err;
   }
 
-  if (app_config_is_json_output(config) || quick_cmd_flag(argc, argv, "--json")) {
+  if (app_config_is_json_output(config) ||
+      quick_cmd_flag(argc, argv, "--json")) {
     bool comma = false;
     app_json_begin_object(stdout);
     app_json_write_string_field(stdout, "format_version", "1.0", &comma);
@@ -216,16 +219,17 @@ app_error app_cmd_list(const app_config_t *config, int argc,
       app_output_format(config, false, "filter      %s", filter);
     }
     app_output_format(config, false, "sort        %s", view.sort);
-    app_output("site            source   url                                      updated              by", config, false);
+    app_output(
+        "site            source   url                                      "
+        "updated              by",
+        config, false);
     for (size_t i = 0; i < view.count; i++) {
       const quick_list_item_t *item = view.items[i];
-      app_output_format(config, false, "%-15s %-8s %-40s %-20s %s%s",
-                        item->name,
-                        item->source == QUICK_LIST_SOURCE_LOCAL ? "local" : "remote",
-                        item->url,
-                        item->updated_at ? item->updated_at : "unknown",
-                        item->deployer ? item->deployer : "",
-                        item->stale ? " (stale)" : "");
+      app_output_format(
+          config, false, "%-15s %-8s %-40s %-20s %s%s", item->name,
+          item->source == QUICK_LIST_SOURCE_LOCAL ? "local" : "remote",
+          item->url, item->updated_at ? item->updated_at : "unknown",
+          item->deployer ? item->deployer : "", item->stale ? " (stale)" : "");
     }
     if (view.count == 0) {
       app_output("(no sites matched)", config, false);

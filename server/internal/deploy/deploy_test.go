@@ -39,6 +39,15 @@ func stageFile(t *testing.T, res *PrepareResult, name, body string) {
 	}
 }
 
+const testRestoreArchiveTimestamp = "20260102T030405.123456789Z"
+
+func makeArchiveSite(t *testing.T, archive, site string) {
+	t.Helper()
+	if err := sites.WriteSiteConfig(filepath.Join(archive, "site"), sites.SiteConfig{Name: site, Subdomain: site}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func readCurrentIndex(path string) ([]byte, error) {
 	b, err := os.ReadFile(path)
 	if err == nil || !transientCurrentReadError(err) {
@@ -182,6 +191,9 @@ func TestDeleteSiteRemovesCatalogAndFilesystem(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(deleted.Archive, "site", "current")); err != nil {
 		t.Fatalf("archive missing site payload: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(deleted.Archive, "leftover.txt"), []byte("leftover"), 0o660); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := os.Stat(filepath.Join(root, "sites", "demo")); !os.IsNotExist(err) {
 		t.Fatalf("site directory still exists: %v", err)
 	}
@@ -195,8 +207,11 @@ func TestDeleteSiteRemovesCatalogAndFilesystem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !restored.Restored || restored.Release != res.DeployID {
+	if !restored.Restored || restored.Release != res.DeployID || restored.CleanupWarning != "" {
 		t.Fatalf("restore=%+v", restored)
+	}
+	if _, err := os.Stat(deleted.Archive); !os.IsNotExist(err) {
+		t.Fatalf("archive was not cleaned up after restore: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "sites", "demo", "current")); err != nil {
 		t.Fatalf("site was not restored: %v", err)
@@ -208,6 +223,100 @@ func TestDeleteSiteRemovesCatalogAndFilesystem(t *testing.T) {
 	purge, err := svc.PurgeArchive(ctx, filepath.Join(root, ".trash", "sites", "purge-me"))
 	if err != nil || !purge.Purged {
 		t.Fatalf("purge=%+v err=%v", purge, err)
+	}
+}
+
+func TestRestoreSitePreflightsSubdomainConflict(t *testing.T) {
+	svc, st, root := newTestService(t, 10)
+	ctx := context.Background()
+	res, err := svc.PrepareWithOptions(ctx, "demo", PrepareOptions{Subdomain: "team-demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stageFile(t, res, "index.html", "demo")
+	if _, err := svc.Activate(ctx, "demo", res.DeployID); err != nil {
+		t.Fatal(err)
+	}
+	deleted, err := svc.DeleteSite(ctx, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.EnsureSite(ctx, "claim", "team-demo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.RestoreSite(ctx, "demo", deleted.Archive); err == nil || !strings.Contains(err.Error(), "already used") {
+		t.Fatalf("expected subdomain conflict, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(deleted.Archive, "site", "current")); err != nil {
+		t.Fatalf("archive site was not preserved: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "sites", "demo")); !os.IsNotExist(err) {
+		t.Fatalf("site directory restored despite failed preflight: %v", err)
+	}
+	if _, err := st.GetSite(ctx, "demo"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("site catalog row restored despite failed preflight: %v", err)
+	}
+}
+
+func TestRestoreSiteRejectsUnsafeArchives(t *testing.T) {
+	svc, _, root := newTestService(t, 10)
+	ctx := context.Background()
+	for _, tt := range []struct {
+		name    string
+		archive string
+		want    string
+	}{
+		{"nested archive under trash", filepath.Join(root, ".trash", "foo", "bar"), "direct archive path"},
+		{"archive outside site trash namespace", filepath.Join(root, ".trash", "demo-"+testRestoreArchiveTimestamp), "direct archive path"},
+		{"mismatched site basename", filepath.Join(root, ".trash", "sites", "other-"+testRestoreArchiveTimestamp), "delete archive name pattern"},
+		{"invalid timestamp basename", filepath.Join(root, ".trash", "sites", "demo-20260102T030405Z"), "delete archive name pattern"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			makeArchiveSite(t, tt.archive, "demo")
+			if _, err := svc.RestoreSite(ctx, "demo", tt.archive); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("expected restore rejection containing %q, got %v", tt.want, err)
+			}
+			if _, err := os.Stat(filepath.Join(tt.archive, "site")); err != nil {
+				t.Fatalf("archive payload was not preserved: %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(root, "sites", "demo")); !os.IsNotExist(err) {
+				t.Fatalf("site directory restored despite failed preflight: %v", err)
+			}
+		})
+	}
+}
+
+func TestPurgeArchiveRejectsUnsafePaths(t *testing.T) {
+	svc, _, root := newTestService(t, 10)
+	ctx := context.Background()
+	trashRoot := filepath.Join(root, ".trash")
+	archiveRoot := filepath.Join(trashRoot, "sites")
+	archive := filepath.Join(archiveRoot, "keep")
+	unexpected := filepath.Join(trashRoot, "other", "keep")
+	if err := os.MkdirAll(filepath.Join(archive, "site"), 0o770); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(unexpected, 0o770); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		name       string
+		path       string
+		wantExists string
+	}{
+		{"trash root", trashRoot, archive},
+		{"archive namespace root", archiveRoot, archive},
+		{"nested archive payload", filepath.Join(archive, "site"), archive},
+		{"unexpected namespace", unexpected, unexpected},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := svc.PurgeArchive(ctx, tt.path); err == nil {
+				t.Fatalf("expected purge rejection for %s", tt.path)
+			}
+			if _, err := os.Stat(tt.wantExists); err != nil {
+				t.Fatalf("expected %s to remain: %v", tt.wantExists, err)
+			}
+		})
 	}
 }
 
@@ -229,6 +338,37 @@ func TestCleanupIncomingRemovesPreparedStaging(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "sites", "demo", ".incoming", prep.DeployID)); !os.IsNotExist(err) {
 		t.Fatalf("staging still exists: %v", err)
 	}
+}
+
+func TestRollbackRequiresExistingSiteDirectory(t *testing.T) {
+	svc, _, root := newTestService(t, 10)
+	ctx := context.Background()
+
+	t.Run("missing site", func(t *testing.T) {
+		siteDir := filepath.Join(root, "sites", "missing")
+		if _, err := svc.Rollback(ctx, "missing", RollbackOptions{}); err == nil || !strings.Contains(err.Error(), "site missing unavailable") {
+			t.Fatalf("expected missing site rollback error, got %v", err)
+		}
+		if _, err := os.Stat(siteDir); !os.IsNotExist(err) {
+			t.Fatalf("rollback created missing site directory: %v", err)
+		}
+	})
+
+	t.Run("site path is file", func(t *testing.T) {
+		siteDir := filepath.Join(root, "sites", "notdir")
+		if err := os.MkdirAll(filepath.Dir(siteDir), 0o770); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(siteDir, []byte("not a directory"), 0o660); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := svc.Rollback(ctx, "notdir", RollbackOptions{}); err == nil || !strings.Contains(err.Error(), "site notdir is not a directory") {
+			t.Fatalf("expected non-directory rollback error, got %v", err)
+		}
+		if info, err := os.Stat(siteDir); err != nil || info.IsDir() {
+			t.Fatalf("site path changed: info=%+v err=%v", info, err)
+		}
+	})
 }
 
 func TestRollbackSwitchesCurrentAndRecordsAudit(t *testing.T) {
@@ -375,6 +515,45 @@ func TestPrepareMetadataSubdomainAndSSHCertSigning(t *testing.T) {
 	}
 	if verify.OK || len(verify.Failures) == 0 {
 		t.Fatalf("tamper verify=%+v", verify)
+	}
+}
+
+func TestVerifyRejectsPartialManifestSignature(t *testing.T) {
+	svc, _, root := newTestService(t, 10)
+	ctx := context.Background()
+	res, err := svc.Prepare(ctx, "partial")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stageFile(t, res, "index.html", "partial")
+	if _, err := svc.Activate(ctx, "partial", res.DeployID); err != nil {
+		t.Fatal(err)
+	}
+	releaseDir := filepath.Join(root, "sites", "partial", "releases", res.DeployID)
+	files, bytes, hash, err := validateTreeAndHash(releaseDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeManifest(releaseDir, Manifest{
+		FormatVersion: "1.0",
+		Site:          "partial",
+		Release:       res.DeployID,
+		Files:         files,
+		Bytes:         bytes,
+		ContentHash:   "sha256:" + hash,
+		Deployer:      "tester",
+		SourceHost:    "test",
+		CreatedAt:     time.Now().UTC().Format(time.RFC3339Nano),
+		PublicKey:     strings.Repeat("A", 43) + "=",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	verify, err := svc.VerifyReleases(ctx, "partial", res.DeployID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verify.OK || len(verify.Failures) == 0 || !strings.Contains(verify.Failures[0], "invalid signature") {
+		t.Fatalf("partial signature verify=%+v", verify)
 	}
 }
 

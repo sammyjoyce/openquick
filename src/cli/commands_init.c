@@ -27,11 +27,14 @@ typedef struct {
 static const quick_template_info_t g_templates[] = {
     {.name = "blank",
      .description = "Minimal static HTML site with OpenQuick metadata",
-     .files = "index.html, quick.json, AGENTS.md, docs/openquick-api.md, .quickignore",
+     .files = "index.html, quick.json, AGENTS.md, docs/openquick-api.md, "
+              ".quickignore",
      .sdk_demo = false},
     {.name = "realtime",
-     .description = "Static page demonstrating identity plus the same-origin SDK import",
-     .files = "index.html, quick.json, AGENTS.md, docs/openquick-api.md, .quickignore",
+     .description =
+         "Static page demonstrating identity plus the same-origin SDK import",
+     .files = "index.html, quick.json, AGENTS.md, docs/openquick-api.md, "
+              ".quickignore",
      .sdk_demo = true},
 };
 
@@ -48,9 +51,11 @@ static void quick_templates_print(const app_config_t *config) {
       app_json_begin_object(stdout);
       bool tc = false;
       app_json_write_string_field(stdout, "name", g_templates[i].name, &tc);
-      app_json_write_string_field(stdout, "description", g_templates[i].description, &tc);
+      app_json_write_string_field(stdout, "description",
+                                  g_templates[i].description, &tc);
       app_json_write_string_field(stdout, "files", g_templates[i].files, &tc);
-      app_json_write_bool_field(stdout, "sdk_demo", g_templates[i].sdk_demo, &tc);
+      app_json_write_bool_field(stdout, "sdk_demo", g_templates[i].sdk_demo,
+                                &tc);
       app_json_end_object(stdout);
     }
     fputc(']', stdout);
@@ -62,7 +67,8 @@ static void quick_templates_print(const app_config_t *config) {
   for (size_t i = 0; i < APP_COUNTOF(g_templates); i++) {
     app_output_format(config, false, "  %-10s %s", g_templates[i].name,
                       g_templates[i].description);
-    app_output_format(config, false, "             files: %s", g_templates[i].files);
+    app_output_format(config, false, "             files: %s",
+                      g_templates[i].files);
     app_output_format(config, false, "             SDK demo: %s",
                       g_templates[i].sdk_demo ? "yes" : "no");
   }
@@ -106,7 +112,8 @@ app_error app_cmd_init(const app_config_t *config, int argc,
   } else if (strcmp(template_name, "blank") != 0) {
     char msg[192];
     snprintf(msg, sizeof(msg),
-             "init --template must be blank or realtime; did you mean '%s'? Run `quick templates` or `quick init --template list`.",
+             "init --template must be blank or realtime; did you mean '%s'? "
+             "Run `quick templates` or `quick init --template list`.",
              quick_template_suggestion(template_name));
     quick_print_error(config, msg);
     return APP_ERROR_VALIDATION;
@@ -147,7 +154,8 @@ app_error app_cmd_init(const app_config_t *config, int argc,
       if (path && quick_path_exists_cli(path)) {
         if (!conflict) {
           quick_print_error(config,
-                            "init would overwrite existing files; pass --adopt to write only missing OpenQuick metadata");
+                            "init would overwrite existing files; pass --adopt "
+                            "to write only missing OpenQuick metadata");
           conflict = true;
         }
         app_output_format(config, true, "  conflict   %s", path);
@@ -189,12 +197,18 @@ app_error app_cmd_init(const app_config_t *config, int argc,
     app_json_end_object(stdout);
     app_json_end_line(stdout);
   } else {
-    app_output_format(config, false, "Initialized OpenQuick site %s", result.site);
+    app_output_format(config, false, "Initialized OpenQuick site %s",
+                      result.site);
     app_output_format(config, false, "  path        %s", result.path);
-    app_output_format(config, false, "  profile     %s", profile ? profile : "(unbound)");
+    app_output_format(config, false, "  profile     %s",
+                      profile ? profile : "(unbound)");
     if (first_run_unbound) {
       app_output("  next        quick serve --dev", config, false);
-      app_output("  setup       quick serve install --profile <profile> --host <user@host> --remote-root /srv/quick --domain quick.example.com --iap tailscale", config, false);
+      app_output(
+          "  setup       quick serve install --profile <profile> --host "
+          "<user@host> --remote-root /srv/quick --domain quick.example.com "
+          "--iap tailscale",
+          config, false);
     }
     app_output("  next        quick deploy --dry-run", config, false);
   }

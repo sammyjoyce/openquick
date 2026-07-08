@@ -115,6 +115,15 @@ func TestDocumentCRUDAndSiteIsolation(t *testing.T) {
 	if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "revision_mismatch") {
 		t.Fatalf("stale patch status=%d body=%s", rr.Code, rr.Body.String())
 	}
+	rr = doReq(app.h, http.MethodPut, "a.localhost:9366", "/_quick/db/posts/"+id+"?revision="+url.QueryEscape(currentRevision), []byte(`{"title":"replaced","status":"published"}`))
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "replaced") {
+		t.Fatalf("conditional put status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var replaced map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &replaced); err != nil {
+		t.Fatal(err)
+	}
+	currentRevision = replaced["revision"].(string)
 	rr = doReq(app.h, http.MethodGet, "a.localhost:9366", "/_quick/db/posts", nil)
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), id) {
 		t.Fatalf("list a status=%d body=%s", rr.Code, rr.Body.String())
@@ -151,9 +160,46 @@ func TestDocumentCRUDAndSiteIsolation(t *testing.T) {
 	if rr.Code != http.StatusOK || strings.Contains(rr.Body.String(), id) {
 		t.Fatalf("cross-site leak status=%d body=%s", rr.Code, rr.Body.String())
 	}
+	rr = doReq(app.h, http.MethodDelete, "a.localhost:9366", "/_quick/db/posts/missing?revision="+url.QueryEscape(currentRevision), nil)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("conditional missing delete status=%d body=%s", rr.Code, rr.Body.String())
+	}
 	rr = doReq(app.h, http.MethodDelete, "a.localhost:9366", "/_quick/db/posts/"+id+"?revision="+url.QueryEscape(currentRevision), nil)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("delete status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestDocumentWildcardPreconditionRejected(t *testing.T) {
+	app := newApp(t, 1024)
+	rr := doReq(app.h, http.MethodPost, "a.localhost:9366", "/_quick/db/posts", []byte(`{"title":"hello"}`))
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var created map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	id := created["id"].(string)
+	for _, tc := range []struct {
+		method string
+		body   string
+	}{
+		{method: http.MethodPut, body: `{"title":"put"}`},
+		{method: http.MethodPatch, body: `{"title":"patch"}`},
+		{method: http.MethodDelete},
+	} {
+		req := httptest.NewRequest(tc.method, "http://a.localhost:9366/_quick/db/posts/"+id, strings.NewReader(tc.body))
+		req.RemoteAddr = "127.0.0.1:1"
+		req.Header.Set("If-Match", "*")
+		if tc.body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		rr = httptest.NewRecorder()
+		app.h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "wildcard revision precondition") {
+			t.Fatalf("%s wildcard status=%d body=%s", tc.method, rr.Code, rr.Body.String())
+		}
 	}
 }
 
@@ -190,6 +236,34 @@ func TestDocumentFilterAndSortQueries(t *testing.T) {
 	}
 	if res.Documents[0]["created_at"].(string) < res.Documents[1]["created_at"].(string) {
 		t.Fatalf("not sorted descending: %+v", res.Documents)
+	}
+	rr = doReq(app.h, http.MethodGet, "a.localhost:9366", "/_quick/db/tasks?limit=1&filter="+url.QueryEscape(`{"status":"open"}`)+"&sort=id", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("filtered page status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var firstPage struct {
+		Documents  []map[string]any `json:"documents"`
+		NextCursor string           `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &firstPage); err != nil {
+		t.Fatal(err)
+	}
+	if len(firstPage.Documents) != 1 || firstPage.NextCursor == "" {
+		t.Fatalf("first filtered page=%+v", firstPage)
+	}
+	rr = doReq(app.h, http.MethodGet, "a.localhost:9366", "/_quick/db/tasks?limit=1&filter="+url.QueryEscape(`{"status":"open"}`)+"&sort=id&cursor="+url.QueryEscape(firstPage.NextCursor), nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("filtered second page status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var secondPage struct {
+		Documents  []map[string]any `json:"documents"`
+		NextCursor string           `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &secondPage); err != nil {
+		t.Fatal(err)
+	}
+	if len(secondPage.Documents) != 1 || secondPage.NextCursor != "" || secondPage.Documents[0]["id"] == firstPage.Documents[0]["id"] {
+		t.Fatalf("second filtered page=%+v first=%+v", secondPage, firstPage)
 	}
 	rr = doReq(app.h, http.MethodGet, "a.localhost:9366", "/_quick/db/tasks?filter="+url.QueryEscape(`{"status":{"$ne":"open"}}`), nil)
 	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "unsupported filter operator") {

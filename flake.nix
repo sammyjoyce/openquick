@@ -61,6 +61,7 @@
             pkgs.markdownlint-cli
 
             # Project setup/cleanup scripts.
+            pkgs.python3
             pkgs.jq
             pkgs.sd
             pkgs.gum
@@ -204,6 +205,9 @@
             src = ./server;
 
             vendorHash = "sha256-e0+hudSZ3lc5sJv1xTF2BT7EpGt20ZAVryaWkDPEj3A=";
+
+            # Darwin sandbox makes modernc/libc netdb panic opening /etc/protocols; keep checks enabled elsewhere.
+            doCheck = !pkgs.stdenv.isDarwin;
 
             env.CGO_ENABLED = "0";
             subPackages = [ "cmd/quickd" ];

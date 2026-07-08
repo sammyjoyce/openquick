@@ -17,7 +17,8 @@
 #ifndef _WIN32
 static bool write_file(const char *path, const char *content) {
   FILE *f = fopen(path, "wb");
-  if (!f) return false;
+  if (!f)
+    return false;
   bool ok = fwrite(content, 1, strlen(content), f) == strlen(content);
   return fclose(f) == 0 && ok;
 }
@@ -28,7 +29,8 @@ static bool write_executable_file(const char *path, const char *content) {
 
 static bool file_contains(const char *path, const char *needle) {
   FILE *f = fopen(path, "rb");
-  if (!f) return false;
+  if (!f)
+    return false;
   if (fseek(f, 0, SEEK_END) != 0) {
     fclose(f);
     return false;
@@ -67,23 +69,24 @@ static bool test_slug_normalization(void) {
 static bool test_site_config_parses_quick_json(void) {
 #ifndef _WIN32
   char dir[] = "/tmp/openquick-site-XXXXXX";
-  if (!make_temp_dir(dir)) return false;
+  if (!make_temp_dir(dir))
+    return false;
   char path[256];
   snprintf(path, sizeof(path), "%s/quick.json", dir);
-  if (!write_file(path,
-                  "{\"name\":\"demo\",\"source\":\"src\",\"output\":\"dist\","
-                  "\"build\":null,\"profile\":\"lab\",\"subdomain\":\"demo\","
-                  "\"routing\":{\"spa_fallback\":\"/index.html\"},"
-                  "\"sdk\":{\"enabled\":true,\"import\":\"/_quick/sdk.js\"}}")) {
+  if (!write_file(
+          path,
+          "{\"name\":\"demo\",\"source\":\"src\",\"output\":\"dist\","
+          "\"build\":null,\"profile\":\"lab\",\"subdomain\":\"demo\","
+          "\"routing\":{\"spa_fallback\":\"/index.html\"},"
+          "\"sdk\":{\"enabled\":true,\"import\":\"/_quick/sdk.js\"}}")) {
     return false;
   }
   quick_site_config_t site;
   quick_site_config_init(&site);
   bool ok = quick_site_config_load_file(path, &site) == APP_SUCCESS &&
-            site.name && strcmp(site.name, "demo") == 0 &&
-            site.output && strcmp(site.output, "dist") == 0 &&
-            site.profile && strcmp(site.profile, "lab") == 0 &&
-            site.routing.spa_fallback &&
+            site.name && strcmp(site.name, "demo") == 0 && site.output &&
+            strcmp(site.output, "dist") == 0 && site.profile &&
+            strcmp(site.profile, "lab") == 0 && site.routing.spa_fallback &&
             strcmp(site.routing.spa_fallback, "/index.html") == 0 &&
             site.sdk.enabled;
   quick_site_config_destroy(&site);
@@ -99,20 +102,24 @@ static bool test_profile_config_parses_profiles(void) {
 #ifndef _WIN32
   char path[] = "/tmp/openquick-profile-XXXXXX";
   int fd = mkstemp(path);
-  if (fd < 0) return false;
+  if (fd < 0)
+    return false;
   FILE *f = fdopen(fd, "wb");
-  if (!f) return false;
+  if (!f)
+    return false;
   const char *json =
       "{\"default_profile\":\"lab\",\"profiles\":{\"lab\":{"
       "\"ssh\":\"quick@box\",\"remote_root\":\"/srv/quick\","
-      "\"base_domain\":\"quick.example.com\",\"base_url\":\"https://quick.example.com\","
+      "\"base_domain\":\"quick.example.com\",\"base_url\":\"https://"
+      "quick.example.com\","
       "\"iap\":{\"type\":\"tailscale\",\"mode\":\"localapi\"},"
       "\"deploy\":{\"delete\":true,\"open_after_deploy\":false}}}}";
   bool wrote = fwrite(json, 1, strlen(json), f) == strlen(json);
   fclose(f);
   quick_profile_config_t cfg;
   quick_profile_config_init(&cfg);
-  bool ok = wrote && quick_profile_config_load_file(path, &cfg) == APP_SUCCESS &&
+  bool ok = wrote &&
+            quick_profile_config_load_file(path, &cfg) == APP_SUCCESS &&
             cfg.default_profile && strcmp(cfg.default_profile, "lab") == 0;
   const quick_profile_t *p = quick_profile_config_find(&cfg, "lab");
   ok = ok && p && p->ssh && strcmp(p->ssh, "quick@box") == 0 &&
@@ -130,18 +137,21 @@ static bool test_profile_config_parses_profiles(void) {
 static bool test_target_resolution_precedence(void) {
 #ifndef _WIN32
   char dir[] = "/tmp/openquick-plan-XXXXXX";
-  if (!make_temp_dir(dir)) return false;
+  if (!make_temp_dir(dir))
+    return false;
   char qpath[256];
   snprintf(qpath, sizeof(qpath), "%s/quick.json", dir);
   if (!write_file(qpath,
-                  "{\"name\":\"from-file\",\"source\":\".\",\"output\":\".\",\"profile\":\"lab\"}")) {
+                  "{\"name\":\"from-file\",\"source\":\".\",\"output\":\".\","
+                  "\"profile\":\"lab\"}")) {
     return false;
   }
   quick_profile_config_t cfg;
   quick_profile_config_init(&cfg);
   cfg.default_profile = strdup("lab");
   quick_profile_t *p = quick_profile_config_upsert(&cfg, "lab");
-  if (!p) return false;
+  if (!p)
+    return false;
   p->ssh = strdup("quick@box");
   p->remote_root = strdup("/srv/quick");
   p->base_domain = strdup("quick.example.com");
@@ -181,13 +191,49 @@ static bool test_safe_remote_install_validation(void) {
          !quick_domain_is_safe("-bad.example.com");
 }
 
+static bool test_restore_and_rollback_input_validation(void) {
+  char too_long_release[130];
+  memset(too_long_release, 'a', sizeof(too_long_release) - 1U);
+  too_long_release[sizeof(too_long_release) - 1U] = '\0';
+  return quick_restore_archive_path_is_safe(
+             "/srv/quick/.trash/sites/demo-20260612T000000.000000000Z",
+             "/srv/quick", "demo") &&
+         quick_restore_archive_path_is_safe(
+             "/srv/quick/.trash/sites/my-site-20260612T000000.000000000Z", NULL,
+             "my-site") &&
+         !quick_restore_archive_path_is_safe(
+             "/srv/quick/sites/demo-20260612T000000.000000000Z", "/srv/quick",
+             "demo") &&
+         !quick_restore_archive_path_is_safe(
+             "/srv/other/.trash/sites/demo-20260612T000000.000000000Z",
+             "/srv/quick", "demo") &&
+         !quick_restore_archive_path_is_safe(
+             "/srv/quick/.trash/sites/demo-20260612T000000Z-abcdef",
+             "/srv/quick", "demo") &&
+         !quick_restore_archive_path_is_safe(
+             "/srv/quick/.trash/sites/other-20260612T000000.000000000Z",
+             "/srv/quick", "demo") &&
+         !quick_restore_archive_path_is_safe(
+             "/srv/quick/.trash/sites/demo-20260612T000000.000000000Z/site",
+             "/srv/quick", "demo") &&
+         quick_release_id_is_safe("20260612T000000Z-abcdef") &&
+         quick_release_id_is_safe("rel_1.2-ABC") &&
+         !quick_release_id_is_safe("-rel") &&
+         !quick_release_id_is_safe("../rel") &&
+         !quick_release_id_is_safe("rel;rm") && !quick_release_id_is_safe("") &&
+         !quick_release_id_is_safe(NULL) &&
+         !quick_release_id_is_safe(too_long_release);
+}
+
 static bool test_quickignore_to_rsync_args(void) {
 #ifndef _WIN32
   char path[] = "/tmp/openquick-ignore-XXXXXX";
   int fd = mkstemp(path);
-  if (fd < 0) return false;
+  if (fd < 0)
+    return false;
   FILE *f = fdopen(fd, "wb");
-  if (!f) return false;
+  if (!f)
+    return false;
   const char *body = "# comment\n.git/\nnode_modules/\n\n.env.*\n";
   bool wrote = fwrite(body, 1, strlen(body), f) == strlen(body);
   fclose(f);
@@ -223,8 +269,7 @@ static void test_stream_cb(quick_stream_kind_t kind, const char *line,
   } else {
     ctx->stderr_lines++;
   }
-  strncat(ctx->joined, line,
-          sizeof(ctx->joined) - strlen(ctx->joined) - 1U);
+  strncat(ctx->joined, line, sizeof(ctx->joined) - strlen(ctx->joined) - 1U);
   if (ctx->cancel) {
     *ctx->cancel = 1;
   }
@@ -235,8 +280,8 @@ static bool test_process_stream_callbacks(void) {
   char *const argv[] = {"/usr/bin/printf", "one\\ntwo\\n", NULL};
   quick_process_result_t res = {0};
   stream_test_ctx_t ctx = {0};
-  app_error err = quick_process_stream(argv, NULL, NULL, test_stream_cb, &ctx,
-                                       &res);
+  app_error err =
+      quick_process_stream(argv, NULL, NULL, test_stream_cb, &ctx, &res);
   bool ok = err == APP_SUCCESS && res.exit_code == 0 && ctx.stdout_lines == 2 &&
             ctx.stderr_lines == 0 && strcmp(ctx.joined, "one\ntwo\n") == 0 &&
             res.out && strcmp(res.out, "one\ntwo\n") == 0;
@@ -253,7 +298,7 @@ static bool test_process_stream_cancellation(void) {
   quick_process_result_t res = {0};
   volatile sig_atomic_t cancel = 1;
   app_error err = quick_process_stream_cancelable(argv, NULL, NULL, NULL, NULL,
-                                                 &cancel, &res);
+                                                  &cancel, &res);
   bool ok = err == APP_ERROR_INTERRUPTED;
   quick_process_result_destroy(&res);
   return ok;
@@ -265,7 +310,8 @@ static bool test_process_stream_cancellation(void) {
 static bool test_init_op_scaffolds_temp_dir(void) {
 #ifndef _WIN32
   char dir[] = "/tmp/openquick-init-op-XXXXXX";
-  if (!make_temp_dir(dir)) return false;
+  if (!make_temp_dir(dir))
+    return false;
   char index_path[256];
   char quick_path[256];
   char agents[256], ignore[256], docs[256], api[256];
@@ -281,13 +327,14 @@ static bool test_init_op_scaffolds_temp_dir(void) {
                               .name = "Lunch Vote",
                               .template_kind = QUICK_INIT_TEMPLATE_BLANK,
                               .profile = "lab"};
-  bool ok = quick_op_init(&req, &result) == APP_SUCCESS &&
-            result.site && strcmp(result.site, "lunch-vote") == 0 &&
-            result.file_count == 5 && access(index_path, F_OK) == 0 &&
-            access(quick_path, F_OK) == 0 &&
-            file_contains(agents, "OpenQuick site agent guide") &&
-            file_contains(agents, "const caps = await quick.capabilities(); if (caps.ai)") &&
-            file_contains(api, "quick.warehouse.query(name, params)");
+  bool ok =
+      quick_op_init(&req, &result) == APP_SUCCESS && result.site &&
+      strcmp(result.site, "lunch-vote") == 0 && result.file_count == 5 &&
+      access(index_path, F_OK) == 0 && access(quick_path, F_OK) == 0 &&
+      file_contains(agents, "OpenQuick site agent guide") &&
+      file_contains(agents,
+                    "const caps = await quick.capabilities(); if (caps.ai)") &&
+      file_contains(api, "quick.warehouse.query(name, params)");
   quick_init_result_destroy(&result);
   unlink(index_path);
   unlink(quick_path);
@@ -304,8 +351,8 @@ static bool test_init_op_scaffolds_temp_dir(void) {
 
 static bool test_deploy_rsync_count_parser(void) {
   long changed = -1, reused = -1, deleted = -1;
-  quick_op_deploy_parse_rsync_counts(">f..t file\ncd++++ dir\n*deleting old\n", &changed,
-                                     &reused, &deleted);
+  quick_op_deploy_parse_rsync_counts(">f..t file\ncd++++ dir\n*deleting old\n",
+                                     &changed, &reused, &deleted);
   quick_deploy_options_t opts = {.no_build = true,
                                  .no_delete = true,
                                  .checksum = true,
@@ -322,7 +369,8 @@ static bool test_deploy_publication_gate_marks_result(void) {
   const char *old_path_env = getenv("PATH");
   const bool had_path = old_path_env != NULL;
   char *old_path = old_path_env ? strdup(old_path_env) : NULL;
-  if (had_path && !old_path) return false;
+  if (had_path && !old_path)
+    return false;
 
   quick_deploy_plan_t plan;
   quick_deploy_plan_init(&plan);
@@ -341,7 +389,11 @@ static bool test_deploy_publication_gate_marks_result(void) {
           ssh_path,
           "#!/bin/sh\n"
           "if [ \"$2\" = quickd ] && [ \"$3\" = doctor ]; then\n"
-          "  printf '%s\\n' '{\"format_version\":\"1.0\",\"ok\":true,\"checks\":[{\"name\":\"domain\",\"group\":\"edge/iap\",\"status\":\"warn\",\"detail\":\"missing\",\"remediation\":\"configure\"}]}'\n"
+          "  printf '%s\\n' "
+          "'{\"format_version\":\"1.0\",\"ok\":true,\"checks\":[{\"name\":"
+          "\"domain\",\"group\":\"edge/"
+          "iap\",\"status\":\"warn\",\"detail\":\"missing\",\"remediation\":"
+          "\"configure\"}]}'\n"
           "  exit 0\n"
           "fi\n"
           "exit 1\n")) {
@@ -369,8 +421,8 @@ static bool test_deploy_publication_gate_marks_result(void) {
   ok = err == APP_ERROR_VALIDATION && result.publication_issue &&
        !result.bootstrap_missing &&
        result.failure_phase == QUICK_DEPLOY_PHASE_BOOTSTRAP_CHECK &&
-       result.failure_message && strstr(result.failure_message,
-                                        "--allow-unpublished") != NULL;
+       result.failure_message &&
+       strstr(result.failure_message, "--allow-unpublished") != NULL;
 
 cleanup:
   if (had_path) {
@@ -396,19 +448,20 @@ cleanup:
 static bool test_list_op_reads_local_record(void) {
 #ifndef _WIN32
   char dir[] = "/tmp/openquick-list-op-XXXXXX";
-  if (!make_temp_dir(dir)) return false;
+  if (!make_temp_dir(dir))
+    return false;
   char qpath[256];
   snprintf(qpath, sizeof(qpath), "%s/quick.json", dir);
   if (!write_file(qpath,
-                  "{\"name\":\"demo\",\"source\":\".\",\"output\":\".\",\"profile\":\"lab\"}")) {
+                  "{\"name\":\"demo\",\"source\":\".\",\"output\":\".\","
+                  "\"profile\":\"lab\"}")) {
     return false;
   }
   quick_profile_config_t profiles;
   quick_profile_config_init(&profiles);
   profiles.default_profile = strdup("lab");
-  (void)quick_local_state_write_deployment(dir, "lab", "demo",
-                                           "https://demo.quick.example.com",
-                                           "rel1");
+  (void)quick_local_state_write_deployment(
+      dir, "lab", "demo", "https://demo.quick.example.com", "rel1");
   quick_list_result_t result;
   quick_list_result_init(&result);
   quick_list_request_t req = {.profiles = &profiles,
@@ -441,20 +494,26 @@ static bool test_delete_op_reports_confirmation_metadata(void) {
   const char *old_remote_env = getenv("QUICK_REMOTE");
   char *old_path = old_path_env ? strdup(old_path_env) : NULL;
   char *old_remote = old_remote_env ? strdup(old_remote_env) : NULL;
-  if ((old_path_env && !old_path) || (old_remote_env && !old_remote)) return false;
+  if ((old_path_env && !old_path) || (old_remote_env && !old_remote))
+    return false;
   bool ok = false;
   quick_profile_config_t profiles;
   quick_profile_config_init(&profiles);
   quick_delete_result_t result;
   quick_delete_result_init(&result);
-  if (!make_temp_dir(bin_dir)) goto cleanup;
+  if (!make_temp_dir(bin_dir))
+    goto cleanup;
   char ssh_path[256];
   snprintf(ssh_path, sizeof(ssh_path), "%s/ssh", bin_dir);
   if (!write_executable_file(
           ssh_path,
           "#!/bin/sh\n"
-          "if [ \"$2\" = quickd ] && [ \"$3\" = sites ] && [ \"$4\" = get ]; then\n"
-          "  printf '%s\\n' '{\"format_version\":\"1.0\",\"name\":\"demo\",\"subdomain\":\"alias\",\"url\":\"https://alias.example.com\",\"deployer\":\"bob\",\"public\":true}'\n"
+          "if [ \"$2\" = quickd ] && [ \"$3\" = sites ] && [ \"$4\" = get ]; "
+          "then\n"
+          "  printf '%s\\n' "
+          "'{\"format_version\":\"1.0\",\"name\":\"demo\",\"subdomain\":"
+          "\"alias\",\"url\":\"https://"
+          "alias.example.com\",\"deployer\":\"bob\",\"public\":true}'\n"
           "  exit 0\n"
           "fi\n"
           "exit 1\n")) {
@@ -469,8 +528,14 @@ static bool test_delete_op_reports_confirmation_metadata(void) {
        strcmp(result.site.subdomain, "alias") == 0 && result.site.have_public &&
        result.site.is_public;
 cleanup:
-  if (old_path_env) setenv("PATH", old_path, 1); else unsetenv("PATH");
-  if (old_remote_env) setenv("QUICK_REMOTE", old_remote, 1); else unsetenv("QUICK_REMOTE");
+  if (old_path_env)
+    setenv("PATH", old_path, 1);
+  else
+    unsetenv("PATH");
+  if (old_remote_env)
+    setenv("QUICK_REMOTE", old_remote, 1);
+  else
+    unsetenv("QUICK_REMOTE");
   free(old_path);
   free(old_remote);
   quick_delete_result_destroy(&result);
@@ -492,20 +557,24 @@ static bool test_public_op_parses_status(void) {
   const char *old_remote_env = getenv("QUICK_REMOTE");
   char *old_path = old_path_env ? strdup(old_path_env) : NULL;
   char *old_remote = old_remote_env ? strdup(old_remote_env) : NULL;
-  if ((old_path_env && !old_path) || (old_remote_env && !old_remote)) return false;
+  if ((old_path_env && !old_path) || (old_remote_env && !old_remote))
+    return false;
   bool ok = false;
   quick_profile_config_t profiles;
   quick_profile_config_init(&profiles);
   quick_public_result_t result;
   quick_public_result_init(&result);
-  if (!make_temp_dir(bin_dir)) goto cleanup;
+  if (!make_temp_dir(bin_dir))
+    goto cleanup;
   char ssh_path[256];
   snprintf(ssh_path, sizeof(ssh_path), "%s/ssh", bin_dir);
   if (!write_executable_file(
           ssh_path,
           "#!/bin/sh\n"
-          "if [ \"$2\" = quickd ] && [ \"$3\" = sites ] && [ \"$4\" = get ]; then\n"
-          "  printf '%s\\n' '{\"format_version\":\"1.0\",\"name\":\"demo\",\"public\":false}'\n"
+          "if [ \"$2\" = quickd ] && [ \"$3\" = sites ] && [ \"$4\" = get ]; "
+          "then\n"
+          "  printf '%s\\n' "
+          "'{\"format_version\":\"1.0\",\"name\":\"demo\",\"public\":false}'\n"
           "  exit 0\n"
           "fi\n"
           "exit 1\n")) {
@@ -513,15 +582,20 @@ static bool test_public_op_parses_status(void) {
   }
   setenv("PATH", bin_dir, 1);
   setenv("QUICK_REMOTE", "quick@box", 1);
-  quick_public_request_t req = {.profiles = &profiles,
-                                .site = "demo",
-                                .action = QUICK_PUBLIC_STATUS};
+  quick_public_request_t req = {
+      .profiles = &profiles, .site = "demo", .action = QUICK_PUBLIC_STATUS};
   ok = quick_op_public(&req, &result) == APP_SUCCESS && result.have_public &&
        !result.is_public && result.site.name &&
        strcmp(result.site.name, "demo") == 0;
 cleanup:
-  if (old_path_env) setenv("PATH", old_path, 1); else unsetenv("PATH");
-  if (old_remote_env) setenv("QUICK_REMOTE", old_remote, 1); else unsetenv("QUICK_REMOTE");
+  if (old_path_env)
+    setenv("PATH", old_path, 1);
+  else
+    unsetenv("PATH");
+  if (old_remote_env)
+    setenv("QUICK_REMOTE", old_remote, 1);
+  else
+    unsetenv("QUICK_REMOTE");
   free(old_path);
   free(old_remote);
   quick_public_result_destroy(&result);
@@ -558,22 +632,23 @@ static bool test_doctor_op_returns_structured_checks(void) {
   quick_doctor_result_init(&result);
   quick_doctor_request_t req = {.profiles = &profiles};
   bool ok = quick_op_doctor(&req, &result) == APP_SUCCESS && result.count > 0 &&
-            result.checks[0].name && strcmp(result.checks[0].name, "quick_version") == 0;
+            result.checks[0].name &&
+            strcmp(result.checks[0].name, "quick_version") == 0;
   quick_doctor_result_destroy(&result);
   quick_profile_config_destroy(&profiles);
   return ok;
 }
 
 #ifndef _WIN32
-static bool check_doctor_identity_response(const char *identity_body,
-                                           quick_doctor_status_t expected_status,
-                                           bool expected_result_ok,
-                                           const char *detail_needle) {
+static bool check_doctor_identity_response(
+    const char *identity_body, quick_doctor_status_t expected_status,
+    bool expected_result_ok, const char *detail_needle) {
   char bin_dir[] = "/tmp/openquick-doctor-identity-bin-XXXXXX";
   const char *old_path_env = getenv("PATH");
   const bool had_path = old_path_env != NULL;
   char *old_path = old_path_env ? strdup(old_path_env) : NULL;
-  if (had_path && !old_path) return false;
+  if (had_path && !old_path)
+    return false;
 
   quick_profile_config_t profiles;
   quick_profile_config_init(&profiles);
@@ -592,15 +667,15 @@ static bool check_doctor_identity_response(const char *identity_body,
   snprintf(curl_path, sizeof(curl_path), "%s/curl", bin_dir);
 
   char curl_script[1024];
-  int n = snprintf(
-      curl_script, sizeof(curl_script),
-      "#!/bin/sh\n"
-      "case \"$4\" in\n"
-      "  */_quick/health) printf '%%s\\n' '{\"format_version\":\"1.0\",\"ok\":true}' ; exit 0 ;;\n"
-      "  */_quick/identity) printf '%%s\\n' '%s' ; exit 0 ;;\n"
-      "esac\n"
-      "exit 1\n",
-      identity_body);
+  int n = snprintf(curl_script, sizeof(curl_script),
+                   "#!/bin/sh\n"
+                   "case \"$4\" in\n"
+                   "  */_quick/health) printf '%%s\\n' "
+                   "'{\"format_version\":\"1.0\",\"ok\":true}' ; exit 0 ;;\n"
+                   "  */_quick/identity) printf '%%s\\n' '%s' ; exit 0 ;;\n"
+                   "esac\n"
+                   "exit 1\n",
+                   identity_body);
   if (n < 0 || (size_t)n >= sizeof(curl_script)) {
     goto cleanup;
   }
@@ -635,19 +710,19 @@ static bool check_doctor_identity_response(const char *identity_body,
     goto cleanup;
   }
 
-  quick_doctor_request_t req = {.profiles = &profiles,
-                                .profile = "lab",
-                                .site = "demo",
-                                .remote = true};
+  quick_doctor_request_t req = {
+      .profiles = &profiles, .profile = "lab", .site = "demo", .remote = true};
   if (quick_op_doctor(&req, &result) != APP_SUCCESS ||
       result.ok != expected_result_ok) {
     goto cleanup;
   }
   for (size_t i = 0; i < result.count; i++) {
-    if (result.checks[i].name && strcmp(result.checks[i].name, "http_identity") == 0) {
+    if (result.checks[i].name &&
+        strcmp(result.checks[i].name, "http_identity") == 0) {
       ok = result.checks[i].status == expected_status &&
-           (!detail_needle || (result.checks[i].detail &&
-                               strstr(result.checks[i].detail, detail_needle) != NULL));
+           (!detail_needle ||
+            (result.checks[i].detail &&
+             strstr(result.checks[i].detail, detail_needle) != NULL));
       break;
     }
   }
@@ -724,7 +799,8 @@ static bool test_mint_dev_token_parses_json(void) {
   const char *old_base_domain_env = getenv("QUICK_BASE_DOMAIN");
   char *old_path = old_path_env ? strdup(old_path_env) : NULL;
   char *old_remote = old_remote_env ? strdup(old_remote_env) : NULL;
-  char *old_base_domain = old_base_domain_env ? strdup(old_base_domain_env) : NULL;
+  char *old_base_domain =
+      old_base_domain_env ? strdup(old_base_domain_env) : NULL;
   if ((old_path_env && !old_path) || (old_remote_env && !old_remote) ||
       (old_base_domain_env && !old_base_domain)) {
     free(old_path);
@@ -739,7 +815,8 @@ static bool test_mint_dev_token_parses_json(void) {
   quick_dev_token_result_t result;
   quick_dev_token_result_init(&result);
 
-  if (!make_temp_dir(bin_dir)) goto cleanup;
+  if (!make_temp_dir(bin_dir))
+    goto cleanup;
   char ssh_path[256];
   snprintf(ssh_path, sizeof(ssh_path), "%s/ssh", bin_dir);
   if (!write_executable_file(
@@ -750,7 +827,9 @@ static bool test_mint_dev_token_parses_json(void) {
           "[ \"$5\" = --site ] && [ \"$6\" = demo ] && "
           "[ \"$7\" = --ttl ] && [ \"$8\" = 3600 ] && "
           "[ \"$9\" = --json ]; then\n"
-          "  printf '%s\\n' '{\"token\":\"dev-token-123\",\"site\":\"demo\",\"expires_at\":\"2026-06-12T01:00:00Z\"}'\n"
+          "  printf '%s\\n' "
+          "'{\"token\":\"dev-token-123\",\"site\":\"demo\",\"expires_at\":"
+          "\"2026-06-12T01:00:00Z\"}'\n"
           "  exit 0\n"
           "fi\n"
           "exit 1\n")) {
@@ -764,17 +843,25 @@ static bool test_mint_dev_token_parses_json(void) {
                                    .profile = "lab",
                                    .site = "demo",
                                    .ttl_seconds = 3600};
-  ok = quick_op_mint_dev_token(&req, &result) == APP_SUCCESS &&
-       result.token && strcmp(result.token, "dev-token-123") == 0 &&
-       result.expires_at &&
-       strcmp(result.expires_at, "2026-06-12T01:00:00Z") == 0 &&
-       result.site && strcmp(result.site, "demo") == 0 && result.url &&
+  ok = quick_op_mint_dev_token(&req, &result) == APP_SUCCESS && result.token &&
+       strcmp(result.token, "dev-token-123") == 0 && result.expires_at &&
+       strcmp(result.expires_at, "2026-06-12T01:00:00Z") == 0 && result.site &&
+       strcmp(result.site, "demo") == 0 && result.url &&
        strcmp(result.url, "https://demo.quick.example.com") == 0;
 
 cleanup:
-  if (old_path_env) setenv("PATH", old_path, 1); else unsetenv("PATH");
-  if (old_remote_env) setenv("QUICK_REMOTE", old_remote, 1); else unsetenv("QUICK_REMOTE");
-  if (old_base_domain_env) setenv("QUICK_BASE_DOMAIN", old_base_domain, 1); else unsetenv("QUICK_BASE_DOMAIN");
+  if (old_path_env)
+    setenv("PATH", old_path, 1);
+  else
+    unsetenv("PATH");
+  if (old_remote_env)
+    setenv("QUICK_REMOTE", old_remote, 1);
+  else
+    unsetenv("QUICK_REMOTE");
+  if (old_base_domain_env)
+    setenv("QUICK_BASE_DOMAIN", old_base_domain, 1);
+  else
+    unsetenv("QUICK_BASE_DOMAIN");
   free(old_path);
   free(old_remote);
   free(old_base_domain);
@@ -817,8 +904,11 @@ void run_openquick_unit_tests(unit_stats_t *stats) {
               "profile config parser reads host profile settings");
   unit_record(stats, test_target_resolution_precedence(),
               "deploy plan resolution honors flag over env over quick.json");
-  unit_record(stats, test_safe_remote_install_validation(),
-              "remote installer validation rejects unsafe argv-over-ssh values");
+  unit_record(
+      stats, test_safe_remote_install_validation(),
+      "remote installer validation rejects unsafe argv-over-ssh values");
+  unit_record(stats, test_restore_and_rollback_input_validation(),
+              "restore and rollback validation rejects unsafe remote values");
   unit_record(stats, test_quickignore_to_rsync_args(),
               ".quickignore patterns become rsync --exclude args");
   unit_record(stats, test_process_stream_callbacks(),

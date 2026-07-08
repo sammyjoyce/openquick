@@ -238,8 +238,7 @@ static char *find_config_file(void) {
 
   // Try system config directory
 #ifdef _WIN32
-  snprintf(config_path, PATH_MAX,
-           "C:\\ProgramData\\openquick\\config.json");
+  snprintf(config_path, PATH_MAX, "C:\\ProgramData\\openquick\\config.json");
 #else
   snprintf(config_path, PATH_MAX, "/etc/openquick/config.json");
 #endif

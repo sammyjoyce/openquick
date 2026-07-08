@@ -1,5 +1,3 @@
-#include "tui_app_state.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,6 +5,7 @@
 #include "../core/deploy_plan.h"
 #include "../core/ops.h"
 #include "tui.h"
+#include "tui_app_state.h"
 #include "tui_internal.h"
 
 static char *quick_tui_dup(const char *value) {
@@ -25,17 +24,19 @@ static char *quick_tui_dup(const char *value) {
 static quick_init_template_t quick_tui_choose_template(void) {
   const tui_menu_item_t items[] = {
       {.label = "&Blank", .description = "Static HTML starter", .id = 1},
-      {.label = "&Realtime", .description = "Starter page that imports /_quick/sdk.js", .id = 2},
+      {.label = "&Realtime",
+       .description = "Starter page that imports /_quick/sdk.js",
+       .id = 2},
   };
-  tui_menu_result_t r = tui_show_menu(
-      NULL, &(tui_menu_config_t){.title = "New site template",
-                                 .subtitle = "Choose scaffold",
-                                 .items = items,
-                                 .item_count = 2,
-                                 .default_index = 0,
-                                 .frame_height = 12,
-                                 .frame_width = 66,
-                                 .show_numeric_keys = true});
+  tui_menu_result_t r =
+      tui_show_menu(NULL, &(tui_menu_config_t){.title = "New site template",
+                                               .subtitle = "Choose scaffold",
+                                               .items = items,
+                                               .item_count = 2,
+                                               .default_index = 0,
+                                               .frame_height = 12,
+                                               .frame_width = 66,
+                                               .show_numeric_keys = true});
   if (r.status == TUI_MENU_OK && r.selected_id == 2) {
     return QUICK_INIT_TEMPLATE_REALTIME;
   }
@@ -53,27 +54,31 @@ static char *quick_tui_choose_init_profile(quick_tui_app_state_t *state) {
   }
   for (size_t i = 0; i < state->profiles.profile_count; i++) {
     const quick_profile_t *p = &state->profiles.profiles[i];
-    items[i] = (tui_menu_item_t){.label = p->name,
-                                 .description = p->ssh ? p->ssh : "local/no ssh",
-                                 .id = (int)i + 1};
+    items[i] =
+        (tui_menu_item_t){.label = p->name,
+                          .description = p->ssh ? p->ssh : "local/no ssh",
+                          .id = (int)i + 1};
   }
-  items[state->profiles.profile_count] = (tui_menu_item_t){.label = "&None",
-                                                            .description = "Leave profile unset in quick.json",
-                                                            .id = 900};
+  items[state->profiles.profile_count] =
+      (tui_menu_item_t){.label = "&None",
+                        .description = "Leave profile unset in quick.json",
+                        .id = 900};
   tui_menu_result_t r = tui_show_menu(
-      NULL, &(tui_menu_config_t){.title = "New site profile",
-                                 .subtitle = "Default profile can be changed later",
-                                 .items = items,
-                                 .item_count = (int)count,
-                                 .default_index = 0,
-                                 .frame_height = 16,
-                                 .frame_width = 70,
-                                 .enable_search = true,
-                                 .show_numeric_keys = true});
+      NULL,
+      &(tui_menu_config_t){.title = "New site profile",
+                           .subtitle = "Default profile can be changed later",
+                           .items = items,
+                           .item_count = (int)count,
+                           .default_index = 0,
+                           .frame_height = 16,
+                           .frame_width = 70,
+                           .enable_search = true,
+                           .show_numeric_keys = true});
   char *profile = NULL;
   if (r.status == TUI_MENU_OK && r.selected_id >= 1 &&
       (size_t)r.selected_id <= state->profiles.profile_count) {
-    profile = quick_tui_dup(state->profiles.profiles[(size_t)r.selected_id - 1U].name);
+    profile = quick_tui_dup(
+        state->profiles.profiles[(size_t)r.selected_id - 1U].name);
   } else if (r.status == TUI_MENU_OK && r.selected_id == 900) {
     profile = quick_tui_dup("");
   }
@@ -98,7 +103,8 @@ static void quick_tui_created_redraw(tui_window_t *window, void *userdata) {
   mvwaddnstr(window->win, 3, 3, header, window->width - 6);
   tui_unset_color(window->win, TUI_COLOR_SUCCESS);
   mvwaddnstr(window->win, 5, 3, "Files created:", window->width - 6);
-  for (size_t i = 0; i < result->file_count && 6 + (int)i < window->height - 3; i++) {
+  for (size_t i = 0; i < result->file_count && 6 + (int)i < window->height - 3;
+       i++) {
     mvwprintw(window->win, 6 + (int)i, 5, "- %.*s", window->width - 9,
               result->files_created[i] ? result->files_created[i] : "");
   }
@@ -128,8 +134,9 @@ void quick_tui_screen_init(quick_tui_app_state_t *state) {
   }
   (void)quick_tui_reload_profiles(state);
   char dir[512] = {0};
-  if (tui_input_dialog("New site", "Directory to create (blank for current directory):",
-                       dir, sizeof(dir)) != APP_SUCCESS) {
+  if (tui_input_dialog(
+          "New site", "Directory to create (blank for current directory):", dir,
+          sizeof(dir)) != APP_SUCCESS) {
     return;
   }
   char name_input[160] = {0};
@@ -138,7 +145,8 @@ void quick_tui_screen_init(quick_tui_app_state_t *state) {
     return;
   }
   char slug[QUICK_SLUG_MAX + 1];
-  if (quick_slug_normalize(name_input[0] ? name_input : dir, slug) != APP_SUCCESS ||
+  if (quick_slug_normalize(name_input[0] ? name_input : dir, slug) !=
+          APP_SUCCESS ||
       !quick_slug_is_valid(slug)) {
     tui_show_message("New site",
                      "The site name cannot be normalized to a DNS label.");

@@ -1,11 +1,13 @@
 # OpenQuick — Project Brief
 
 ## Goal
+
 An open-source re-implementation of Shopify's internal "Quick" hosting platform
-(https://shopify.engineering/quick), built on top of the curspan C23 CLI/TUI
-template this repo was generated from.
+([Shopify Quick engineering post](https://shopify.engineering/quick)), built on
+top of the curspan C23 CLI/TUI template this repo was generated from.
 
 ## Key differences from Shopify's Quick
+
 1. **No gcloud dependency.** Shopify's `quick deploy` wraps `gcloud storage rsync`
    into a GCS bucket served via gcsfuse + NGINX. We instead use plain **rsync over
    SSH** so users can deploy to any host: exe.dev, Hetzner, a local machine, a
@@ -18,6 +20,7 @@ template this repo was generated from.
    handle, etc.), like Quick's identity API.
 
 ## What Quick is (from the Shopify engineering post)
+
 - Drop a folder of HTML/assets, get a secure URL (`mysite.quick.shopify.io`)
   only employees can see. No frameworks, pipelines, or config.
 - Architecture: GCS bucket per-folder sites, gcsfuse mounts bucket as a local
@@ -35,6 +38,7 @@ template this repo was generated from.
   zero-config safe. 50k+ sites on one $200/mo VM; server moved from Node to Go.
 
 ## Deliverables requested
+
 - **Workflow design**: what `quick init`, `quick deploy`, `quick serve` (etc.)
   look like end to end for a user deploying to an arbitrary rsync-reachable host.
 - **High-level architecture**: components (CLI in C23/curspan, server, proxy

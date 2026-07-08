@@ -30,28 +30,56 @@ for file in $required_files; do
   fi
 done
 
-if ! grep -q "Agent deploy safety checklist" "$src_dir/SKILL.md"; then
+checklist_section=$(awk '
+  /^## Agent deploy safety checklist$/ {
+    in_checklist = 1
+    print
+    next
+  }
+  in_checklist && /^## / {
+    exit
+  }
+  in_checklist {
+    print
+  }
+' "$src_dir/SKILL.md")
+
+if [ -z "$checklist_section" ]; then
   echo "missing agent deploy safety checklist in SKILL.md" >&2
   exit 1
 fi
-if ! grep -q "quick deploy --dry-run" "$src_dir/SKILL.md"; then
+if ! printf '%s\n' "$checklist_section" | grep -q "quick deploy --dry-run"; then
   echo "skill checklist must require a dry-run before deploy" >&2
   exit 1
 fi
-if ! grep -q "quick doctor --profile" "$src_dir/SKILL.md"; then
+if ! printf '%s\n' "$checklist_section" | grep -q "quick doctor --profile"; then
   echo "skill checklist must require targeted doctor checks" >&2
   exit 1
 fi
 
+stage=
 tmp=$(mktemp "${TMPDIR:-/tmp}/openquick-deploy.XXXXXX.zip")
-trap 'rm -f "$tmp"' EXIT HUP INT TERM
+cleanup() {
+  rm -f "$tmp"
+  if [ -n "$stage" ]; then
+    rm -rf "$stage"
+  fi
+}
+trap cleanup EXIT HUP INT TERM
 rm -f "$tmp"
+stage=$(mktemp -d "${TMPDIR:-/tmp}/openquick-deploy-stage.XXXXXX")
 
 mkdir -p "$(dirname "$out")"
+cp -R "$src_dir/." "$stage/"
 (
-  cd "$src_dir"
-  zip -X -q -r "$tmp" SKILL.md references
+  cd "$stage"
+  TZ=UTC
+  LC_ALL=C
+  export TZ LC_ALL
+  find SKILL.md references -exec touch -t 198001010000 {} +
+  find SKILL.md references -print | sort | zip -X -q "$tmp" -@
 )
 
 mv "$tmp" "$out"
+cleanup
 trap - EXIT HUP INT TERM

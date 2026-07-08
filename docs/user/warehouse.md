@@ -85,4 +85,5 @@ If the host does not advertise warehouse support, the SDK fails before sending q
 
 ## HTTP backing
 
-The SDK uses same-origin `POST /_quick/warehouse/:name` with a JSON object body. Hosts may also support `GET /_quick/warehouse/:name` with query parameters for simple links, but SDK code should use `quick.warehouse.query()` so capability checks and response handling stay consistent.
+The SDK uses same-origin `POST /_quick/warehouse/:name` with a JSON object body. Hosts may also support `GET /_quick/warehouse/:name` with query
+parameters for simple links, but SDK code should use `quick.warehouse.query()` so capability checks and response handling stay consistent.

@@ -209,7 +209,7 @@ static const app_command_arg_t filter_option_args[] = {
 };
 
 static const app_command_arg_t sort_option_args[] = {
-    {.name = "name|updated|source",
+    {.name = "name|updated|updated_at|source",
      .required = true,
      .arity_minimum = 1,
      .arity_maximum = 1,
@@ -266,7 +266,8 @@ static const app_command_option_t init_options[] = {
      .description = "Deployment profile to record in quick.json"},
     {.id = APP_COMMAND_OPTION_UNKNOWN,
      .name = "adopt",
-     .description = "Adopt an existing folder by writing only missing OpenQuick metadata"},
+     .description =
+         "Adopt an existing folder by writing only missing OpenQuick metadata"},
 };
 
 static const app_command_option_t deploy_options[] = {
@@ -354,7 +355,9 @@ static const app_command_option_t serve_options[] = {
      .name = "iap",
      .arguments = iap_option_args,
      .argument_count = APP_COUNTOF(iap_option_args),
-     .description = "IAP adapter: tailscale, tailscale-tsnet, cloudflare, or none"},
+     .description =
+         "IAP adapter: tailscale, tailscale-localapi, tailscale-serve, "
+         "tailscale-tsnet, cloudflare, cloudflare-access, or none"},
     {.id = APP_COMMAND_OPTION_UNKNOWN,
      .name = "execute",
      .description = "Run installer probes over SSH"},
@@ -395,7 +398,7 @@ static const app_command_option_t list_options[] = {
      .name = "sort",
      .arguments = sort_option_args,
      .argument_count = APP_COUNTOF(sort_option_args),
-     .description = "Sort rows by name, updated, or source"},
+     .description = "Sort rows by name, updated, updated_at, or source"},
     {.id = APP_COMMAND_OPTION_UNKNOWN,
      .name = "json",
      .description = "Print JSON output"},
@@ -545,7 +548,9 @@ static const char *const deploy_examples[] = {
 static const char *const serve_examples[] = {
     APP_NAME " serve --dev --port 9366",
     APP_NAME " serve --dev --remote-api lab",
-    APP_NAME " serve install --profile lab --host quick@box --remote-root /srv/quick --domain quick.example.com --iap tailscale",
+    APP_NAME
+    " serve install --profile lab --host quick@box --remote-root /srv/quick "
+    "--domain quick.example.com --iap tailscale",
 };
 
 static const char *const open_examples[] = {
@@ -580,8 +585,12 @@ static const char *const delete_examples[] = {
 };
 
 static const char *const restore_examples[] = {
-    APP_NAME " restore demo --from /srv/quick/.trash/sites/demo-20260612T000000.000000000Z",
-    APP_NAME " restore demo --from /srv/quick/.trash/sites/demo-20260612T000000.000000000Z --yes --json",
+    APP_NAME
+    " restore demo --from "
+    "/srv/quick/.trash/sites/demo-20260612T000000.000000000Z",
+    APP_NAME
+    " restore demo --from "
+    "/srv/quick/.trash/sites/demo-20260612T000000.000000000Z --yes --json",
 };
 
 static const char *const rollback_examples[] = {
@@ -1014,13 +1023,14 @@ app_error app_command_validate_invocation(const app_command_t *command,
     }
 
     if (!end_of_options && strncmp(arg, "--", 2) == 0 && arg[2] != '\0') {
-      const app_command_option_t *option = app_command_option_find(command, arg);
+      const app_command_option_t *option =
+          app_command_option_find(command, arg);
       if (option) {
         for (size_t j = 0; j < option->argument_count; j++) {
           if (i + 1 >= argc) {
             snprintf(message, sizeof(message),
-                     "Error: Option '%s' for command '%s' expects a value",
-                     arg, command->name);
+                     "Error: Option '%s' for command '%s' expects a value", arg,
+                     command->name);
             app_command_report_validation_error(config, message, NULL);
             return APP_ERROR_MISSING_ARG;
           }

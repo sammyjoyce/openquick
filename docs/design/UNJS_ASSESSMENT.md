@@ -112,11 +112,12 @@ Publishing `@openquick/sdk` to npm could make CDN imports possible:
 ```
 
 This works mechanically because CDN-hosted module code executes in the importing
-page's `window` context. The OpenQuick SDK uses leading-slash request URLs such
-as `fetch('/_quick/identity')` and `new WebSocket('/_quick/realtime')`; those are
-resolved against the hosted site's document origin, not against `unpkg.com` or
-`import.meta.url`. Static imports inside a CDN module would resolve relative to
-the CDN module URL, so keeping the SDK single-file and dependency-free matters.
+page's `window` context. The SDK detects its same-origin API base and sends
+requests to `/_quick/*` on wildcard site hosts or `/~/site/_quick/*` on
+path-fallback pages, so those fetch/WebSocket/SSE calls target the hosted site's
+document origin rather than `unpkg.com` or `import.meta.url`. Static imports
+inside a CDN module would resolve relative to the CDN module URL, so keeping the
+SDK single-file and dependency-free matters.
 
 If this channel is added later, guidance should be conservative:
 

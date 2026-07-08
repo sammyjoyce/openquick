@@ -300,12 +300,11 @@ static bool test_request_json_parses_command_args_and_flags(void) {
   const char *input =
       "{\"command\":\"open\",\"args\":[\"lunch-vote\"],"
       "\"flags\":{\"debug\":true}}";
-  bool ok = app_request_parse_json(&request, input) == APP_SUCCESS &&
-            request.command && strcmp(request.command, "open") == 0 &&
-            request.arg_count == 1 &&
-            strcmp(request.args[0], "lunch-vote") == 0 &&
-            request.flag_seen[APP_FLAG_DEBUG] &&
-            request.flag_values[APP_FLAG_DEBUG];
+  bool ok =
+      app_request_parse_json(&request, input) == APP_SUCCESS &&
+      request.command && strcmp(request.command, "open") == 0 &&
+      request.arg_count == 1 && strcmp(request.args[0], "lunch-vote") == 0 &&
+      request.flag_seen[APP_FLAG_DEBUG] && request.flag_values[APP_FLAG_DEBUG];
   app_request_destroy(&request);
   return ok;
 }

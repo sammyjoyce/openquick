@@ -1,5 +1,4 @@
 #include "commands_openquick.h"
-#include "commands.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -7,6 +6,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "commands.h"
 #ifndef _WIN32
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -137,7 +138,8 @@ bool quick_path_exists_cli(const char *path) {
   }
 #ifdef _WIN32
   FILE *f = fopen(path, "rb");
-  if (!f) return false;
+  if (!f)
+    return false;
   fclose(f);
   return true;
 #else
@@ -300,12 +302,23 @@ char *quick_json_get_string_field_cli(const char *json, const char *field) {
     if (ch == '\\' && *p != '\0') {
       ch = *p++;
       switch (ch) {
-      case 'n': ch = '\n'; break;
-      case 'r': ch = '\r'; break;
-      case 't': ch = '\t'; break;
-      case '"': ch = '"'; break;
-      case '\\': ch = '\\'; break;
-      default: break;
+      case 'n':
+        ch = '\n';
+        break;
+      case 'r':
+        ch = '\r';
+        break;
+      case 't':
+        ch = '\t';
+        break;
+      case '"':
+        ch = '"';
+        break;
+      case '\\':
+        ch = '\\';
+        break;
+      default:
+        break;
       }
     }
     if (used + 1U >= cap) {
@@ -338,9 +351,9 @@ long quick_json_get_long_field_cli(const char *json, const char *field,
 }
 
 bool quick_cmd_prompt_site_confirmation(const app_config_t *config,
-                                        const char *site,
-                                        const char *message) {
-  if (!site || site[0] == '\0' || !app_terminal_stream_is_tty(APP_TERMINAL_STDIN)) {
+                                        const char *site, const char *message) {
+  if (!site || site[0] == '\0' ||
+      !app_terminal_stream_is_tty(APP_TERMINAL_STDIN)) {
     return false;
   }
   if (message && message[0] != '\0') {
@@ -403,7 +416,8 @@ static const char *site_admin_nth_positional(int argc, char *const argv[],
 
 static bool site_admin_wants_json(const app_config_t *config, int argc,
                                   char *const argv[]) {
-  return app_config_is_json_output(config) || quick_cmd_flag(argc, argv, "--json");
+  return app_config_is_json_output(config) ||
+         quick_cmd_flag(argc, argv, "--json");
 }
 
 static void site_admin_print_raw_json_or_fallback(const char *json,
@@ -537,41 +551,38 @@ static void quick_config_show_json(const quick_deploy_plan_t *plan,
                               &comma);
   app_json_write_string_field(stdout, "source_dir", plan->source_dir, &comma);
   app_json_write_string_field(stdout, "output_dir", plan->output_dir, &comma);
-  app_json_write_string_field(stdout, "iap_mode",
-                              profile && profile->iap.mode ? profile->iap.mode
-                                                            : NULL,
-                              &comma);
+  app_json_write_string_field(
+      stdout, "iap_mode",
+      profile && profile->iap.mode ? profile->iap.mode : NULL, &comma);
   app_json_write_raw_field(stdout, "sources", "{", &comma);
   bool source_comma = false;
   app_json_write_string_field(stdout, "config_path", config_path_source,
                               &source_comma);
-  app_json_write_string_field(stdout, "profile", profile_source,
-                              &source_comma);
+  app_json_write_string_field(stdout, "profile", profile_source, &source_comma);
   app_json_write_string_field(stdout, "site", site_source, &source_comma);
   app_json_write_string_field(stdout, "subdomain", subdomain_source,
                               &source_comma);
-  app_json_write_string_field(stdout, "ssh",
-                              quick_nonempty(getenv("QUICK_REMOTE"))
-                                  ? "env:QUICK_REMOTE"
-                                  : (profile && profile->ssh ? "profile:ssh"
-                                                            : "unset"),
-                              &source_comma);
+  app_json_write_string_field(
+      stdout, "ssh",
+      quick_nonempty(getenv("QUICK_REMOTE"))
+          ? "env:QUICK_REMOTE"
+          : (profile && profile->ssh ? "profile:ssh" : "unset"),
+      &source_comma);
   app_json_write_string_field(stdout, "remote_root",
                               profile && profile->remote_root
                                   ? "profile:remote_root"
                                   : "default:/srv/quick",
                               &source_comma);
-  app_json_write_string_field(stdout, "base_domain",
-                              quick_nonempty(getenv("QUICK_BASE_DOMAIN"))
-                                  ? "env:QUICK_BASE_DOMAIN"
-                                  : (profile && profile->base_domain
-                                         ? "profile:base_domain"
-                                         : "unset"),
-                              &source_comma);
-  app_json_write_string_field(stdout, "base_url",
-                              profile && profile->base_url ? "profile:base_url"
-                                                           : "derived",
-                              &source_comma);
+  app_json_write_string_field(
+      stdout, "base_domain",
+      quick_nonempty(getenv("QUICK_BASE_DOMAIN"))
+          ? "env:QUICK_BASE_DOMAIN"
+          : (profile && profile->base_domain ? "profile:base_domain" : "unset"),
+      &source_comma);
+  app_json_write_string_field(
+      stdout, "base_url",
+      profile && profile->base_url ? "profile:base_url" : "derived",
+      &source_comma);
   app_json_end_object(stdout);
   app_json_end_object(stdout);
   app_json_end_line(stdout);
@@ -623,8 +634,7 @@ app_error app_cmd_config_show(const app_config_t *config, int argc,
   } else {
     app_output_format(config, false, "OpenQuick config");
     app_output_format(config, false, "  config     %s (%s)",
-                      config_path ? config_path : "(none)",
-                      config_path_source);
+                      config_path ? config_path : "(none)", config_path_source);
     app_output_format(config, false, "  profile    %s (%s)", plan.profile,
                       profile_source);
     app_output_format(config, false, "  site       %s (%s)", plan.site,
@@ -639,9 +649,9 @@ app_error app_cmd_config_show(const app_config_t *config, int argc,
     app_output_format(config, false, "  base url   %s",
                       plan.base_url ? plan.base_url : "(derived)");
     app_output_format(config, false, "  url        %s", plan.url);
-    app_output_format(config, false, "  iap        %s",
-                      profile && profile->iap.mode ? profile->iap.mode
-                                                   : "(none)");
+    app_output_format(
+        config, false, "  iap        %s",
+        profile && profile->iap.mode ? profile->iap.mode : "(none)");
   }
   free(config_path);
   quick_deploy_plan_destroy(&plan);
@@ -666,10 +676,11 @@ app_error app_cmd_delete(const app_config_t *config, int argc,
   }
   quick_delete_result_t result;
   quick_delete_result_init(&result);
-  quick_delete_request_t request = {.profiles = &profiles,
-                                    .profile = quick_cmd_value(argc, argv, "--profile"),
-                                    .site = site,
-                                    .assume_yes = quick_cmd_flag(argc, argv, "--yes")};
+  quick_delete_request_t request = {
+      .profiles = &profiles,
+      .profile = quick_cmd_value(argc, argv, "--profile"),
+      .site = site,
+      .assume_yes = quick_cmd_flag(argc, argv, "--yes")};
   err = quick_op_delete(&request, &result);
   if (err == APP_SUCCESS && result.confirmation_required) {
     if (!site_admin_wants_json(config, argc, argv)) {
@@ -685,7 +696,8 @@ app_error app_cmd_delete(const app_config_t *config, int argc,
       err = quick_op_delete(&request, &result);
     } else {
       quick_print_error(config,
-                        "Delete requires typing the site name to confirm; pass --yes for non-interactive use.");
+                        "Delete requires typing the site name to confirm; pass "
+                        "--yes for non-interactive use.");
       err = APP_ERROR_VALIDATION;
     }
   }
@@ -697,7 +709,9 @@ app_error app_cmd_delete(const app_config_t *config, int argc,
       site_admin_print_site_human(config, "deleted", &result.site);
       if (result.archive) {
         app_output_format(config, false, "  archive    %s", result.archive);
-        app_output_format(config, false, "  restore    quick restore %s --from %s", site, result.archive);
+        app_output_format(config, false,
+                          "  restore    quick restore %s --from %s", site,
+                          result.archive);
       }
     }
   } else if (err != APP_ERROR_VALIDATION) {
@@ -715,8 +729,15 @@ app_error app_cmd_restore(const app_config_t *config, int argc,
                                                APP_COUNTOF(value_opts));
   const char *archive = quick_cmd_value(argc, argv, "--from");
   if (!site || !archive) {
-    quick_print_error(config, "restore requires a site and --from archive path");
+    quick_print_error(config,
+                      "restore requires a site and --from archive path");
     return APP_ERROR_MISSING_ARG;
+  }
+  if (!quick_restore_archive_path_is_safe(archive, NULL, site)) {
+    quick_print_error(config,
+                      "restore --from must be the absolute .trash/sites "
+                      "archive path returned by quick delete for this site");
+    return APP_ERROR_VALIDATION;
   }
   quick_profile_config_t profiles;
   app_error err = quick_cmd_load_profiles(&profiles);
@@ -726,17 +747,19 @@ app_error app_cmd_restore(const app_config_t *config, int argc,
   }
   quick_restore_result_t result;
   quick_restore_result_init(&result);
-  quick_restore_request_t request = {.profiles = &profiles,
-                                     .profile = quick_cmd_value(argc, argv, "--profile"),
-                                     .site = site,
-                                     .archive = archive,
-                                     .assume_yes = quick_cmd_flag(argc, argv, "--yes")};
+  quick_restore_request_t request = {
+      .profiles = &profiles,
+      .profile = quick_cmd_value(argc, argv, "--profile"),
+      .site = site,
+      .archive = archive,
+      .assume_yes = quick_cmd_flag(argc, argv, "--yes")};
   err = quick_op_restore(&request, &result);
   if (err == APP_SUCCESS && result.confirmation_required) {
     char prompt[640];
-    snprintf(prompt, sizeof(prompt),
-             "Restoring site '%s' will replace the deleted site from archive '%s'.",
-             site, archive);
+    snprintf(
+        prompt, sizeof(prompt),
+        "Restoring site '%s' will replace the deleted site from archive '%s'.",
+        site, archive);
     if (quick_cmd_prompt_site_confirmation(config, site, prompt)) {
       request.confirmed = true;
       quick_restore_result_destroy(&result);
@@ -744,7 +767,8 @@ app_error app_cmd_restore(const app_config_t *config, int argc,
       err = quick_op_restore(&request, &result);
     } else {
       quick_print_error(config,
-                        "Restore requires typing the site name to confirm; pass --yes for non-interactive use.");
+                        "Restore requires typing the site name to confirm; "
+                        "pass --yes for non-interactive use.");
       err = APP_ERROR_VALIDATION;
     }
   }
@@ -773,7 +797,13 @@ app_error app_cmd_restore(const app_config_t *config, int argc,
         app_output_format(config, false, "  url        %s", result.url);
       }
     }
-  } else if (err != APP_ERROR_VALIDATION) {
+  } else if (err == APP_ERROR_VALIDATION) {
+    if (!result.confirmation_required) {
+      quick_print_error(config,
+                        "restore --from must match the selected profile's "
+                        ".trash/sites archive path");
+    }
+  } else {
     quick_print_error(config, "failed to restore remote site");
   }
   quick_restore_result_destroy(&result);
@@ -790,6 +820,13 @@ app_error app_cmd_rollback(const app_config_t *config, int argc,
     quick_print_error(config, "rollback requires a site");
     return APP_ERROR_MISSING_ARG;
   }
+  const char *release = quick_cmd_value(argc, argv, "--to");
+  if (release && release[0] != '\0' && !quick_release_id_is_safe(release)) {
+    quick_print_error(config,
+                      "rollback --to must be a safe release id using letters, "
+                      "digits, '.', '_', or '-' and must not start with '-'");
+    return APP_ERROR_VALIDATION;
+  }
   quick_profile_config_t profiles;
   app_error err = quick_cmd_load_profiles(&profiles);
   if (err != APP_SUCCESS) {
@@ -798,11 +835,12 @@ app_error app_cmd_rollback(const app_config_t *config, int argc,
   }
   quick_rollback_result_t result;
   quick_rollback_result_init(&result);
-  quick_rollback_request_t request = {.profiles = &profiles,
-                                      .profile = quick_cmd_value(argc, argv, "--profile"),
-                                      .site = site,
-                                      .release = quick_cmd_value(argc, argv, "--to"),
-                                      .assume_yes = quick_cmd_flag(argc, argv, "--yes")};
+  quick_rollback_request_t request = {
+      .profiles = &profiles,
+      .profile = quick_cmd_value(argc, argv, "--profile"),
+      .site = site,
+      .release = release,
+      .assume_yes = quick_cmd_flag(argc, argv, "--yes")};
   err = quick_op_rollback(&request, &result);
   if (err == APP_SUCCESS && result.confirmation_required) {
     if (!site_admin_wants_json(config, argc, argv)) {
@@ -811,8 +849,8 @@ app_error app_cmd_rollback(const app_config_t *config, int argc,
     char prompt[640];
     if (request.release && request.release[0] != '\0') {
       snprintf(prompt, sizeof(prompt),
-               "Rolling back site '%s' will restore release '%s'.",
-               site, request.release);
+               "Rolling back site '%s' will restore release '%s'.", site,
+               request.release);
     } else {
       snprintf(prompt, sizeof(prompt),
                "Rolling back site '%s' will restore the previous release.",
@@ -825,22 +863,23 @@ app_error app_cmd_rollback(const app_config_t *config, int argc,
       err = quick_op_rollback(&request, &result);
     } else {
       quick_print_error(config,
-                        "Rollback requires typing the site name to confirm; pass --yes for non-interactive use.");
+                        "Rollback requires typing the site name to confirm; "
+                        "pass --yes for non-interactive use.");
       err = APP_ERROR_VALIDATION;
     }
   }
   if (err == APP_SUCCESS) {
     if (site_admin_wants_json(config, argc, argv)) {
       site_admin_print_raw_json_or_fallback(result.remote_json, site,
-                                            "rolled_back",
-                                            result.rolled_back);
+                                            "rolled_back", result.rolled_back);
     } else {
       site_admin_print_site_human(config, "rolled back", &result.site);
       if (result.release) {
         app_output_format(config, false, "  restored    %s", result.release);
       }
       if (result.previous_release) {
-        app_output_format(config, false, "  previous    %s", result.previous_release);
+        app_output_format(config, false, "  previous    %s",
+                          result.previous_release);
       }
     }
   } else if (err != APP_ERROR_VALIDATION) {
@@ -881,11 +920,12 @@ app_error app_cmd_public(const app_config_t *config, int argc,
   }
   quick_public_result_t result;
   quick_public_result_init(&result);
-  quick_public_request_t request = {.profiles = &profiles,
-                                    .profile = quick_cmd_value(argc, argv, "--profile"),
-                                    .site = site,
-                                    .action = action,
-                                    .assume_yes = quick_cmd_flag(argc, argv, "--yes")};
+  quick_public_request_t request = {
+      .profiles = &profiles,
+      .profile = quick_cmd_value(argc, argv, "--profile"),
+      .site = site,
+      .action = action,
+      .assume_yes = quick_cmd_flag(argc, argv, "--yes")};
   err = quick_op_public(&request, &result);
   if (err == APP_SUCCESS && result.confirmation_required) {
     if (!site_admin_wants_json(config, argc, argv)) {
@@ -893,7 +933,8 @@ app_error app_cmd_public(const app_config_t *config, int argc,
     }
     char prompt[512];
     snprintf(prompt, sizeof(prompt),
-             "Making site '%s' public allows unauthenticated GET/HEAD for static files.",
+             "Making site '%s' public allows unauthenticated GET/HEAD for "
+             "static files.",
              site);
     if (quick_cmd_prompt_site_confirmation(config, site, prompt)) {
       request.confirmed = true;
@@ -902,19 +943,21 @@ app_error app_cmd_public(const app_config_t *config, int argc,
       err = quick_op_public(&request, &result);
     } else {
       quick_print_error(config,
-                        "Public-on requires typing the site name to confirm; pass --yes for non-interactive use.");
+                        "Public-on requires typing the site name to confirm; "
+                        "pass --yes for non-interactive use.");
       err = APP_ERROR_VALIDATION;
     }
   }
   if (err == APP_SUCCESS) {
     if (site_admin_wants_json(config, argc, argv)) {
-      const char *json = result.changed ? result.remote_json : result.site.raw_json;
+      const char *json =
+          result.changed ? result.remote_json : result.site.raw_json;
       site_admin_print_raw_json_or_fallback(json, site, "public",
                                             result.is_public);
     } else {
-      site_admin_print_site_human(config,
-                                  action == QUICK_PUBLIC_STATUS ? "public" : "updated public",
-                                  &result.site);
+      site_admin_print_site_human(
+          config, action == QUICK_PUBLIC_STATUS ? "public" : "updated public",
+          &result.site);
       app_output_format(config, false, "  public      %s",
                         result.is_public ? "on" : "off");
     }
@@ -961,11 +1004,12 @@ app_error app_cmd_domain(const app_config_t *config, int argc,
   }
   quick_domain_result_t result;
   quick_domain_result_init(&result);
-  quick_domain_request_t request = {.profiles = &profiles,
-                                    .profile = quick_cmd_value(argc, argv, "--profile"),
-                                    .site = quick_cmd_value(argc, argv, "--site"),
-                                    .domain = domain,
-                                    .action = action};
+  quick_domain_request_t request = {
+      .profiles = &profiles,
+      .profile = quick_cmd_value(argc, argv, "--profile"),
+      .site = quick_cmd_value(argc, argv, "--site"),
+      .domain = domain,
+      .action = action};
   err = quick_op_domain(&request, &result);
   if (err == APP_SUCCESS) {
     if (site_admin_wants_json(config, argc, argv)) {
