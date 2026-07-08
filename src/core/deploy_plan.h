@@ -75,8 +75,7 @@ void quick_deployment_record_init(quick_deployment_record_t *record);
 void quick_deployment_record_destroy(quick_deployment_record_t *record);
 app_error quick_local_state_write_deployment(const char *site_root,
                                              const char *profile,
-                                             const char *site,
-                                             const char *url,
+                                             const char *site, const char *url,
                                              const char *release);
 app_error quick_local_state_read_deployment(const char *site_root,
                                             const char *profile,

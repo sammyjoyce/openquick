@@ -27,9 +27,8 @@ typedef void (*quick_stream_cb)(quick_stream_kind_t kind, const char *line,
 void quick_process_result_destroy(quick_process_result_t *result);
 
 app_error quick_process_stream(char *const argv[], const char *cwd,
-                               const char *stdin_text,
-                               quick_stream_cb on_line, void *userdata,
-                               quick_process_result_t *result);
+                               const char *stdin_text, quick_stream_cb on_line,
+                               void *userdata, quick_process_result_t *result);
 
 app_error quick_process_stream_cancelable(
     char *const argv[], const char *cwd, const char *stdin_text,

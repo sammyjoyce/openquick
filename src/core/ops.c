@@ -196,12 +196,23 @@ static char *quick_ops_json_get_string_field(const char *json,
     if (ch == '\\' && *p != '\0') {
       ch = *p++;
       switch (ch) {
-      case 'n': ch = '\n'; break;
-      case 'r': ch = '\r'; break;
-      case 't': ch = '\t'; break;
-      case '"': ch = '"'; break;
-      case '\\': ch = '\\'; break;
-      default: break;
+      case 'n':
+        ch = '\n';
+        break;
+      case 'r':
+        ch = '\r';
+        break;
+      case 't':
+        ch = '\t';
+        break;
+      case '"':
+        ch = '"';
+        break;
+      case '\\':
+        ch = '\\';
+        break;
+      default:
+        break;
       }
     }
     if (used + 1U >= cap) {
@@ -311,16 +322,20 @@ static const char *quick_init_blank_html(const char *name) {
          "<html lang=\"en\">\n"
          "<head>\n"
          "  <meta charset=\"utf-8\">\n"
-         "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+         "  <meta name=\"viewport\" content=\"width=device-width, "
+         "initial-scale=1\">\n"
          "  <title>OpenQuick site</title>\n"
-         "  <style>body{font-family:system-ui,sans-serif;max-width:48rem;margin:4rem auto;padding:0 1rem}</style>\n"
+         "  "
+         "<style>body{font-family:system-ui,sans-serif;max-width:48rem;margin:"
+         "4rem auto;padding:0 1rem}</style>\n"
          "</head>\n"
          "<body>\n"
          "  <h1>OpenQuick site</h1>\n"
          "  <p>Edit this folder, then run <code>quick deploy</code>.</p>\n"
          "  <script type=\"module\">\n"
          "    import { quick } from '/_quick/sdk.js';\n"
-         "    quick.identity?.current?.().then((me) => console.log('OpenQuick identity', me)).catch(() => {});\n"
+         "    quick.identity?.current?.().then((me) => console.log('OpenQuick "
+         "identity', me)).catch(() => {});\n"
          "  </script>\n"
          "</body>\n"
          "</html>\n";
@@ -329,14 +344,18 @@ static const char *quick_init_blank_html(const char *name) {
 static const char *quick_init_realtime_html(void) {
   return "<!doctype html>\n"
          "<html lang=\"en\">\n"
-         "<head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>OpenQuick realtime</title></head>\n"
+         "<head><meta charset=\"utf-8\"><meta name=\"viewport\" "
+         "content=\"width=device-width, initial-scale=1\"><title>OpenQuick "
+         "realtime</title></head>\n"
          "<body>\n"
          "  <h1>Realtime OpenQuick site</h1>\n"
-         "  <p>This static page is ready to call <code>/_quick/sdk.js</code> when the host enables realtime APIs.</p>\n"
+         "  <p>This static page is ready to call <code>/_quick/sdk.js</code> "
+         "when the host enables realtime APIs.</p>\n"
          "  <script type=\"module\">\n"
          "    import { quick } from '/_quick/sdk.js';\n"
          "    const me = await quick.identity.current();\n"
-         "    document.body.insertAdjacentHTML('beforeend', `<p>Signed in as ${me.email || me.login || me.subject}</p>`);\n"
+         "    document.body.insertAdjacentHTML('beforeend', `<p>Signed in as "
+         "${me.email || me.login || me.subject}</p>`);\n"
          "  </script>\n"
          "</body>\n"
          "</html>\n";
@@ -345,19 +364,27 @@ static const char *quick_init_realtime_html(void) {
 static const char *quick_init_agents_md(void) {
   return "# OpenQuick site agent guide\n\n"
          "## Contract\n\n"
-         "- Read `quick.json` first. Write deployable static files to its `output` directory.\n"
-         "- Keep `source`, `output`, `build`, `name`, `profile`, and `subdomain` consistent with the files you create.\n"
-         "- Never create or require a custom server, daemon, cron job, function, or backend.\n"
-         "- Never put secrets, API keys, provider tokens, or database URLs in client code, `quick.json`, or deployable files.\n"
+         "- Read `quick.json` first. Write deployable static files to its "
+         "`output` directory.\n"
+         "- Keep `source`, `output`, `build`, `name`, `profile`, and "
+         "`subdomain` consistent with the files you create.\n"
+         "- Never create or require a custom server, daemon, cron job, "
+         "function, or backend.\n"
+         "- Never put secrets, API keys, provider tokens, or database URLs in "
+         "client code, `quick.json`, or deployable files.\n"
          "- Treat `.quick/` as local state. Do not edit it as source.\n\n"
          "## SDK\n\n"
          "Import the same-origin SDK:\n\n"
          "```js\n"
          "import { quick } from '/_quick/sdk.js';\n"
          "```\n\n"
-         "Use `quick.identity`, `quick.db`, `quick.realtime`, and `quick.uploads` directly. Gate optional AI and warehouse controls:\n\n"
+         "Use `quick.identity`, `quick.db`, `quick.realtime`, and "
+         "`quick.uploads` directly. Gate optional AI and warehouse "
+         "controls:\n\n"
          "```js\n"
-         "const caps = await quick.capabilities(); if (caps.ai) { /* quick.ai.chat(...) */ } if (caps.warehouse) { /* quick.warehouse.query(...) */ }\n"
+         "const caps = await quick.capabilities(); if (caps.ai) { /* "
+         "quick.ai.chat(...) */ } if (caps.warehouse) { /* "
+         "quick.warehouse.query(...) */ }\n"
          "```\n\n"
          "## Deploy loop\n\n"
          "Edit files, then run:\n\n"
@@ -367,13 +394,18 @@ static const char *quick_init_agents_md(void) {
          "quick deploy\n"
          "quick open --plain\n"
          "```\n\n"
-         "If this is your first OpenQuick site and no deployment profile exists yet, install or connect a host first:\n\n"
+         "If this is your first OpenQuick site and no deployment profile "
+         "exists yet, install or connect a host first:\n\n"
          "```bash\n"
-         "quick serve install --profile <profile> --host <user@host> --remote-root /srv/quick --domain quick.example.com --iap tailscale\n"
+         "quick serve install --profile <profile> --host <user@host> "
+         "--remote-root /srv/quick --domain quick.example.com --iap tailscale\n"
          "```\n\n"
          "## Names and URLs\n\n"
-         "- Site names and subdomains are DNS labels: lowercase `a-z0-9-`, no leading or trailing hyphen, max 63 chars.\n"
-         "- The URL is deterministic from the profile: usually `https://<subdomain>.<base_domain>` or a profile `base_url` fallback.\n\n"
+         "- Site names and subdomains are DNS labels: lowercase `a-z0-9-`, no "
+         "leading or trailing hyphen, max 63 chars.\n"
+         "- The URL is deterministic from the profile: usually "
+         "`https://<subdomain>.<base_domain>` or a profile `base_url` "
+         "fallback.\n\n"
          "## Troubleshooting\n\n"
          "```bash\n"
          "quick doctor --json\n"
@@ -382,30 +414,39 @@ static const char *quick_init_agents_md(void) {
 
 static const char *quick_init_api_md(void) {
   return "# OpenQuick API reference\n\n"
-         "OpenQuick serves host APIs from the same origin as the static site. Import the SDK from `/_quick/sdk.js`.\n\n"
+         "OpenQuick serves host APIs from the same origin as the static site. "
+         "Import the SDK from `/_quick/sdk.js`.\n\n"
          "```js\n"
          "import { quick } from '/_quick/sdk.js';\n"
          "```\n\n"
          "## Base SDK surface\n\n"
          "Use these APIs as the base OpenQuick surface:\n\n"
-         "- `quick.identity.current()` and `quick.identity.onChange(cb)` call `GET /_quick/identity`.\n"
-         "- `quick.db.collection(name)` calls `/_quick/db/:collection` for create, get, update, list, remove, and subscriptions.\n"
-         "- `quick.realtime.channel(name)` uses the shared WebSocket at `/_quick/realtime`.\n"
-         "- `quick.uploads.put(file)`, `get(id)`, and `remove(id)` call `/_quick/uploads`.\n"
+         "- `quick.identity.current()` and `quick.identity.onChange(cb)` call "
+         "`GET /_quick/identity`.\n"
+         "- `quick.db.collection(name)` calls `/_quick/db/:collection` for "
+         "create, get, update, list, remove, and subscriptions.\n"
+         "- `quick.realtime.channel(name)` uses the shared WebSocket at "
+         "`/_quick/realtime`.\n"
+         "- `quick.uploads.put(file)`, `get(id)`, and `remove(id)` call "
+         "`/_quick/uploads`.\n"
          "- `quick.capabilities()` calls `GET /_quick/capabilities`.\n\n"
          "## Optional host-gated APIs\n\n"
-         "AI and warehouse are disabled unless the host advertises them. Gate UI before calling them:\n\n"
+         "AI and warehouse are disabled unless the host advertises them. Gate "
+         "UI before calling them:\n\n"
          "```js\n"
-         "const caps = await quick.capabilities(); if (caps.ai) { /* quick.ai.chat(...) */ } if (caps.warehouse) { /* quick.warehouse.query(...) */ }\n"
+         "const caps = await quick.capabilities(); if (caps.ai) { /* "
+         "quick.ai.chat(...) */ } if (caps.warehouse) { /* "
+         "quick.warehouse.query(...) */ }\n"
          "```\n\n"
          "- `quick.ai.chat(messages, options)` calls `POST /_quick/ai/chat`.\n"
          "- `quick.ai.image(prompt, options)` calls `POST /_quick/ai/images`.\n"
-         "- `quick.warehouse.query(name, params)` calls `POST /_quick/warehouse/:name`.\n\n"
-         "Provider keys, database credentials, and warehouse SQL stay server-side. Do not put secrets in client code.\n";
+         "- `quick.warehouse.query(name, params)` calls `POST "
+         "/_quick/warehouse/:name`.\n\n"
+         "Provider keys, database credentials, and warehouse SQL stay "
+         "server-side. Do not put secrets in client code.\n";
 }
 
-static app_error quick_init_write_quick_json(const char *path,
-                                             const char *name,
+static app_error quick_init_write_quick_json(const char *path, const char *name,
                                              const char *profile) {
   quick_site_config_t site;
   quick_site_config_init(&site);
@@ -413,7 +454,8 @@ static app_error quick_init_write_quick_json(const char *path,
   site.source = quick_ops_strdup(".");
   site.output = quick_ops_strdup(".");
   site.build = NULL;
-  site.profile = profile && profile[0] != '\0' ? quick_ops_strdup(profile) : NULL;
+  site.profile =
+      profile && profile[0] != '\0' ? quick_ops_strdup(profile) : NULL;
   site.subdomain = quick_ops_strdup(name);
   site.sdk.enabled = true;
   site.sdk.has_enabled = true;
@@ -439,7 +481,8 @@ app_error quick_op_init(const quick_init_request_t *request,
                         ? request->target_dir
                         : ".";
   char slug[QUICK_SLUG_MAX + 1];
-  app_error err = quick_slug_normalize(request->name ? request->name : dir, slug);
+  app_error err =
+      quick_slug_normalize(request->name ? request->name : dir, slug);
   if (err != APP_SUCCESS) {
     return err;
   }
@@ -453,7 +496,8 @@ app_error quick_op_init(const quick_init_request_t *request,
   char *index_path = quick_ops_path_join(dir, "index.html");
   char *quick_json = quick_ops_path_join(dir, "quick.json");
   char *agents = quick_ops_path_join(dir, "AGENTS.md");
-  char *api = docs_dir ? quick_ops_path_join(docs_dir, "openquick-api.md") : NULL;
+  char *api =
+      docs_dir ? quick_ops_path_join(docs_dir, "openquick-api.md") : NULL;
   char *ignore = quick_ops_path_join(dir, ".quickignore");
   if (!docs_dir || !index_path || !quick_json || !agents || !api || !ignore) {
     free(docs_dir);
@@ -481,7 +525,8 @@ app_error quick_op_init(const quick_init_request_t *request,
   }
 
   err = quick_ops_mkdir_p(docs_dir, 0755);
-  if (err == APP_SUCCESS && !(request->adopt_existing && quick_ops_path_exists(index_path))) {
+  if (err == APP_SUCCESS &&
+      !(request->adopt_existing && quick_ops_path_exists(index_path))) {
     err = quick_ops_write_text_file(
         index_path,
         request->template_kind == QUICK_INIT_TEMPLATE_REALTIME
@@ -493,29 +538,34 @@ app_error quick_op_init(const quick_init_request_t *request,
                                     index_path);
     }
   }
-  if (err == APP_SUCCESS && !(request->adopt_existing && quick_ops_path_exists(quick_json))) {
+  if (err == APP_SUCCESS &&
+      !(request->adopt_existing && quick_ops_path_exists(quick_json))) {
     err = quick_init_write_quick_json(quick_json, slug, request->profile);
     if (err == APP_SUCCESS) {
       (void)quick_ops_append_string(&out->files_created, &out->file_count,
                                     quick_json);
     }
   }
-  if (err == APP_SUCCESS && !(request->adopt_existing && quick_ops_path_exists(agents))) {
+  if (err == APP_SUCCESS &&
+      !(request->adopt_existing && quick_ops_path_exists(agents))) {
     err = quick_ops_write_text_file(agents, quick_init_agents_md(), true);
     if (err == APP_SUCCESS) {
       (void)quick_ops_append_string(&out->files_created, &out->file_count,
                                     agents);
     }
   }
-  if (err == APP_SUCCESS && !(request->adopt_existing && quick_ops_path_exists(api))) {
+  if (err == APP_SUCCESS &&
+      !(request->adopt_existing && quick_ops_path_exists(api))) {
     err = quick_ops_write_text_file(api, quick_init_api_md(), true);
     if (err == APP_SUCCESS) {
       (void)quick_ops_append_string(&out->files_created, &out->file_count, api);
     }
   }
-  if (err == APP_SUCCESS && !(request->adopt_existing && quick_ops_path_exists(ignore))) {
+  if (err == APP_SUCCESS &&
+      !(request->adopt_existing && quick_ops_path_exists(ignore))) {
     err = quick_ops_write_text_file(
-        ignore, ".git/\n.quick/\nnode_modules/\n.DS_Store\n.env\n.env.*\n", true);
+        ignore, ".git/\n.quick/\nnode_modules/\n.DS_Store\n.env\n.env.*\n",
+        true);
     if (err == APP_SUCCESS) {
       (void)quick_ops_append_string(&out->files_created, &out->file_count,
                                     ignore);
@@ -612,9 +662,10 @@ static void quick_deploy_cleanup_staging(const quick_deploy_plan_t *plan,
   }
   out->cleanup_attempted = true;
   (void)quick_ops_set_string(&out->cleanup_path, staging);
-  char *const argv[] = {"ssh", (char *)plan->ssh, "quickd", "deploy",
-                        "cleanup", "--site", (char *)plan->site,
-                        "--deploy-id", (char *)deploy_id, "--json", NULL};
+  char *const argv[] = {
+      "ssh",    (char *)plan->ssh,  "quickd",      "deploy",          "cleanup",
+      "--site", (char *)plan->site, "--deploy-id", (char *)deploy_id, "--json",
+      NULL};
   quick_process_result_t res = {0};
   app_error err = quick_process_capture(argv, NULL, &res);
   if (err == APP_SUCCESS && res.exit_code == 0) {
@@ -622,17 +673,18 @@ static void quick_deploy_cleanup_staging(const quick_deploy_plan_t *plan,
     (void)quick_ops_set_string(&out->cleanup_message, "remote staging cleaned");
   } else {
     out->cleanup_ok = false;
-    const char *detail = res.err && res.err[0] != '\0'
-                             ? res.err
-                             : (res.out && res.out[0] != '\0'
-                                    ? res.out
-                                    : "remote cleanup command failed");
+    const char *detail =
+        res.err && res.err[0] != '\0'
+            ? res.err
+            : (res.out && res.out[0] != '\0' ? res.out
+                                             : "remote cleanup command failed");
     size_t len = strlen(detail) + strlen(staging) + strlen(plan->ssh) +
                  strlen(plan->site) + strlen(deploy_id) + 160U;
     char *message = malloc(len);
     if (message) {
       snprintf(message, len,
-               "%s; staging remains at %s; cleanup command: ssh %s quickd deploy cleanup --site %s --deploy-id %s",
+               "%s; staging remains at %s; cleanup command: ssh %s quickd "
+               "deploy cleanup --site %s --deploy-id %s",
                detail, staging, plan->ssh, plan->site, deploy_id);
       (void)quick_ops_set_string(&out->cleanup_message, message);
       free(message);
@@ -655,8 +707,7 @@ static app_error quick_deploy_check_cancelled(
   return err == APP_SUCCESS ? APP_ERROR_INTERRUPTED : err;
 }
 
-static void quick_deploy_emit_phase(quick_deploy_progress_cb cb,
-                                    void *userdata,
+static void quick_deploy_emit_phase(quick_deploy_progress_cb cb, void *userdata,
                                     quick_deploy_phase_t phase,
                                     const char *message) {
   if (cb) {
@@ -686,15 +737,17 @@ static app_error quick_deploy_install_command(
   const char *root = plan->remote_root ? plan->remote_root : "/srv/quick";
   int needed = 0;
   if (plan->base_domain && plan->base_domain[0] != '\0') {
-    needed = snprintf(NULL, 0,
-                      "quick serve install --profile %s --host %s --remote-root %s "
-                      "--domain %s --iap %s",
-                      plan->profile, ssh, root, plan->base_domain, iap);
+    needed =
+        snprintf(NULL, 0,
+                 "quick serve install --profile %s --host %s --remote-root %s "
+                 "--domain %s --iap %s",
+                 plan->profile, ssh, root, plan->base_domain, iap);
   } else {
-    needed = snprintf(NULL, 0,
-                      "quick serve install --profile %s --host %s --remote-root %s "
-                      "--iap %s",
-                      plan->profile, ssh, root, iap);
+    needed =
+        snprintf(NULL, 0,
+                 "quick serve install --profile %s --host %s --remote-root %s "
+                 "--iap %s",
+                 plan->profile, ssh, root, iap);
   }
   if (needed < 0) {
     return APP_ERROR_INTERNAL;
@@ -768,8 +821,8 @@ static app_error quick_deploy_first_bootstrap_check(
   if (quick_deploy_has_successful_record(plan)) {
     return APP_SUCCESS;
   }
-  char *const doctor_argv[] = {"ssh", (char *)plan->ssh, "quickd", "doctor",
-                               "--json", NULL};
+  char *const doctor_argv[] = {"ssh",    (char *)plan->ssh, "quickd",
+                               "doctor", "--json",          NULL};
   quick_process_result_t doctor = {0};
   app_error err = quick_process_stream_cancelable(
       doctor_argv, NULL, NULL, NULL, NULL,
@@ -777,8 +830,7 @@ static app_error quick_deploy_first_bootstrap_check(
   if (err != APP_SUCCESS) {
     quick_process_result_destroy(&doctor);
     if (err == APP_ERROR_INTERRUPTED) {
-      (void)quick_deploy_set_failure(out,
-                                     QUICK_DEPLOY_PHASE_BOOTSTRAP_CHECK,
+      (void)quick_deploy_set_failure(out, QUICK_DEPLOY_PHASE_BOOTSTRAP_CHECK,
                                      "operation cancelled");
     } else {
       (void)quick_deploy_set_failure(
@@ -818,8 +870,7 @@ static app_error quick_deploy_first_bootstrap_check(
           return APP_ERROR_MEMORY;
         }
         snprintf(msg, (size_t)needed + 1U,
-                 "quickd is missing on %s; running %s", plan->ssh,
-                 remediation);
+                 "quickd is missing on %s; running %s", plan->ssh, remediation);
         err = quick_deploy_set_failure(out, QUICK_DEPLOY_PHASE_BOOTSTRAP_CHECK,
                                        msg);
         free(msg);
@@ -831,9 +882,10 @@ static app_error quick_deploy_first_bootstrap_check(
       quick_process_result_destroy(&doctor);
       return err == APP_SUCCESS ? APP_ERROR_IO : err;
     }
-    err = quick_deploy_set_failure(
-        out, QUICK_DEPLOY_PHASE_BOOTSTRAP_CHECK,
-        doctor.err && doctor.err[0] ? doctor.err : "remote quickd doctor failed");
+    err = quick_deploy_set_failure(out, QUICK_DEPLOY_PHASE_BOOTSTRAP_CHECK,
+                                   doctor.err && doctor.err[0]
+                                       ? doctor.err
+                                       : "remote quickd doctor failed");
     quick_process_result_destroy(&doctor);
     return err == APP_SUCCESS ? APP_ERROR_IO : err;
   }
@@ -844,21 +896,23 @@ static app_error quick_deploy_first_bootstrap_check(
       quick_process_result_destroy(&doctor);
       return err;
     }
-    int needed = snprintf(NULL, 0,
-                          "/srv/quick is missing or not writable; fix permissions "
-                          "or run `%s`",
-                          remediation);
+    int needed =
+        snprintf(NULL, 0,
+                 "/srv/quick is missing or not writable; fix permissions "
+                 "or run `%s`",
+                 remediation);
     char *msg = needed >= 0 ? malloc((size_t)needed + 1U) : NULL;
     if (!msg) {
       free(remediation);
       quick_process_result_destroy(&doctor);
       return APP_ERROR_MEMORY;
     }
-    snprintf(msg, (size_t)needed + 1U,
-             "/srv/quick is missing or not writable; fix permissions or run `%s`",
-             remediation);
-    err = quick_deploy_set_failure(out, QUICK_DEPLOY_PHASE_BOOTSTRAP_CHECK,
-                                   msg);
+    snprintf(
+        msg, (size_t)needed + 1U,
+        "/srv/quick is missing or not writable; fix permissions or run `%s`",
+        remediation);
+    err =
+        quick_deploy_set_failure(out, QUICK_DEPLOY_PHASE_BOOTSTRAP_CHECK, msg);
     free(msg);
     free(remediation);
     quick_process_result_destroy(&doctor);
@@ -870,7 +924,8 @@ static app_error quick_deploy_first_bootstrap_check(
     quick_process_result_destroy(&doctor);
     err = quick_deploy_set_failure(
         out, QUICK_DEPLOY_PHASE_BOOTSTRAP_CHECK,
-        "IAP/domain is not configured; pass --allow-unpublished to deploy before publication is complete.");
+        "IAP/domain is not configured; pass --allow-unpublished to deploy "
+        "before publication is complete.");
     return err == APP_SUCCESS ? APP_ERROR_VALIDATION : err;
   }
   quick_process_result_destroy(&doctor);
@@ -917,7 +972,8 @@ static app_error quick_ops_token_append(char **token, size_t *used,
   return APP_SUCCESS;
 }
 
-static app_error quick_ops_split_command(const char *command, char ***argv_out) {
+static app_error quick_ops_split_command(const char *command,
+                                         char ***argv_out) {
   if (!command || !argv_out) {
     return APP_ERROR_INVALID_ARG;
   }
@@ -937,9 +993,9 @@ static app_error quick_ops_split_command(const char *command, char ***argv_out) 
     size_t capacity = 0;
     bool single_quote = false;
     bool double_quote = false;
-    while (*p != '\0' && (single_quote || double_quote ||
-                          (*p != ' ' && *p != '\t' && *p != '\n' &&
-                           *p != '\r'))) {
+    while (*p != '\0' &&
+           (single_quote || double_quote ||
+            (*p != ' ' && *p != '\t' && *p != '\n' && *p != '\r'))) {
       char ch = *p++;
       if (ch == '\'' && !double_quote) {
         single_quote = !single_quote;
@@ -993,8 +1049,8 @@ static app_error quick_deploy_run_build_if_needed(
     return APP_SUCCESS;
   }
   if (cb) {
-    int needed = snprintf(NULL, 0, "Running build: %s\n",
-                          plan->site_config.build);
+    int needed =
+        snprintf(NULL, 0, "Running build: %s\n", plan->site_config.build);
     char *msg = needed >= 0 ? malloc((size_t)needed + 1U) : NULL;
     if (!msg) {
       return APP_ERROR_MEMORY;
@@ -1045,8 +1101,7 @@ static bool quick_ops_has_suffix(const char *value, const char *suffix) {
   return vlen >= slen && strcmp(value + vlen - slen, suffix) == 0;
 }
 
-static bool quick_deploy_same_deployer(const char *last,
-                                       const char *current,
+static bool quick_deploy_same_deployer(const char *last, const char *current,
                                        const quick_deploy_plan_t *plan) {
   if (!last || last[0] == '\0') {
     return true;
@@ -1162,8 +1217,8 @@ app_error quick_op_deploy_execute(const app_config_t *config,
                           quick_ops_has_suffix(options->zip_path, ".zip");
   out->zip_deploy = zip_deploy;
 
-  app_error err = quick_deploy_check_cancelled(
-      options, out, QUICK_DEPLOY_PHASE_NONE);
+  app_error err =
+      quick_deploy_check_cancelled(options, out, QUICK_DEPLOY_PHASE_NONE);
   if (err != APP_SUCCESS) {
     return err;
   }
@@ -1212,8 +1267,8 @@ app_error quick_op_deploy_execute(const app_config_t *config,
     default_deployer = quick_op_default_deployer_identity();
     deployer = default_deployer;
   }
-  const char *ssh_key_id = quick_deploy_env_or_option(options->ssh_key_id,
-                                                      "QUICK_SSH_KEY_ID");
+  const char *ssh_key_id =
+      quick_deploy_env_or_option(options->ssh_key_id, "QUICK_SSH_KEY_ID");
   const char *ssh_principals = quick_deploy_env_or_option(
       options->ssh_principals, "QUICK_SSH_PRINCIPALS");
 
@@ -1264,12 +1319,12 @@ app_error quick_op_deploy_execute(const app_config_t *config,
   char *deploy_id = quick_ops_json_get_string_field(prepare.out, "deploy_id");
   char *staging = quick_ops_json_get_string_field(prepare.out, "staging_path");
   char *link_dest = quick_ops_json_get_string_field(prepare.out, "link_dest");
-  char *last_deployer = quick_ops_json_get_string_field(prepare.out,
-                                                        "last_deployer");
-  char *last_release = quick_ops_json_get_string_field(prepare.out,
-                                                       "last_release");
-  char *last_deployed_at = quick_ops_json_get_string_field(
-      prepare.out, "last_deployed_at");
+  char *last_deployer =
+      quick_ops_json_get_string_field(prepare.out, "last_deployer");
+  char *last_release =
+      quick_ops_json_get_string_field(prepare.out, "last_release");
+  char *last_deployed_at =
+      quick_ops_json_get_string_field(prepare.out, "last_deployed_at");
   if (last_deployer) {
     (void)quick_ops_set_string(&out->last_deployer, last_deployer);
   }
@@ -1300,11 +1355,13 @@ app_error quick_op_deploy_execute(const app_config_t *config,
     char msg[512];
     if (last_release && last_release[0]) {
       snprintf(msg, sizeof(msg),
-               "Site '%s' was last deployed by %s (release %s); type the site name to confirm overwrite or pass --yes.",
+               "Site '%s' was last deployed by %s (release %s); type the site "
+               "name to confirm overwrite or pass --yes.",
                plan->site, last_deployer, last_release);
     } else {
       snprintf(msg, sizeof(msg),
-               "Site '%s' was last deployed by %s; type the site name to confirm overwrite or pass --yes.",
+               "Site '%s' was last deployed by %s; type the site name to "
+               "confirm overwrite or pass --yes.",
                plan->site, last_deployer);
     }
     err = quick_deploy_set_failure(out, QUICK_DEPLOY_PHASE_PREPARE, msg);
@@ -1331,14 +1388,15 @@ app_error quick_op_deploy_execute(const app_config_t *config,
     free(default_deployer);
     return err;
   }
-  quick_deploy_emit_phase(cb, userdata, QUICK_DEPLOY_PHASE_TRANSFER,
-                          zip_deploy ? "uploading zip\n" : "transferring files\n");
+  quick_deploy_emit_phase(
+      cb, userdata, QUICK_DEPLOY_PHASE_TRANSFER,
+      zip_deploy ? "uploading zip\n" : "transferring files\n");
 
   if (zip_deploy) {
     char *remote_zip = quick_deploy_remote_upload_path(staging);
-    char *scp_dest = remote_zip
-                         ? malloc(strlen(plan->ssh) + 1U + strlen(remote_zip) + 1U)
-                         : NULL;
+    char *scp_dest =
+        remote_zip ? malloc(strlen(plan->ssh) + 1U + strlen(remote_zip) + 1U)
+                   : NULL;
     if (!remote_zip || !scp_dest) {
       free(remote_zip);
       free(scp_dest);
@@ -1349,8 +1407,7 @@ app_error quick_op_deploy_execute(const app_config_t *config,
       return APP_ERROR_MEMORY;
     }
     sprintf(scp_dest, "%s:%s", plan->ssh, remote_zip);
-    char *const scp_argv[] = {"scp", (char *)options->zip_path, scp_dest,
-                              NULL};
+    char *const scp_argv[] = {"scp", (char *)options->zip_path, scp_dest, NULL};
     quick_process_result_t scp = {0};
     quick_deploy_stream_bridge_ctx_t transfer_bridge = {
         .phase = QUICK_DEPLOY_PHASE_TRANSFER,
@@ -1379,11 +1436,10 @@ app_error quick_op_deploy_execute(const app_config_t *config,
     }
     quick_process_result_destroy(&scp);
 
-    char *const extract_argv[] = {"ssh", (char *)plan->ssh, "quickd",
-                                  "deploy", "extract-zip", "--site",
-                                  (char *)plan->site, "--deploy-id",
-                                  deploy_id, "--zip", remote_zip, "--json",
-                                  NULL};
+    char *const extract_argv[] = {
+        "ssh",      (char *)plan->ssh,  "quickd",      "deploy",  "extract-zip",
+        "--site",   (char *)plan->site, "--deploy-id", deploy_id, "--zip",
+        remote_zip, "--json",           NULL};
     quick_process_result_t extract = {0};
     err = quick_process_stream_cancelable(extract_argv, NULL, NULL, NULL, NULL,
                                           options->cancel_flag, &extract);
@@ -1521,9 +1577,9 @@ app_error quick_op_deploy_execute(const app_config_t *config,
     quick_op_deploy_parse_rsync_counts(rsync.out, &out->changed, &out->reused,
                                        &out->deleted);
     if (err != APP_SUCCESS || rsync.exit_code != 0) {
-      const bool transfer_cancelled =
-          err == APP_ERROR_INTERRUPTED || rsync.exit_code == 130 ||
-          rsync.exit_code == 143;
+      const bool transfer_cancelled = err == APP_ERROR_INTERRUPTED ||
+                                      rsync.exit_code == 130 ||
+                                      rsync.exit_code == 143;
       app_error set_err = quick_deploy_set_failure(
           out, QUICK_DEPLOY_PHASE_TRANSFER,
           transfer_cancelled
@@ -1693,15 +1749,11 @@ void quick_list_result_destroy(quick_list_result_t *result) {
   *result = (quick_list_result_t){0};
 }
 
-static app_error quick_list_append_item(quick_list_result_t *result,
-                                        const char *name, const char *url,
-                                        const char *release,
-                                        const char *updated_at,
-                                        const char *deployer,
-                                        const char *subdomain,
-                                        bool have_public, bool is_public,
-                                        bool stale,
-                                        quick_list_source_t source) {
+static app_error quick_list_append_item(
+    quick_list_result_t *result, const char *name, const char *url,
+    const char *release, const char *updated_at, const char *deployer,
+    const char *subdomain, bool have_public, bool is_public, bool stale,
+    quick_list_source_t source) {
   quick_list_item_t *grown =
       realloc(result->items, (result->count + 1U) * sizeof(quick_list_item_t));
   if (!grown) {
@@ -1755,8 +1807,8 @@ static void quick_list_parse_remote_items(const char *json,
     char *deployer = quick_ops_json_get_string_field(snippet, "deployer");
     char *subdomain = quick_ops_json_get_string_field(snippet, "subdomain");
     bool is_public = false;
-    bool have_public = quick_ops_json_get_bool_field(snippet, "public",
-                                                     &is_public);
+    bool have_public =
+        quick_ops_json_get_bool_field(snippet, "public", &is_public);
     if (name && url) {
       (void)quick_list_append_item(result, name, url, release, updated_at,
                                    deployer ? deployer : "remote", subdomain,
@@ -1784,8 +1836,8 @@ app_error quick_op_list(const quick_list_request_t *request,
 
   quick_deploy_plan_t plan;
   quick_deploy_plan_init(&plan);
-  app_error err = quick_deploy_plan_resolve(&request->overrides,
-                                            request->profiles, &plan);
+  app_error err =
+      quick_deploy_plan_resolve(&request->overrides, request->profiles, &plan);
   if (err != APP_SUCCESS) {
     quick_deploy_plan_destroy(&plan);
     return err;
@@ -1800,14 +1852,13 @@ app_error quick_op_list(const quick_list_request_t *request,
 
   quick_deployment_record_t local;
   quick_deployment_record_init(&local);
-  out->have_local = quick_local_state_read_deployment(plan.site_root,
-                                                      plan.profile, &local) ==
-                    APP_SUCCESS;
+  out->have_local = quick_local_state_read_deployment(
+                        plan.site_root, plan.profile, &local) == APP_SUCCESS;
   out->remote_requested = request->remote || (plan.ssh && plan.ssh[0] != '\0');
 
   if (out->remote_requested && plan.ssh && plan.ssh[0] != '\0') {
-    char *const ssh_argv[] = {"ssh", plan.ssh, "quickd", "list", "--json",
-                              NULL};
+    char *const ssh_argv[] = {"ssh",  plan.ssh, "quickd",
+                              "list", "--json", NULL};
     quick_process_result_t res = {0};
     app_error remote_err = quick_process_capture(ssh_argv, NULL, &res);
     if (remote_err == APP_SUCCESS && res.exit_code == 0 && res.out &&
@@ -1822,15 +1873,18 @@ app_error quick_op_list(const quick_list_request_t *request,
       out->remote_ok = true;
       quick_list_parse_remote_items(out->remote_json, out);
     } else {
-      const char *detail = res.err && res.err[0] != '\0'
-                               ? res.err
-                               : (res.out && res.out[0] != '\0' ? res.out
-                                                                 : "remote list failed");
+      const char *detail =
+          res.err && res.err[0] != '\0'
+              ? res.err
+              : (res.out && res.out[0] != '\0' ? res.out
+                                               : "remote list failed");
       out->remote_error = quick_ops_strdup(detail);
       out->remote_phase = quick_ops_strdup("ssh");
       out->remote_remediation = quick_ops_strdup(
-          "check the profile SSH host, run `quick doctor --remote`, or retry later");
-      if (!out->remote_error || !out->remote_phase || !out->remote_remediation) {
+          "check the profile SSH host, run `quick doctor --remote`, or retry "
+          "later");
+      if (!out->remote_error || !out->remote_phase ||
+          !out->remote_remediation) {
         quick_process_result_destroy(&res);
         quick_deployment_record_destroy(&local);
         quick_deploy_plan_destroy(&plan);
@@ -1842,7 +1896,8 @@ app_error quick_op_list(const quick_list_request_t *request,
     out->remote_error = quick_ops_strdup("remote host is not configured");
     out->remote_phase = quick_ops_strdup("resolve");
     out->remote_remediation = quick_ops_strdup(
-        "set QUICK_REMOTE or configure profiles.<name>.ssh, then run `quick config show`");
+        "set QUICK_REMOTE or configure profiles.<name>.ssh, then run `quick "
+        "config show`");
     if (!out->remote_error || !out->remote_phase || !out->remote_remediation) {
       quick_deployment_record_destroy(&local);
       quick_deploy_plan_destroy(&plan);
@@ -1851,12 +1906,11 @@ app_error quick_op_list(const quick_list_request_t *request,
   }
 
   if (out->have_local) {
-    err = quick_list_append_item(out, local.site ? local.site : plan.site,
-                                 local.url ? local.url : plan.url,
-                                 local.release, local.deployed_at, "local",
-                                 plan.subdomain, false, false,
-                                 !out->remote_ok && out->remote_requested,
-                                 QUICK_LIST_SOURCE_LOCAL);
+    err = quick_list_append_item(
+        out, local.site ? local.site : plan.site,
+        local.url ? local.url : plan.url, local.release, local.deployed_at,
+        "local", plan.subdomain, false, false,
+        !out->remote_ok && out->remote_requested, QUICK_LIST_SOURCE_LOCAL);
   }
 
   quick_deployment_record_destroy(&local);
@@ -1897,13 +1951,15 @@ static app_error quick_remote_site_info_set(quick_remote_site_info_t *info,
   if (!name) {
     name = quick_ops_json_get_string_field(json, "site");
   }
-  info->name = name ? name : quick_ops_strdup(fallback_site ? fallback_site : "");
+  info->name =
+      name ? name : quick_ops_strdup(fallback_site ? fallback_site : "");
   info->subdomain = quick_ops_json_get_string_field(json, "subdomain");
   info->url = quick_ops_json_get_string_field(json, "url");
   info->release = quick_ops_json_get_string_field(json, "release");
   info->updated_at = quick_ops_json_get_string_field(json, "updated_at");
   if (!info->updated_at) {
-    info->updated_at = quick_ops_json_get_string_field(json, "last_deployed_at");
+    info->updated_at =
+        quick_ops_json_get_string_field(json, "last_deployed_at");
   }
   info->deployer = quick_ops_json_get_string_field(json, "deployer");
   if (!info->deployer) {
@@ -1936,8 +1992,8 @@ static app_error quick_ops_resolve_remote_plan(
 
 static app_error quick_ops_fetch_site(const quick_deploy_plan_t *plan,
                                       quick_remote_site_info_t *info) {
-  char *const argv[] = {"ssh", (char *)plan->ssh, "quickd", "sites", "get",
-                        (char *)plan->site, "--json", NULL};
+  char *const argv[] = {"ssh", (char *)plan->ssh,  "quickd", "sites",
+                        "get", (char *)plan->site, "--json", NULL};
   quick_process_result_t res = {0};
   app_error err = quick_process_capture(argv, NULL, &res);
   if (err == APP_SUCCESS && res.exit_code != 0) {
@@ -1978,9 +2034,8 @@ app_error quick_op_delete(const quick_delete_request_t *request,
   quick_delete_result_init(out);
   quick_deploy_plan_t plan;
   quick_deploy_plan_init(&plan);
-  app_error err = quick_ops_resolve_remote_plan(request->profiles,
-                                                request->profile,
-                                                request->site, &plan);
+  app_error err = quick_ops_resolve_remote_plan(
+      request->profiles, request->profile, request->site, &plan);
   if (err != APP_SUCCESS) {
     quick_deploy_plan_destroy(&plan);
     return err;
@@ -2001,8 +2056,8 @@ app_error quick_op_delete(const quick_delete_request_t *request,
     quick_deploy_plan_destroy(&plan);
     return APP_SUCCESS;
   }
-  char *const argv[] = {"ssh", plan.ssh, "quickd", "sites", "delete",
-                        plan.site, "--json", NULL};
+  char *const argv[] = {"ssh",    plan.ssh,  "quickd", "sites",
+                        "delete", plan.site, "--json", NULL};
   quick_process_result_t res = {0};
   err = quick_process_capture(argv, NULL, &res);
   if (err == APP_SUCCESS && res.exit_code != 0) {
@@ -2168,9 +2223,8 @@ app_error quick_op_restore(const quick_restore_request_t *request,
   quick_restore_result_init(out);
   quick_deploy_plan_t plan;
   quick_deploy_plan_init(&plan);
-  app_error err = quick_ops_resolve_remote_plan(request->profiles,
-                                                request->profile,
-                                                request->site, &plan);
+  app_error err = quick_ops_resolve_remote_plan(
+      request->profiles, request->profile, request->site, &plan);
   if (err != APP_SUCCESS) {
     quick_deploy_plan_destroy(&plan);
     return err;
@@ -2193,9 +2247,16 @@ app_error quick_op_restore(const quick_restore_request_t *request,
     quick_deploy_plan_destroy(&plan);
     return APP_SUCCESS;
   }
-  char *const argv[] = {"ssh", plan.ssh, "quickd", "sites", "restore",
-                        "--from", (char *)request->archive, "--json",
-                        plan.site, NULL};
+  char *const argv[] = {"ssh",
+                        plan.ssh,
+                        "quickd",
+                        "sites",
+                        "restore",
+                        "--from",
+                        (char *)request->archive,
+                        "--json",
+                        plan.site,
+                        NULL};
   quick_process_result_t res = {0};
   err = quick_process_capture(argv, NULL, &res);
   if (err == APP_SUCCESS && res.exit_code != 0) {
@@ -2248,9 +2309,8 @@ app_error quick_op_rollback(const quick_rollback_request_t *request,
   quick_rollback_result_init(out);
   quick_deploy_plan_t plan;
   quick_deploy_plan_init(&plan);
-  app_error err = quick_ops_resolve_remote_plan(request->profiles,
-                                                request->profile,
-                                                request->site, &plan);
+  app_error err = quick_ops_resolve_remote_plan(
+      request->profiles, request->profile, request->site, &plan);
   if (err != APP_SUCCESS) {
     quick_deploy_plan_destroy(&plan);
     return err;
@@ -2278,14 +2338,16 @@ app_error quick_op_rollback(const quick_rollback_request_t *request,
   }
   quick_process_result_t res = {0};
   if (request->release && request->release[0] != '\0') {
-    char *const argv[] = {"ssh", plan.ssh, "quickd", "releases", "rollback",
-                          "--site", plan.site, "--to", (char *)request->release,
-                          "--deployer", deployer_name, "--json", NULL};
+    char *const argv[] = {"ssh",        plan.ssh,      "quickd",
+                          "releases",   "rollback",    "--site",
+                          plan.site,    "--to",        (char *)request->release,
+                          "--deployer", deployer_name, "--json",
+                          NULL};
     err = quick_process_capture(argv, NULL, &res);
   } else {
-    char *const argv[] = {"ssh", plan.ssh, "quickd", "releases", "rollback",
-                          "--site", plan.site, "--deployer", deployer_name,
-                          "--json", NULL};
+    char *const argv[] = {"ssh",         plan.ssh, "quickd",  "releases",
+                          "rollback",    "--site", plan.site, "--deployer",
+                          deployer_name, "--json", NULL};
     err = quick_process_capture(argv, NULL, &res);
   }
   free(deployer_name);
@@ -2295,7 +2357,8 @@ app_error quick_op_rollback(const quick_rollback_request_t *request,
   if (err == APP_SUCCESS) {
     out->remote_json = quick_ops_strdup(res.out ? res.out : "");
     out->release = quick_ops_json_get_string_field(res.out, "release");
-    out->previous_release = quick_ops_json_get_string_field(res.out, "previous_release");
+    out->previous_release =
+        quick_ops_json_get_string_field(res.out, "previous_release");
     out->rolled_back = true;
     if (!out->remote_json) {
       err = APP_ERROR_MEMORY;
@@ -2333,9 +2396,8 @@ app_error quick_op_public(const quick_public_request_t *request,
   quick_public_result_init(out);
   quick_deploy_plan_t plan;
   quick_deploy_plan_init(&plan);
-  app_error err = quick_ops_resolve_remote_plan(request->profiles,
-                                                request->profile,
-                                                request->site, &plan);
+  app_error err = quick_ops_resolve_remote_plan(
+      request->profiles, request->profile, request->site, &plan);
   if (err != APP_SUCCESS) {
     quick_deploy_plan_destroy(&plan);
     return err;
@@ -2363,10 +2425,15 @@ app_error quick_op_public(const quick_public_request_t *request,
     quick_deploy_plan_destroy(&plan);
     return APP_SUCCESS;
   }
-  char *const argv[] = {"ssh", plan.ssh, "quickd", "sites", "public",
+  char *const argv[] = {"ssh",
+                        plan.ssh,
+                        "quickd",
+                        "sites",
+                        "public",
                         plan.site,
                         request->action == QUICK_PUBLIC_ON ? "--on" : "--off",
-                        "--json", NULL};
+                        "--json",
+                        NULL};
   quick_process_result_t res = {0};
   err = quick_process_capture(argv, NULL, &res);
   if (err == APP_SUCCESS && res.exit_code != 0) {
@@ -2443,17 +2510,19 @@ app_error quick_op_domain(const quick_domain_request_t *request,
 
   quick_process_result_t res = {0};
   if (request->action == QUICK_DOMAIN_ADD) {
-    char *const argv[] = {"ssh", plan.ssh, "quickd", "domains", "add",
-                          (char *)request->domain, "--site", plan.site,
-                          "--json", NULL};
+    char *const argv[] = {"ssh",     plan.ssh,  "quickd",
+                          "domains", "add",     (char *)request->domain,
+                          "--site",  plan.site, "--json",
+                          NULL};
     err = quick_process_capture(argv, NULL, &res);
   } else if (request->action == QUICK_DOMAIN_REMOVE) {
-    char *const argv[] = {"ssh", plan.ssh, "quickd", "domains", "remove",
-                          (char *)request->domain, "--json", NULL};
+    char *const argv[] = {"ssh",     plan.ssh, "quickd",
+                          "domains", "remove", (char *)request->domain,
+                          "--json",  NULL};
     err = quick_process_capture(argv, NULL, &res);
   } else {
-    char *const argv[] = {"ssh", plan.ssh, "quickd", "domains", "list",
-                          "--json", NULL};
+    char *const argv[] = {"ssh",  plan.ssh, "quickd", "domains",
+                          "list", "--json", NULL};
     err = quick_process_capture(argv, NULL, &res);
   }
   if (err == APP_SUCCESS && res.exit_code != 0) {
@@ -2507,8 +2576,8 @@ app_error quick_op_host_stats(const quick_host_stats_request_t *request,
     quick_deploy_plan_destroy(&plan);
     return APP_ERROR_MEMORY;
   }
-  char *const argv[] = {"ssh", plan.ssh, "quickd", "admin", "stats",
-                        "--json", NULL};
+  char *const argv[] = {"ssh",   plan.ssh, "quickd", "admin",
+                        "stats", "--json", NULL};
   quick_process_result_t res = {0};
   err = quick_process_capture(argv, NULL, &res);
   if (err == APP_SUCCESS && res.exit_code != 0) {
@@ -2521,8 +2590,10 @@ app_error quick_op_host_stats(const quick_host_stats_request_t *request,
     } else {
       out->sites = quick_ops_json_get_long_field(res.out, "sites", -1);
       out->releases = quick_ops_json_get_long_field(res.out, "releases", -1);
-      out->sites_bytes = quick_ops_json_get_long_field(res.out, "sites_bytes", -1);
-      out->uploads_bytes = quick_ops_json_get_long_field(res.out, "uploads_bytes", -1);
+      out->sites_bytes =
+          quick_ops_json_get_long_field(res.out, "sites_bytes", -1);
+      out->uploads_bytes =
+          quick_ops_json_get_long_field(res.out, "uploads_bytes", -1);
       out->db_bytes = quick_ops_json_get_long_field(res.out, "db_bytes", -1);
       out->parsed = true;
     }
@@ -2581,8 +2652,7 @@ void quick_doctor_result_destroy(quick_doctor_result_t *result) {
 
 static app_error quick_doctor_add_check(quick_doctor_result_t *result,
                                         const char *name, const char *group,
-                                        const char *status,
-                                        const char *detail,
+                                        const char *status, const char *detail,
                                         const char *remediation) {
   quick_doctor_check_t *grown = realloc(
       result->checks, (result->count + 1U) * sizeof(quick_doctor_check_t));
@@ -2646,14 +2716,14 @@ static bool quick_doctor_identity_looks_like_login_gate(const char *body) {
   if (!body || body[0] == '\0') {
     return false;
   }
-  return strstr(body, "__exe.dev/login") || strstr(body, "Temporary Redirect") ||
+  return strstr(body, "__exe.dev/login") ||
+         strstr(body, "Temporary Redirect") ||
          strstr(body, "Cloudflare Access") || strstr(body, "Sign in");
 }
 
 static app_error quick_doctor_curl_get(const char *url,
                                        quick_process_result_t *res) {
-  char *const argv[] = {"curl", "-fsS", "--max-time", "5", (char *)url,
-                        NULL};
+  char *const argv[] = {"curl", "-fsS", "--max-time", "5", (char *)url, NULL};
   return quick_process_capture(argv, NULL, res);
 }
 
@@ -2696,22 +2766,28 @@ static app_error quick_doctor_probe_http(quick_doctor_result_t *result,
   quick_process_result_t identity = {0};
   err = quick_doctor_curl_get(identity_url, &identity);
   const bool identity_http_ok = err == APP_SUCCESS && identity.exit_code == 0;
-  const bool identity_ok = identity_http_ok &&
-                           quick_doctor_identity_shape_ok(identity.out);
-  const bool identity_login_gate = identity_http_ok && !identity_ok &&
-                                   quick_doctor_identity_looks_like_login_gate(identity.out);
+  const bool identity_ok =
+      identity_http_ok && quick_doctor_identity_shape_ok(identity.out);
+  const bool identity_login_gate =
+      identity_http_ok && !identity_ok &&
+      quick_doctor_identity_looks_like_login_gate(identity.out);
   char identity_detail[640];
   snprintf(identity_detail, sizeof(identity_detail), "%s%s", identity_url,
-           identity_ok ? "" : identity_login_gate
-                             ? " (unauthenticated curl reached a login/redirect page)"
-                             : " (identity JSON missing authenticated/provider/subject)");
+           identity_ok ? ""
+           : identity_login_gate
+               ? " (unauthenticated curl reached a login/redirect page)"
+               : " (identity JSON missing authenticated/provider/subject)");
   add_err = quick_doctor_add_check(
       result, "http_identity", "edge/iap",
-      identity_ok ? "ok" : identity_login_gate ? "warn" : "fail",
+      identity_ok           ? "ok"
+      : identity_login_gate ? "warn"
+                            : "fail",
       identity_detail,
       identity_login_gate
-          ? "Run doctor from an authenticated edge session/network, or make the site public only if intended."
-          : "Ensure /_quick/identity returns authenticated, provider, and subject.");
+          ? "Run doctor from an authenticated edge session/network, or make "
+            "the site public only if intended."
+          : "Ensure /_quick/identity returns authenticated, provider, and "
+            "subject.");
   quick_process_result_destroy(&identity);
   free(health_url);
   free(identity_url);
@@ -2746,8 +2822,8 @@ static void quick_doctor_random_hex6(char out[7]) {
 static char *quick_doctor_url_for_site(const quick_deploy_plan_t *plan,
                                        const char *site) {
   if (plan->base_domain && plan->base_domain[0] != '\0') {
-    size_t len = strlen("https://") + strlen(site) + 1U +
-                 strlen(plan->base_domain) + 1U;
+    size_t len =
+        strlen("https://") + strlen(site) + 1U + strlen(plan->base_domain) + 1U;
     char *url = malloc(len);
     if (url) {
       snprintf(url, len, "https://%s.%s", site, plan->base_domain);
@@ -2827,7 +2903,8 @@ static void quick_doctor_remove_local_site(const char *remote_root,
   char *release = releases ? quick_ops_path_join(releases, deploy_id) : NULL;
   char *index = release ? quick_ops_path_join(release, "index.html") : NULL;
   char *current = one_site ? quick_ops_path_join(one_site, "current") : NULL;
-  char *site_json = one_site ? quick_ops_path_join(one_site, "site.json") : NULL;
+  char *site_json =
+      one_site ? quick_ops_path_join(one_site, "site.json") : NULL;
   if (index) {
     (void)unlink(index);
   }
@@ -2881,8 +2958,7 @@ static bool quick_doctor_probe_public_and_identity(const char *url) {
 
 static bool quick_doctor_try_local_deep(const quick_deploy_plan_t *plan,
                                         const char *site, char *deep_detail,
-                                        size_t deep_detail_len,
-                                        bool *ok_out) {
+                                        size_t deep_detail_len, bool *ok_out) {
 #ifndef _WIN32
   if (!plan || strcmp(plan->profile, "local") != 0 || !plan->remote_root ||
       !quick_ops_dir_exists(plan->remote_root)) {
@@ -2897,17 +2973,18 @@ static bool quick_doctor_try_local_deep(const quick_deploy_plan_t *plan,
   char *releases = site_dir ? quick_ops_path_join(site_dir, "releases") : NULL;
   char *release = releases ? quick_ops_path_join(releases, deploy_id) : NULL;
   char *index = release ? quick_ops_path_join(release, "index.html") : NULL;
-  char *site_json = site_dir ? quick_ops_path_join(site_dir, "site.json") : NULL;
+  char *site_json =
+      site_dir ? quick_ops_path_join(site_dir, "site.json") : NULL;
   char *current = site_dir ? quick_ops_path_join(site_dir, "current") : NULL;
   bool attempted = false;
   bool probe_ok = false;
   if (index && site_json && current &&
       quick_ops_mkdir_p(release, 0770) == APP_SUCCESS &&
-      quick_doctor_write_file(index,
-                              "<!doctype html><title>OpenQuick doctor</title>ok\n") ==
+      quick_doctor_write_file(
+          index, "<!doctype html><title>OpenQuick doctor</title>ok\n") ==
           APP_SUCCESS &&
-      quick_doctor_write_file(site_json,
-                              "{\"name\":\"_doctor\",\"subdomain\":\"_doctor\"}\n") ==
+      quick_doctor_write_file(
+          site_json, "{\"name\":\"_doctor\",\"subdomain\":\"_doctor\"}\n") ==
           APP_SUCCESS) {
     char target[128];
     snprintf(target, sizeof(target), "releases/%s", deploy_id);
@@ -2964,13 +3041,13 @@ static app_error quick_doctor_run_deep(quick_doctor_result_t *result,
     return quick_doctor_add_check(
         result, "deep_temp_deploy", "edge/iap", "skip",
         "no SSH host resolved for deep check",
-        "Configure profiles.<name>.ssh or run `quick serve install --profile <profile> --host <ssh> ...`.");
+        "Configure profiles.<name>.ssh or run `quick serve install --profile "
+        "<profile> --host <ssh> ...`.");
   }
   if (!curl) {
-    return quick_doctor_add_check(result, "deep_temp_deploy", "edge/iap",
-                                  "warn",
-                                  "curl not found; deep HTTP probe skipped",
-                                  "install curl");
+    return quick_doctor_add_check(
+        result, "deep_temp_deploy", "edge/iap", "warn",
+        "curl not found; deep HTTP probe skipped", "install curl");
   }
   char hex[7];
   quick_doctor_random_hex6(hex);
@@ -2986,8 +3063,9 @@ static app_error quick_doctor_run_deep(quick_doctor_result_t *result,
         "Check local temporary directory permissions.");
   }
 
-  char *const prepare_argv[] = {"ssh", (char *)plan->ssh, "quickd", "deploy",
-                                "prepare", "--site", site, "--json", NULL};
+  char *const prepare_argv[] = {"ssh",    (char *)plan->ssh, "quickd",
+                                "deploy", "prepare",         "--site",
+                                site,     "--json",          NULL};
   quick_process_result_t prepare = {0};
   err = quick_process_capture(prepare_argv, NULL, &prepare);
   char *deploy_id = NULL;
@@ -3014,8 +3092,7 @@ static app_error quick_doctor_run_deep(quick_doctor_result_t *result,
     err = APP_ERROR_MEMORY;
   } else {
     sprintf(dest, "%s:%s/", plan->ssh, staging);
-    char *const rsync_argv[] = {"rsync", "-az", "--delete", source, dest,
-                                NULL};
+    char *const rsync_argv[] = {"rsync", "-az", "--delete", source, dest, NULL};
     quick_process_result_t rsync = {0};
     err = quick_process_capture(rsync_argv, NULL, &rsync);
     if (err == APP_SUCCESS && rsync.exit_code != 0) {
@@ -3036,9 +3113,9 @@ static app_error quick_doctor_run_deep(quick_doctor_result_t *result,
     return add_err;
   }
 
-  char *const activate_argv[] = {"ssh", (char *)plan->ssh, "quickd", "deploy",
-                                 "activate", "--site", site, "--deploy-id",
-                                 deploy_id, "--json", NULL};
+  char *const activate_argv[] = {
+      "ssh", (char *)plan->ssh, "quickd",  "deploy", "activate", "--site",
+      site,  "--deploy-id",     deploy_id, "--json", NULL};
   quick_process_result_t activate = {0};
   err = quick_process_capture(activate_argv, NULL, &activate);
   char *url = NULL;
@@ -3067,8 +3144,9 @@ static app_error quick_doctor_run_deep(quick_doctor_result_t *result,
     ok = public_ok && identity_ok;
   }
 
-  char *const delete_argv[] = {"ssh", (char *)plan->ssh, "quickd", "sites",
-                               "delete", site, "--json", NULL};
+  char *const delete_argv[] = {
+      "ssh", (char *)plan->ssh, "quickd", "sites", "delete",
+      site,  "--json",          NULL};
   quick_process_result_t del = {0};
   (void)quick_process_capture(delete_argv, NULL, &del);
   const bool deleted = del.exit_code == 0;
@@ -3077,10 +3155,11 @@ static app_error quick_doctor_run_deep(quick_doctor_result_t *result,
   snprintf(deep_detail, sizeof(deep_detail), "%s %s%s", site,
            ok ? "deployed and probed" : "probe failed",
            deleted ? "" : "; cleanup failed");
-  app_error add_err = quick_doctor_add_check(
-      result, "deep_temp_deploy", "edge/iap", ok && deleted ? "ok" : "fail",
-      deep_detail,
-      "Verify prepare/rsync/activate, public URL routing, identity, and `quickd sites delete`.");
+  app_error add_err =
+      quick_doctor_add_check(result, "deep_temp_deploy", "edge/iap",
+                             ok && deleted ? "ok" : "fail", deep_detail,
+                             "Verify prepare/rsync/activate, public URL "
+                             "routing, identity, and `quickd sites delete`.");
 
   free(url);
   free(deploy_id);
@@ -3115,10 +3194,10 @@ app_error quick_op_doctor(const quick_doctor_request_t *request,
   }
 
   char *ssh = quick_ops_find_executable("ssh");
-  err = quick_doctor_add_check(out, "ssh_present", "local",
-                               ssh ? "ok" : "fail",
-                               ssh ? ssh : "ssh not found on PATH",
-                               "Install OpenSSH client and ensure it is on PATH.");
+  err = quick_doctor_add_check(
+      out, "ssh_present", "local", ssh ? "ok" : "fail",
+      ssh ? ssh : "ssh not found on PATH",
+      "Install OpenSSH client and ensure it is on PATH.");
   if (err != APP_SUCCESS) {
     free(rsync);
     free(ssh);
@@ -3131,37 +3210,40 @@ app_error quick_op_doctor(const quick_doctor_request_t *request,
   };
   quick_deploy_plan_t plan;
   quick_deploy_plan_init(&plan);
-  app_error plan_err = quick_deploy_plan_resolve(&overrides, request->profiles,
-                                                 &plan);
+  app_error plan_err =
+      quick_deploy_plan_resolve(&overrides, request->profiles, &plan);
   err = quick_doctor_add_check(
       out, "quick_json", "local", plan_err == APP_SUCCESS ? "ok" : "warn",
-      plan.quick_json_path ? plan.quick_json_path : "no quick.json in current tree",
+      plan.quick_json_path ? plan.quick_json_path
+                           : "no quick.json in current tree",
       "Run `quick init` in a site directory.");
   if (err == APP_SUCCESS) {
     err = quick_doctor_add_check(
         out, "site_dns_label", "local",
-        plan_err == APP_SUCCESS && quick_slug_is_valid(plan.site) ? "ok" :
-                                                                    "fail",
+        plan_err == APP_SUCCESS && quick_slug_is_valid(plan.site) ? "ok"
+                                                                  : "fail",
         plan_err == APP_SUCCESS ? plan.site : "unresolved",
         "Use lowercase a-z, digits, and hyphens; no edge hyphens.");
   }
   if (err == APP_SUCCESS) {
     err = quick_doctor_add_check(
         out, "build_output", "local",
-        plan_err == APP_SUCCESS && quick_ops_dir_exists(plan.output_dir) ? "ok" :
-                                                                           "warn",
+        plan_err == APP_SUCCESS && quick_ops_dir_exists(plan.output_dir)
+            ? "ok"
+            : "warn",
         plan_err == APP_SUCCESS ? plan.output_dir : "unresolved",
         "Run the configured build or update quick.json output.");
   }
   quick_ignore_t ignore;
   quick_ignore_init(&ignore);
-  app_error ignore_err = plan_err == APP_SUCCESS
-                             ? quick_ignore_load_for_site(plan.site_root, &ignore)
-                             : APP_ERROR_NOT_FOUND;
+  app_error ignore_err = plan_err == APP_SUCCESS ? quick_ignore_load_for_site(
+                                                       plan.site_root, &ignore)
+                                                 : APP_ERROR_NOT_FOUND;
   if (err == APP_SUCCESS) {
     err = quick_doctor_add_check(
         out, "quickignore", "local", ignore_err == APP_SUCCESS ? "ok" : "warn",
-        ignore_err == APP_SUCCESS ? "parsed" : "missing or invalid .quickignore",
+        ignore_err == APP_SUCCESS ? "parsed"
+                                  : "missing or invalid .quickignore",
         "Create .quickignore with deploy excludes.");
   }
   quick_ignore_destroy(&ignore);
@@ -3169,7 +3251,7 @@ app_error quick_op_doctor(const quick_doctor_request_t *request,
   const bool remote = request->remote || request->profile != NULL;
   if (err == APP_SUCCESS && remote) {
     if (plan_err == APP_SUCCESS && plan.ssh && plan.ssh[0] != '\0') {
-      char *const doctor_argv[] = {"ssh", plan.ssh, "quickd", "doctor",
+      char *const doctor_argv[] = {"ssh",    plan.ssh, "quickd", "doctor",
                                    "--host", "--json", NULL};
       quick_process_result_t res = {0};
       app_error proc_err = quick_process_capture(doctor_argv, NULL, &res);
@@ -3182,7 +3264,7 @@ app_error quick_op_doctor(const quick_doctor_request_t *request,
           "Run `quick serve install` or inspect quickd on the host.");
       quick_process_result_destroy(&res);
       if (err == APP_SUCCESS) {
-        char *const stats_argv[] = {"ssh", plan.ssh, "quickd", "admin",
+        char *const stats_argv[] = {"ssh",   plan.ssh, "quickd", "admin",
                                     "stats", "--json", NULL};
         quick_process_result_t stats = {0};
         proc_err = quick_process_capture(stats_argv, NULL, &stats);
@@ -3190,7 +3272,8 @@ app_error quick_op_doctor(const quick_doctor_request_t *request,
         if (proc_err == APP_SUCCESS && stats.exit_code == 0 && stats.out &&
             stats.out[0]) {
           long sites = quick_ops_json_get_long_field(stats.out, "sites", -1);
-          long releases = quick_ops_json_get_long_field(stats.out, "releases", -1);
+          long releases =
+              quick_ops_json_get_long_field(stats.out, "releases", -1);
           snprintf(detail, sizeof(detail), "sites=%ld releases=%ld", sites,
                    releases);
         } else {
@@ -3258,8 +3341,8 @@ static app_error quick_open_resolve_remote_url(const quick_deploy_plan_t *plan,
   if (!plan->ssh || plan->ssh[0] == '\0') {
     return APP_ERROR_NOT_FOUND;
   }
-  char *const argv[] = {"ssh", (char *)plan->ssh, "quickd", "sites", "get",
-                        (char *)plan->site, "--json", NULL};
+  char *const argv[] = {"ssh", (char *)plan->ssh,  "quickd", "sites",
+                        "get", (char *)plan->site, "--json", NULL};
   quick_process_result_t res = {0};
   app_error err = quick_process_capture(argv, NULL, &res);
   if (err != APP_SUCCESS) {
@@ -3337,7 +3420,8 @@ app_error quick_op_copy_url(const char *url, char **message_out) {
 #ifdef _WIN32
   (void)url;
   if (message_out) {
-    *message_out = quick_ops_strdup("clipboard copy is not supported on this platform");
+    *message_out =
+        quick_ops_strdup("clipboard copy is not supported on this platform");
   }
   return APP_ERROR_FEATURE_BASE;
 #else
@@ -3378,8 +3462,8 @@ app_error quick_op_copy_url(const char *url, char **message_out) {
     return APP_ERROR_NOT_FOUND;
   }
   quick_process_result_t res = {0};
-  app_error err = quick_process_capture_input((char *const *)argv, NULL, url,
-                                              &res);
+  app_error err =
+      quick_process_capture_input((char *const *)argv, NULL, url, &res);
   if ((err != APP_SUCCESS || res.exit_code != 0) && message_out) {
     const char *msg = res.err && res.err[0] ? res.err : "clipboard copy failed";
     *message_out = quick_ops_strdup(msg);
@@ -3444,9 +3528,8 @@ app_error quick_op_mint_dev_token(const quick_dev_token_request_t *request,
 
   quick_deploy_plan_t plan;
   quick_deploy_plan_init(&plan);
-  app_error err = quick_ops_resolve_remote_plan(request->profiles,
-                                                request->profile,
-                                                request->site, &plan);
+  app_error err = quick_ops_resolve_remote_plan(
+      request->profiles, request->profile, request->site, &plan);
   if (err != APP_SUCCESS) {
     quick_deploy_plan_destroy(&plan);
     return err;
@@ -3459,17 +3542,10 @@ app_error quick_op_mint_dev_token(const quick_dev_token_request_t *request,
   int ttl = request->ttl_seconds > 0 ? request->ttl_seconds : 3600;
   char ttl_buf[32];
   snprintf(ttl_buf, sizeof(ttl_buf), "%d", ttl);
-  char *const argv[] = {"ssh",
-                        plan.ssh,
-                        "quickd",
-                        "admin",
-                        "mint-dev-token",
-                        "--site",
-                        plan.site,
-                        "--ttl",
-                        ttl_buf,
-                        "--json",
-                        NULL};
+  char *const argv[] = {
+      "ssh",    plan.ssh,  "quickd", "admin", "mint-dev-token",
+      "--site", plan.site, "--ttl",  ttl_buf, "--json",
+      NULL};
   quick_process_result_t res = {0};
   err = quick_process_capture(argv, NULL, &res);
   if (err == APP_SUCCESS && res.exit_code != 0) {
@@ -3557,8 +3633,8 @@ app_error quick_op_serve_dev_command(const quick_serve_dev_request_t *request,
   quick_plan_overrides_t overrides = {.profile = request->profile};
   quick_deploy_plan_t plan;
   quick_deploy_plan_init(&plan);
-  app_error err = quick_deploy_plan_resolve(&overrides, request->profiles,
-                                            &plan);
+  app_error err =
+      quick_deploy_plan_resolve(&overrides, request->profiles, &plan);
   if (err != APP_SUCCESS) {
     free(quickd);
     quick_deploy_plan_destroy(&plan);
@@ -3574,9 +3650,9 @@ app_error quick_op_serve_dev_command(const quick_serve_dev_request_t *request,
     quick_deploy_plan_destroy(&plan);
     return APP_ERROR_MEMORY;
   }
-  const char *values[] = {quickd,       "serve", "--dev",  "--dir",
-                          plan.output_dir, "--site", plan.site, "--listen",
-                          listen};
+  const char *values[] = {quickd,    "serve",         "--dev",
+                          "--dir",   plan.output_dir, "--site",
+                          plan.site, "--listen",      listen};
   for (size_t i = 0; i < sizeof(values) / sizeof(values[0]); i++) {
     err = quick_serve_argv_append(out, values[i]);
     if (err != APP_SUCCESS) {

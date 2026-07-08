@@ -1,32 +1,40 @@
-#include "tui_app_state.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "../core/ops.h"
 #include "tui.h"
+#include "tui_app_state.h"
 #include "tui_panel.h"
 #include "tui_product_model.h"
 
 static int quick_tui_doctor_choose_scope(void) {
   const tui_menu_item_t items[] = {
-      {.label = "&Local only", .description = "Local CLI, tools, quick.json, output", .id = 1},
-      {.label = "With &remote", .description = "Also ask selected host quickd", .id = 2},
-      {.label = "&Deep", .description = "Remote checks plus temporary deploy/probes", .id = 3},
-      {.label = "Host &stats", .description = "Ask selected host for admin stats", .id = 4},
+      {.label = "&Local only",
+       .description = "Local CLI, tools, quick.json, output",
+       .id = 1},
+      {.label = "With &remote",
+       .description = "Also ask selected host quickd",
+       .id = 2},
+      {.label = "&Deep",
+       .description = "Remote checks plus temporary deploy/probes",
+       .id = 3},
+      {.label = "Host &stats",
+       .description = "Ask selected host for admin stats",
+       .id = 4},
       {.kind = TUI_MENU_ITEM_SEPARATOR},
       {.label = "&Back", .description = "Return to OpenQuick", .id = 5},
   };
   tui_menu_result_t r = tui_show_menu(
-      NULL, &(tui_menu_config_t){.title = "Doctor",
-                                 .subtitle = "Choose diagnostic scope",
-                                 .items = items,
-                                 .item_count = (int)(sizeof(items) / sizeof(items[0])),
-                                 .default_index = 0,
-                                 .frame_height = 14,
-                                 .frame_width = 70,
-                                 .show_numeric_keys = true});
+      NULL, &(tui_menu_config_t){
+                .title = "Doctor",
+                .subtitle = "Choose diagnostic scope",
+                .items = items,
+                .item_count = (int)(sizeof(items) / sizeof(items[0])),
+                .default_index = 0,
+                .frame_height = 14,
+                .frame_width = 70,
+                .show_numeric_keys = true});
   return r.status == TUI_MENU_OK ? r.selected_id : 5;
 }
 
@@ -39,30 +47,34 @@ static char *quick_tui_doctor_select_profile(quick_tui_app_state_t *state) {
     }
     return copy;
   }
-  tui_menu_item_t *items = calloc(state->profiles.profile_count, sizeof(tui_menu_item_t));
+  tui_menu_item_t *items =
+      calloc(state->profiles.profile_count, sizeof(tui_menu_item_t));
   if (!items) {
     return NULL;
   }
   for (size_t i = 0; i < state->profiles.profile_count; i++) {
     const quick_profile_t *p = &state->profiles.profiles[i];
-    items[i] = (tui_menu_item_t){.label = p->name,
-                                 .description = p->ssh ? p->ssh : "local/no ssh",
-                                 .id = (int)i + 1};
+    items[i] =
+        (tui_menu_item_t){.label = p->name,
+                          .description = p->ssh ? p->ssh : "local/no ssh",
+                          .id = (int)i + 1};
   }
   tui_menu_result_t r = tui_show_menu(
-      NULL, &(tui_menu_config_t){.title = "Doctor profile",
-                                 .subtitle = "Select profile for remote checks",
-                                 .items = items,
-                                 .item_count = (int)state->profiles.profile_count,
-                                 .default_index = 0,
-                                 .frame_height = 16,
-                                 .frame_width = 70,
-                                 .enable_search = true,
-                                 .show_numeric_keys = true});
+      NULL,
+      &(tui_menu_config_t){.title = "Doctor profile",
+                           .subtitle = "Select profile for remote checks",
+                           .items = items,
+                           .item_count = (int)state->profiles.profile_count,
+                           .default_index = 0,
+                           .frame_height = 16,
+                           .frame_width = 70,
+                           .enable_search = true,
+                           .show_numeric_keys = true});
   char *out = NULL;
   if (r.status == TUI_MENU_OK && r.selected_id >= 1 &&
       (size_t)r.selected_id <= state->profiles.profile_count) {
-    const char *name = state->profiles.profiles[(size_t)r.selected_id - 1U].name;
+    const char *name =
+        state->profiles.profiles[(size_t)r.selected_id - 1U].name;
     out = malloc(strlen(name) + 1U);
     if (out) {
       strcpy(out, name);
@@ -105,11 +117,13 @@ void quick_tui_show_host_stats(quick_tui_app_state_t *state) {
     quick_host_stats_result_destroy(&result);
     return;
   }
-  char sites[32], releases[32], sites_bytes[32], uploads_bytes[32], db_bytes[32];
+  char sites[32], releases[32], sites_bytes[32], uploads_bytes[32],
+      db_bytes[32];
   quick_tui_long_to_text(result.sites, sites, sizeof(sites));
   quick_tui_long_to_text(result.releases, releases, sizeof(releases));
   quick_tui_long_to_text(result.sites_bytes, sites_bytes, sizeof(sites_bytes));
-  quick_tui_long_to_text(result.uploads_bytes, uploads_bytes, sizeof(uploads_bytes));
+  quick_tui_long_to_text(result.uploads_bytes, uploads_bytes,
+                         sizeof(uploads_bytes));
   quick_tui_long_to_text(result.db_bytes, db_bytes, sizeof(db_bytes));
   quick_tui_kv_row_t rows[] = {
       {"profile", result.profile, TUI_COLOR_MENU_NORMAL},
@@ -120,9 +134,8 @@ void quick_tui_show_host_stats(quick_tui_app_state_t *state) {
       {"uploads bytes", uploads_bytes, TUI_COLOR_MENU_NORMAL},
       {"db bytes", db_bytes, TUI_COLOR_MENU_NORMAL},
   };
-  quick_tui_show_keyvalue_panel("Host stats", rows,
-                                sizeof(rows) / sizeof(rows[0]),
-                                "Enter/Esc closes");
+  quick_tui_show_keyvalue_panel(
+      "Host stats", rows, sizeof(rows) / sizeof(rows[0]), "Enter/Esc closes");
   quick_host_stats_result_destroy(&result);
 }
 
@@ -138,9 +151,8 @@ static void quick_tui_show_doctor_detail(const quick_doctor_check_t *check) {
       {"detail", check->detail, TUI_COLOR_MENU_NORMAL},
       {"remediation", check->remediation, TUI_COLOR_INFO},
   };
-  quick_tui_show_keyvalue_panel("Doctor check", rows,
-                                sizeof(rows) / sizeof(rows[0]),
-                                "Enter/Esc closes");
+  quick_tui_show_keyvalue_panel(
+      "Doctor check", rows, sizeof(rows) / sizeof(rows[0]), "Enter/Esc closes");
 }
 
 void quick_tui_screen_doctor(quick_tui_app_state_t *state) {
@@ -176,8 +188,9 @@ void quick_tui_screen_doctor(quick_tui_app_state_t *state) {
                                     .deep = scope == 3};
   app_error err = quick_op_doctor(&request, &result);
   if (progress) {
-    tui_progress_update(progress, 100,
-                        err == APP_SUCCESS ? "checks complete" : "doctor failed");
+    tui_progress_update(
+        progress, 100,
+        err == APP_SUCCESS ? "checks complete" : "doctor failed");
     tui_progress_destroy(progress);
   }
   free(profile);
@@ -219,9 +232,8 @@ void quick_tui_screen_doctor(quick_tui_app_state_t *state) {
                                  .description = check->remediation,
                                  .id = (int)i + 1};
   }
-  items[result.count] = (tui_menu_item_t){.label = "&Back",
-                                           .description = "Return to OpenQuick",
-                                           .id = 1000};
+  items[result.count] = (tui_menu_item_t){
+      .label = "&Back", .description = "Return to OpenQuick", .id = 1000};
   char subtitle[96];
   snprintf(subtitle, sizeof(subtitle), "overall %s · Enter opens remediation",
            result.ok ? "ok" : "fail/warn");

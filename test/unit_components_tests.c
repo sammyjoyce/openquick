@@ -381,9 +381,12 @@ static bool test_mono_theme_colored_on_truecolor(void) {
 
 static bool test_explicit_text_role_overrides_non_text_default(void) {
 #ifdef APP_ENABLE_CLI_STYLE
-  test_env_save_t env[] = {{"QUICK_CLI_TEST_PROFILE", NULL}, {"NO_COLOR", NULL},
-                           {"QUICK_CLI_COLOR", NULL},        {"TERM", NULL},
-                           {"FORCE_COLOR", NULL},          {"CLICOLOR", NULL},
+  test_env_save_t env[] = {{"QUICK_CLI_TEST_PROFILE", NULL},
+                           {"NO_COLOR", NULL},
+                           {"QUICK_CLI_COLOR", NULL},
+                           {"TERM", NULL},
+                           {"FORCE_COLOR", NULL},
+                           {"CLICOLOR", NULL},
                            {"CLICOLOR_FORCE", NULL}};
   bool ok = true;
   for (size_t i = 0; i < sizeof(env) / sizeof(env[0]); i++) {

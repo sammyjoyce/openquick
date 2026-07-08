@@ -321,8 +321,7 @@ int run_tui_bare_invocation(test_stats_t *stats, const char *binary,
 
   char *snapshot = NULL;
   int failed = 0;
-  if (!vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS,
-                      &snapshot)) {
+  if (!vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS, &snapshot)) {
     failed = test_fail(stats, name, "bare invocation did not render the menu");
   }
   if (!failed && (!vt_send(&session, "q") ||
@@ -434,8 +433,7 @@ int run_tui_stress_smoke(test_stats_t *stats, const char *binary,
 
   char *snapshot = NULL;
   int failed = 0;
-  if (!vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS,
-                      &snapshot)) {
+  if (!vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS, &snapshot)) {
     failed = test_fail(stats, name, "initial menu did not render");
   }
 
@@ -459,8 +457,7 @@ int run_tui_stress_smoke(test_stats_t *stats, const char *binary,
         break;
       }
     }
-    if (!vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS,
-                        &snapshot)) {
+    if (!vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS, &snapshot)) {
       print_tail(stderr, "screen:\n", snapshot ? snapshot : "",
                  snapshot ? strlen(snapshot) : 0, 4000);
       print_tail(stderr, "transcript:\n", buffer_cstr(&session.transcript),
@@ -508,8 +505,8 @@ int run_tui_menu_separator(test_stats_t *stats, const char *binary,
   int failed = 0;
   if (!vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "initial menu did not render");
-  if (!failed && !vt_expect_text(&session, "Help/About", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "Help/About", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "menu items did not finish rendering");
   /* Selection starts on Sites. Six j presses should advance past the separator
    * to Help/About. */
@@ -517,8 +514,8 @@ int run_tui_menu_separator(test_stats_t *stats, const char *binary,
     failed = test_fail(stats, name, "failed to send navigation");
   if (!failed && !vt_send(&session, "\r"))
     failed = test_fail(stats, name, "failed to confirm");
-  if (!failed && !vt_expect_text(&session, "HELP/ABOUT", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "HELP/ABOUT", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "expected to land on Help/About");
   if (!failed && !vt_send(&session, "q"))
     failed = test_fail(stats, name, "failed to return to main menu");
@@ -692,18 +689,17 @@ int run_tui_menu_handler_resize(test_stats_t *stats, const char *binary,
                snapshot ? strlen(snapshot) : 0, 4000);
     failed = test_fail(stats, name, "menu frame did not shrink to terminal");
   }
-  if (!failed && !vt_expect_text(&session, "Sites", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed && !vt_expect_text(&session, "Sites", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "menu items did not render after shrink");
   if (!failed && !vt_send(&session, "h"))
     failed = test_fail(stats, name, "failed to open Help/About handler");
-  if (!failed && !vt_expect_text(&session, "HELP/ABOUT", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "HELP/ABOUT", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "Help/About handler did not open");
   if (!failed && !vt_resize(&session, 100, 30))
     failed = test_fail(stats, name, "failed to grow during handler");
-  if (!failed && !vt_expect_text(&session, "HELP/ABOUT", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "HELP/ABOUT", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "Help/About disappeared after grow");
   if (!failed && !vt_send(&session, "q"))
     failed = test_fail(stats, name, "failed to dismiss Help/About");
@@ -744,13 +740,13 @@ int run_tui_menu_mnemonic(test_stats_t *stats, const char *binary,
   int failed = 0;
   if (!vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "initial menu did not render");
-  if (!failed && !vt_expect_text(&session, "Help/About", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "Help/About", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "menu items did not finish rendering");
   if (!failed && !vt_send(&session, "h"))
     failed = test_fail(stats, name, "failed to send 'h'");
-  if (!failed && !vt_expect_text(&session, "HELP/ABOUT", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "HELP/ABOUT", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "Help/About menu did not appear");
   if (!failed && !vt_send(&session, "q"))
     failed = test_fail(stats, name, "failed to dismiss Help/About");
@@ -783,8 +779,7 @@ int run_tui_menu_search(test_stats_t *stats, const char *binary,
   int failed = 0;
   if (!vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "initial menu did not render");
-  if (!failed && !vt_expect_text(&session, "Serve", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed && !vt_expect_text(&session, "Serve", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "menu items did not finish rendering");
   if (!failed && !vt_send(&session, "/"))
     failed = test_fail(stats, name, "failed to enter search mode");
@@ -792,13 +787,11 @@ int run_tui_menu_search(test_stats_t *stats, const char *binary,
     failed = test_fail(stats, name, "search prompt did not appear");
   if (!failed && !vt_send(&session, "serv"))
     failed = test_fail(stats, name, "failed to type 'serv'");
-  if (!failed && !vt_expect_text(&session, "Serve", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed && !vt_expect_text(&session, "Serve", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "Serve not filtered in");
   if (!failed && !vt_send(&session, "\r"))
     failed = test_fail(stats, name, "failed to confirm");
-  if (!failed && !vt_expect_text(&session, "SERVE", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed && !vt_expect_text(&session, "SERVE", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "Serve screen did not appear");
   if (!failed && !vt_send(&session, "q"))
     failed = test_fail(stats, name, "failed to dismiss serve screen");
@@ -845,8 +838,8 @@ int run_tui_sites_empty_state(test_stats_t *stats, const char *binary,
   if (!started) {
     failed = test_fail(stats, name, "failed to start PTY session");
   }
-  if (!failed && !vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "initial menu did not render");
   if (!failed && !vt_send(&session, "s"))
     failed = test_fail(stats, name, "failed to open Sites");
@@ -864,7 +857,8 @@ int run_tui_sites_empty_state(test_stats_t *stats, const char *binary,
   if (!failed)
     test_pass(stats, name);
   free(snapshot);
-  if (started) vt_session_close(&session);
+  if (started)
+    vt_session_close(&session);
   restore_common_env(guards, sizeof(guards) / sizeof(guards[0]));
   rmdir(xdg);
   return failed;
@@ -890,10 +884,15 @@ int run_tui_sites_detail_actions(test_stats_t *stats, const char *binary,
           ssh_path,
           "#!/bin/sh\n"
           "if [ \"$2\" = quickd ] && [ \"$3\" = list ]; then\n"
-          "  printf '%s\\n' '{\"format_version\":\"1.0\",\"sites\":[{\"name\":\"demo\",\"subdomain\":\"demo\",\"url\":\"https://demo.quick.example.com\",\"release\":\"rel1\",\"updated_at\":\"2026-06-12T00:00:00Z\",\"deployer\":\"alice\",\"public\":false}]}'\n"
+          "  printf '%s\\n' "
+          "'{\"format_version\":\"1.0\",\"sites\":[{\"name\":\"demo\","
+          "\"subdomain\":\"demo\",\"url\":\"https://"
+          "demo.quick.example.com\",\"release\":\"rel1\",\"updated_at\":\"2026-"
+          "06-12T00:00:00Z\",\"deployer\":\"alice\",\"public\":false}]}'\n"
           "  exit 0\n"
           "fi\n"
-          "exit 1\n") || chmod(ssh_path, 0755) != 0) {
+          "exit 1\n") ||
+      chmod(ssh_path, 0755) != 0) {
     return test_fail(stats, name, "failed to write ssh stub");
   }
 
@@ -914,19 +913,21 @@ int run_tui_sites_detail_actions(test_stats_t *stats, const char *binary,
   bool started = vt_session_start(&session, binary, args, 1, 100, 30);
   char *snapshot = NULL;
   int failed = 0;
-  if (!started) failed = test_fail(stats, name, "failed to start PTY session");
-  if (!failed && !vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!started)
+    failed = test_fail(stats, name, "failed to start PTY session");
+  if (!failed &&
+      !vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "initial menu did not render");
   if (!failed && !vt_send(&session, "s"))
     failed = test_fail(stats, name, "failed to open Sites");
-  if (!failed && !vt_expect_text(&session, "demo - https://demo.quick.example.com",
-                                 PTY_TIMEOUT_MS, &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "demo - https://demo.quick.example.com",
+                      PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "remote site row did not render");
   if (!failed && !vt_send(&session, "\r"))
     failed = test_fail(stats, name, "failed to open site detail");
-  if (!failed && !vt_expect_text(&session, "x:delete", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "x:delete", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "delete key hint missing");
   if (!failed && !vt_expect_text(&session, "p:public", 1000, &snapshot))
     failed = test_fail(stats, name, "public key hint missing");
@@ -940,9 +941,11 @@ int run_tui_sites_detail_actions(test_stats_t *stats, const char *binary,
     failed = test_fail(stats, name, "failed to confirm exit");
   if (!failed && vt_wait_for_exit(&session, PTY_TIMEOUT_MS) != 0)
     failed = test_fail(stats, name, "process did not exit cleanly");
-  if (!failed) test_pass(stats, name);
+  if (!failed)
+    test_pass(stats, name);
   free(snapshot);
-  if (started) vt_session_close(&session);
+  if (started)
+    vt_session_close(&session);
   restore_common_env(guards, sizeof(guards) / sizeof(guards[0]));
   char config_path[PATH_MAX], oq[PATH_MAX];
   snprintf(config_path, sizeof(config_path), "%s/openquick/config.json", xdg);
@@ -983,8 +986,8 @@ int run_tui_new_site_scaffold(test_stats_t *stats, const char *binary,
   if (!started) {
     failed = test_fail(stats, name, "failed to start PTY session");
   }
-  if (!failed && !vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "initial menu did not render");
   if (!failed && !vt_send(&session, "n"))
     failed = test_fail(stats, name, "failed to open New site");
@@ -995,18 +998,18 @@ int run_tui_new_site_scaffold(test_stats_t *stats, const char *binary,
   snprintf(send_buf, sizeof(send_buf), "%s\r", site_dir);
   if (!failed && !vt_send(&session, send_buf))
     failed = test_fail(stats, name, "failed to submit directory");
-  if (!failed && !vt_expect_text(&session, "Site name:", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "Site name:", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "site name prompt did not render");
   if (!failed && !vt_send(&session, "pty-site\r"))
     failed = test_fail(stats, name, "failed to submit site name");
-  if (!failed && !vt_expect_text(&session, "NEW SITE TEMPLATE",
-                                 PTY_TIMEOUT_MS, &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "NEW SITE TEMPLATE", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "template menu did not render");
   if (!failed && !vt_send(&session, "\r"))
     failed = test_fail(stats, name, "failed to select blank template");
-  if (!failed && !vt_expect_text(&session, "SITE CREATED", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "SITE CREATED", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "success panel did not render");
   if (!failed && !vt_expect_text(&session, "quick.json", 1000, &snapshot))
     failed = test_fail(stats, name, "created files list did not render");
@@ -1023,14 +1026,15 @@ int run_tui_new_site_scaffold(test_stats_t *stats, const char *binary,
   char quick_path[PATH_MAX];
   snprintf(index_path, sizeof(index_path), "%s/index.html", site_dir);
   snprintf(quick_path, sizeof(quick_path), "%s/quick.json", site_dir);
-  if (!failed && (access(index_path, F_OK) != 0 ||
-                  access(quick_path, F_OK) != 0)) {
+  if (!failed &&
+      (access(index_path, F_OK) != 0 || access(quick_path, F_OK) != 0)) {
     failed = test_fail(stats, name, "expected scaffold files on disk");
   }
   if (!failed)
     test_pass(stats, name);
   free(snapshot);
-  if (started) vt_session_close(&session);
+  if (started)
+    vt_session_close(&session);
   restore_common_env(guards, sizeof(guards) / sizeof(guards[0]));
   char agents[PATH_MAX], ignore[PATH_MAX], docs[PATH_MAX], api[PATH_MAX];
   snprintf(agents, sizeof(agents), "%s/AGENTS.md", site_dir);
@@ -1067,22 +1071,22 @@ int run_tui_doctor_local_results(test_stats_t *stats, const char *binary,
   bool started = vt_session_start(&session, binary, args, 1, 100, 30);
   char *snapshot = NULL;
   int failed = 0;
-  if (!started) failed = test_fail(stats, name, "failed to start PTY session");
-  if (!failed && !vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!started)
+    failed = test_fail(stats, name, "failed to start PTY session");
+  if (!failed &&
+      !vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "initial menu did not render");
   if (!failed && !vt_send(&session, "c"))
     failed = test_fail(stats, name, "failed to open Doctor");
-  if (!failed && !vt_expect_text(&session, "DOCTOR", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed && !vt_expect_text(&session, "DOCTOR", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "doctor scope menu did not render");
   if (!failed && !vt_send(&session, "\r"))
     failed = test_fail(stats, name, "failed to select local scope");
-  if (!failed && !vt_expect_text(&session, "DOCTOR RESULTS", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "DOCTOR RESULTS", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "doctor results did not render");
-  if (!failed && !vt_expect_text(&session, "local/quick_version", 1000,
-                                 &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "local/quick_version", 1000, &snapshot))
     failed = test_fail(stats, name, "local quick_version row missing");
   if (!failed && !vt_send(&session, "q"))
     failed = test_fail(stats, name, "failed to return from doctor");
@@ -1092,9 +1096,11 @@ int run_tui_doctor_local_results(test_stats_t *stats, const char *binary,
     failed = test_fail(stats, name, "failed to confirm exit");
   if (!failed && vt_wait_for_exit(&session, PTY_TIMEOUT_MS) != 0)
     failed = test_fail(stats, name, "process did not exit cleanly");
-  if (!failed) test_pass(stats, name);
+  if (!failed)
+    test_pass(stats, name);
   free(snapshot);
-  if (started) vt_session_close(&session);
+  if (started)
+    vt_session_close(&session);
   env_guard_restore(&guard);
   rmdir(xdg);
   return failed;
@@ -1119,27 +1125,27 @@ int run_tui_settings_profiles_from_xdg(test_stats_t *stats, const char *binary,
   bool started = vt_session_start(&session, binary, args, 1, 100, 30);
   char *snapshot = NULL;
   int failed = 0;
-  if (!started) failed = test_fail(stats, name, "failed to start PTY session");
-  if (!failed && !vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!started)
+    failed = test_fail(stats, name, "failed to start PTY session");
+  if (!failed &&
+      !vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "initial menu did not render");
   if (!failed && !vt_send(&session, "i"))
     failed = test_fail(stats, name, "failed to open Settings");
-  if (!failed && !vt_expect_text(&session, "SETTINGS", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "SETTINGS", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "settings menu did not render");
   if (!failed && !vt_send(&session, "\r"))
     failed = test_fail(stats, name, "failed to open Profiles");
-  if (!failed && !vt_expect_text(&session, "PROFILES", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "PROFILES", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "profiles menu did not render");
-  if (!failed && !vt_expect_text(&session, "lab (default)", 1000,
-                                 &snapshot))
+  if (!failed && !vt_expect_text(&session, "lab (default)", 1000, &snapshot))
     failed = test_fail(stats, name, "lab profile was not loaded");
   if (!failed && !vt_send(&session, "\r"))
     failed = test_fail(stats, name, "failed to open profile");
-  if (!failed && !vt_expect_text(&session, "PROFILE", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "PROFILE", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "profile panel did not render");
   if (!failed && !vt_send(&session, "e"))
     failed = test_fail(stats, name, "failed to start profile edit");
@@ -1148,36 +1154,35 @@ int run_tui_settings_profiles_from_xdg(test_stats_t *stats, const char *binary,
     failed = test_fail(stats, name, "profile field menu did not render");
   if (!failed && !vt_send(&session, "\r"))
     failed = test_fail(stats, name, "failed to choose ssh field");
-  if (!failed && !vt_expect_text(&session, "EDIT PROFILE", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "EDIT PROFILE", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "profile edit dialog did not render");
   if (!failed && !vt_send(&session, "quick@changed\r"))
     failed = test_fail(stats, name, "failed to enter changed ssh");
-  if (!failed && !vt_expect_text(&session, "quick@changed", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "quick@changed", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "edited profile value did not render");
-  if (!failed && !vt_expect_text(&session, "Unsaved changes", 1000,
-                                 &snapshot))
+  if (!failed && !vt_expect_text(&session, "Unsaved changes", 1000, &snapshot))
     failed = test_fail(stats, name, "unsaved marker did not render");
   if (!failed && !vt_send(&session, "q"))
     failed = test_fail(stats, name, "failed to leave dirty profile");
-  if (!failed && !vt_expect_text(&session, "UNSAVED PROFILE CHANGES", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed && !vt_expect_text(&session, "UNSAVED PROFILE CHANGES",
+                                 PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "unsaved changes prompt did not render");
   if (!failed && !vt_send(&session, "c"))
     failed = test_fail(stats, name, "failed to cancel unsaved prompt");
-  if (!failed && !vt_expect_text(&session, "quick@changed", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "quick@changed", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "cancel did not return to edited profile");
   if (!failed && !vt_send(&session, "q"))
     failed = test_fail(stats, name, "failed to leave dirty profile again");
-  if (!failed && !vt_expect_text(&session, "UNSAVED PROFILE CHANGES", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed && !vt_expect_text(&session, "UNSAVED PROFILE CHANGES",
+                                 PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "unsaved changes prompt did not reappear");
   if (!failed && !vt_send(&session, "d"))
     failed = test_fail(stats, name, "failed to discard unsaved changes");
-  if (!failed && !vt_expect_text(&session, "PROFILES", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "PROFILES", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "discard did not return to profiles");
   if (!failed && !vt_send(&session, "q"))
     failed = test_fail(stats, name, "failed to leave profiles");
@@ -1189,9 +1194,11 @@ int run_tui_settings_profiles_from_xdg(test_stats_t *stats, const char *binary,
     failed = test_fail(stats, name, "failed to confirm exit");
   if (!failed && vt_wait_for_exit(&session, PTY_TIMEOUT_MS) != 0)
     failed = test_fail(stats, name, "process did not exit cleanly");
-  if (!failed) test_pass(stats, name);
+  if (!failed)
+    test_pass(stats, name);
   free(snapshot);
-  if (started) vt_session_close(&session);
+  if (started)
+    vt_session_close(&session);
   env_guard_restore(&guard);
   char config_path[PATH_MAX], oq[PATH_MAX];
   snprintf(config_path, sizeof(config_path), "%s/openquick/config.json", xdg);
@@ -1219,7 +1226,8 @@ int run_tui_deploy_plan_panel(test_stats_t *stats, const char *binary,
   char qpath[PATH_MAX];
   snprintf(qpath, sizeof(qpath), "%s/quick.json", site_dir);
   if (!write_text_file(qpath,
-                       "{\"name\":\"demo\",\"source\":\".\",\"output\":\".\",\"profile\":\"lab\",\"subdomain\":\"demo\"}\n")) {
+                       "{\"name\":\"demo\",\"source\":\".\",\"output\":\".\","
+                       "\"profile\":\"lab\",\"subdomain\":\"demo\"}\n")) {
     return test_fail(stats, name, "failed to write quick.json");
   }
   env_guard_t guard;
@@ -1229,9 +1237,10 @@ int run_tui_deploy_plan_panel(test_stats_t *stats, const char *binary,
   bool started = vt_session_start(&session, binary, args, 1, 100, 30);
   char *snapshot = NULL;
   int failed = 0;
-  if (!started) failed = test_fail(stats, name, "failed to start PTY session");
-  if (!failed && !vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!started)
+    failed = test_fail(stats, name, "failed to start PTY session");
+  if (!failed &&
+      !vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "initial menu did not render");
   if (!failed && !vt_send(&session, "d"))
     failed = test_fail(stats, name, "failed to open Deploy");
@@ -1242,23 +1251,23 @@ int run_tui_deploy_plan_panel(test_stats_t *stats, const char *binary,
   snprintf(send_path, sizeof(send_path), "%s\r", site_dir);
   if (!failed && !vt_send(&session, send_path))
     failed = test_fail(stats, name, "failed to submit path");
-  if (!failed && !vt_expect_text(&session, "PROFILE", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "PROFILE", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "profile menu did not render");
   if (!failed && !vt_send(&session, "\r"))
     failed = test_fail(stats, name, "failed to select profile");
-  if (!failed && !vt_expect_text(&session, "Site name", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "Site name", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "site prompt did not render");
   if (!failed && !vt_send(&session, "\r"))
     failed = test_fail(stats, name, "failed to accept site");
-  if (!failed && !vt_expect_text(&session, "Subdomain", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "Subdomain", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "subdomain prompt did not render");
   if (!failed && !vt_send(&session, "\r"))
     failed = test_fail(stats, name, "failed to accept subdomain");
-  if (!failed && !vt_expect_text(&session, "DEPLOY PLAN", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "DEPLOY PLAN", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "deploy plan panel did not render");
   if (!failed && !vt_expect_text(&session, "https://demo.quick.example.com",
                                  1000, &snapshot))
@@ -1271,9 +1280,11 @@ int run_tui_deploy_plan_panel(test_stats_t *stats, const char *binary,
     failed = test_fail(stats, name, "failed to confirm exit");
   if (!failed && vt_wait_for_exit(&session, PTY_TIMEOUT_MS) != 0)
     failed = test_fail(stats, name, "process did not exit cleanly");
-  if (!failed) test_pass(stats, name);
+  if (!failed)
+    test_pass(stats, name);
   free(snapshot);
-  if (started) vt_session_close(&session);
+  if (started)
+    vt_session_close(&session);
   env_guard_restore(&guard);
   unlink(qpath);
   rmdir(site_dir);
@@ -1287,8 +1298,7 @@ int run_tui_deploy_plan_panel(test_stats_t *stats, const char *binary,
 }
 
 int run_tui_deploy_cancel_cleanup_status(test_stats_t *stats,
-                                         const char *binary,
-                                         bool tui_enabled) {
+                                         const char *binary, bool tui_enabled) {
   const char *name = "deploy cancel reports cleanup and retry succeeds";
   if (!tui_enabled) {
     test_skip(stats, name, "rebuild with -Denable-tui=true");
@@ -1309,7 +1319,8 @@ int run_tui_deploy_cancel_cleanup_status(test_stats_t *stats,
   snprintf(qpath, sizeof(qpath), "%s/quick.json", site_dir);
   snprintf(index_path, sizeof(index_path), "%s/index.html", site_dir);
   if (!write_text_file(qpath,
-                       "{\"name\":\"demo\",\"source\":\".\",\"output\":\".\",\"profile\":\"lab\",\"subdomain\":\"demo\"}\n") ||
+                       "{\"name\":\"demo\",\"source\":\".\",\"output\":\".\","
+                       "\"profile\":\"lab\",\"subdomain\":\"demo\"}\n") ||
       !write_text_file(index_path, "<!doctype html><title>demo</title>\n")) {
     return test_fail(stats, name, "failed to write site files");
   }
@@ -1324,17 +1335,25 @@ int run_tui_deploy_cancel_cleanup_status(test_stats_t *stats,
           "  printf '%s\\n' '{\"checks\":[{\"status\":\"ok\"}]}'\n"
           "  exit 0\n"
           "fi\n"
-          "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = prepare ]; then\n"
-          "  printf '%s\\n' '{\"deploy_id\":\"20260623T000000Z-deadbe\",\"staging_path\":\"/srv/quick/.incoming/20260623T000000Z-deadbe/files\",\"link_dest\":\"\"}'\n"
+          "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = prepare "
+          "]; then\n"
+          "  printf '%s\\n' "
+          "'{\"deploy_id\":\"20260623T000000Z-deadbe\",\"staging_path\":\"/srv/"
+          "quick/.incoming/20260623T000000Z-deadbe/"
+          "files\",\"link_dest\":\"\"}'\n"
           "  exit 0\n"
           "fi\n"
-          "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = cleanup ]; then\n"
+          "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = cleanup "
+          "]; then\n"
           "  echo cleanup >> \"$OPENQUICK_TUI_FAKE_STATE/ssh.log\"\n"
           "  printf '%s\\n' '{\"cleaned\":true}'\n"
           "  exit 0\n"
           "fi\n"
-          "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = activate ]; then\n"
-          "  printf '%s\\n' '{\"release\":\"rel-ok\",\"url\":\"https://demo.quick.example.com\"}'\n"
+          "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = "
+          "activate ]; then\n"
+          "  printf '%s\\n' "
+          "'{\"release\":\"rel-ok\",\"url\":\"https://"
+          "demo.quick.example.com\"}'\n"
           "  exit 0\n"
           "fi\n"
           "exit 1\n") ||
@@ -1373,9 +1392,10 @@ int run_tui_deploy_cancel_cleanup_status(test_stats_t *stats,
   bool started = vt_session_start(&session, binary, args, 1, 100, 30);
   char *snapshot = NULL;
   int failed = 0;
-  if (!started) failed = test_fail(stats, name, "failed to start PTY session");
-  if (!failed && !vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!started)
+    failed = test_fail(stats, name, "failed to start PTY session");
+  if (!failed &&
+      !vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "initial menu did not render");
   for (int attempt = 0; !failed && attempt < 2; attempt++) {
     if (!vt_send(&session, "d")) {
@@ -1406,14 +1426,13 @@ int run_tui_deploy_cancel_cleanup_status(test_stats_t *stats,
                           &snapshot) ||
           !vt_expect_text(&session, "remote staging cleaned", PTY_TIMEOUT_MS,
                           &snapshot)) {
-        failed = test_fail(stats, name,
-                           "cancel cleanup status did not render");
+        failed = test_fail(stats, name, "cancel cleanup status did not render");
         break;
       }
       if (!vt_send(&session, "\r") ||
           !vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS, &snapshot)) {
-        failed = test_fail(stats, name,
-                           "failed to dismiss cancellation and return");
+        failed =
+            test_fail(stats, name, "failed to dismiss cancellation and return");
         break;
       }
     } else {
@@ -1425,8 +1444,7 @@ int run_tui_deploy_cancel_cleanup_status(test_stats_t *stats,
       }
       if (!vt_send(&session, "\r") ||
           !vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS, &snapshot)) {
-        failed = test_fail(stats, name,
-                           "failed to dismiss success and return");
+        failed = test_fail(stats, name, "failed to dismiss success and return");
         break;
       }
     }
@@ -1437,9 +1455,11 @@ int run_tui_deploy_cancel_cleanup_status(test_stats_t *stats,
     failed = test_fail(stats, name, "failed to confirm exit");
   if (!failed && vt_wait_for_exit(&session, PTY_TIMEOUT_MS) != 0)
     failed = test_fail(stats, name, "process did not exit cleanly");
-  if (!failed) test_pass(stats, name);
+  if (!failed)
+    test_pass(stats, name);
   free(snapshot);
-  if (started) vt_session_close(&session);
+  if (started)
+    vt_session_close(&session);
   restore_common_env(guards, sizeof(guards) / sizeof(guards[0]));
   unlink(qpath);
   unlink(index_path);
@@ -1481,37 +1501,38 @@ int run_tui_serve_install_guide(test_stats_t *stats, const char *binary,
   bool started = vt_session_start(&session, binary, args, 1, 110, 32);
   char *snapshot = NULL;
   int failed = 0;
-  if (!started) failed = test_fail(stats, name, "failed to start PTY session");
-  if (!failed && !vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!started)
+    failed = test_fail(stats, name, "failed to start PTY session");
+  if (!failed &&
+      !vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "initial menu did not render");
   if (!failed && !vt_send(&session, "v"))
     failed = test_fail(stats, name, "failed to open Serve");
-  if (!failed && !vt_expect_text(&session, "SERVE", PTY_TIMEOUT_MS,
-                                 &snapshot))
+  if (!failed && !vt_expect_text(&session, "SERVE", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "serve menu did not render");
   if (!failed && !vt_send(&session, "h"))
     failed = test_fail(stats, name, "failed to open host guide");
-  const char *prompts[] = {"Profile", "SSH host", "Remote root",
-                           "Base domain", "IAP type"};
+  const char *prompts[] = {"Profile", "SSH host", "Remote root", "Base domain",
+                           "IAP type"};
   for (size_t i = 0; !failed && i < sizeof(prompts) / sizeof(prompts[0]); i++) {
     if (!vt_expect_text(&session, prompts[i], PTY_TIMEOUT_MS, &snapshot)) {
       failed = test_fail(stats, name, "prompt did not render: %s", prompts[i]);
       break;
     }
     if (!vt_send(&session, "\r")) {
-      failed = test_fail(stats, name, "failed to accept prompt: %s", prompts[i]);
+      failed =
+          test_fail(stats, name, "failed to accept prompt: %s", prompts[i]);
       break;
     }
   }
-  if (!failed && !vt_expect_text(&session, "HOST INSTALL GUIDE",
-                                 PTY_TIMEOUT_MS, &snapshot))
+  if (!failed && !vt_expect_text(&session, "HOST INSTALL GUIDE", PTY_TIMEOUT_MS,
+                                 &snapshot))
     failed = test_fail(stats, name, "install guide panel did not render");
   if (!failed && !vt_expect_text(&session, "quick serve install --profile lab",
                                  1000, &snapshot))
     failed = test_fail(stats, name, "install command missing");
-  if (!failed && !vt_expect_text(&session, "create quick user", 1000,
-                                 &snapshot))
+  if (!failed &&
+      !vt_expect_text(&session, "create quick user", 1000, &snapshot))
     failed = test_fail(stats, name, "install steps missing");
   if (!failed && !vt_send(&session, "\x1b"))
     failed = test_fail(stats, name, "failed to dismiss guide");
@@ -1523,9 +1544,11 @@ int run_tui_serve_install_guide(test_stats_t *stats, const char *binary,
     failed = test_fail(stats, name, "failed to confirm exit");
   if (!failed && vt_wait_for_exit(&session, PTY_TIMEOUT_MS) != 0)
     failed = test_fail(stats, name, "process did not exit cleanly");
-  if (!failed) test_pass(stats, name);
+  if (!failed)
+    test_pass(stats, name);
   free(snapshot);
-  if (started) vt_session_close(&session);
+  if (started)
+    vt_session_close(&session);
   env_guard_restore(&guard);
   char config_path[PATH_MAX], oq[PATH_MAX];
   snprintf(config_path, sizeof(config_path), "%s/openquick/config.json", xdg);

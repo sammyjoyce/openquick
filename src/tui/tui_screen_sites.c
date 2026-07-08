@@ -1,11 +1,10 @@
-#include "tui_app_state.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "../core/ops.h"
 #include "tui.h"
+#include "tui_app_state.h"
 #include "tui_internal.h"
 #include "tui_panel.h"
 #include "tui_product_model.h"
@@ -29,8 +28,7 @@ typedef struct {
   char action;
 } quick_tui_site_detail_state_t;
 
-static void quick_tui_site_detail_redraw(tui_window_t *window,
-                                         void *userdata) {
+static void quick_tui_site_detail_redraw(tui_window_t *window, void *userdata) {
   quick_tui_site_detail_state_t *state = userdata;
   const quick_list_item_t *item = state->item;
   tui_draw_border(window);
@@ -45,7 +43,8 @@ static void quick_tui_site_detail_redraw(tui_window_t *window,
       {"updated", item->updated_at ? item->updated_at : "unknown"},
       {"deployer", item->deployer ? item->deployer : "unknown"},
       {"subdomain", item->subdomain ? item->subdomain : item->name},
-      {"public", item->have_public ? (item->is_public ? "on" : "off") : "unknown"},
+      {"public",
+       item->have_public ? (item->is_public ? "on" : "off") : "unknown"},
       {"source", item->source == QUICK_LIST_SOURCE_REMOTE ? "remote" : "local"},
       {"stale", item->stale ? "yes" : "no"},
   };
@@ -53,18 +52,19 @@ static void quick_tui_site_detail_redraw(tui_window_t *window,
     tui_set_color(window->win, TUI_COLOR_DIM);
     mvwaddnstr(window->win, y, 3, rows[i].key, 14);
     tui_unset_color(window->win, TUI_COLOR_DIM);
-    mvwaddnstr(window->win, y, 18, rows[i].value ? rows[i].value : "", window->width - 21);
+    mvwaddnstr(window->win, y, 18, rows[i].value ? rows[i].value : "",
+               window->width - 21);
     y++;
   }
   tui_set_color(window->win, TUI_COLOR_INFO);
-  tui_print_centered(window->win, window->height - 2,
-                     "o:open  c:copy  d:deploy  p:public  x:delete  r:refresh  Esc:back");
+  tui_print_centered(
+      window->win, window->height - 2,
+      "o:open  c:copy  d:deploy  p:public  x:delete  r:refresh  Esc:back");
   tui_unset_color(window->win, TUI_COLOR_INFO);
 }
 
 static tui_modal_decision_t quick_tui_site_detail_key(tui_window_t *window,
-                                                       int ch,
-                                                       void *userdata) {
+                                                      int ch, void *userdata) {
   (void)window;
   quick_tui_site_detail_state_t *state = userdata;
   switch (ch) {
@@ -125,8 +125,7 @@ static void quick_tui_delete_site(quick_tui_app_state_t *state,
                                   const char *site) {
   quick_delete_result_t result;
   quick_delete_result_init(&result);
-  quick_delete_request_t request = {.profiles = &state->profiles,
-                                    .site = site};
+  quick_delete_request_t request = {.profiles = &state->profiles, .site = site};
   app_error err = quick_op_delete(&request, &result);
   if (err == APP_SUCCESS && result.confirmation_required) {
     char msg[256];
@@ -137,7 +136,8 @@ static void quick_tui_delete_site(quick_tui_app_state_t *state,
       quick_delete_result_init(&result);
       err = quick_op_delete(&request, &result);
     } else {
-      tui_show_message("Delete site", "Confirmation did not match; delete cancelled.");
+      tui_show_message("Delete site",
+                       "Confirmation did not match; delete cancelled.");
       quick_delete_result_destroy(&result);
       return;
     }
@@ -176,7 +176,8 @@ static void quick_tui_toggle_public_site(quick_tui_app_state_t *state,
     char msg[256];
     snprintf(msg, sizeof(msg), "Make site '%s' public?", site);
     if (!quick_tui_confirm_site_name("Public site", site, msg)) {
-      tui_show_message("Public site", "Confirmation did not match; public toggle cancelled.");
+      tui_show_message("Public site",
+                       "Confirmation did not match; public toggle cancelled.");
       quick_public_result_destroy(&result);
       return;
     }
@@ -184,7 +185,8 @@ static void quick_tui_toggle_public_site(quick_tui_app_state_t *state,
   }
   err = quick_op_public(&request, &result);
   if (err == APP_SUCCESS) {
-    tui_show_message("Public site", turn_on ? "Site is now public." : "Site is no longer public.");
+    tui_show_message("Public site", turn_on ? "Site is now public."
+                                            : "Site is no longer public.");
   } else {
     char msg[256];
     snprintf(msg, sizeof(msg), "Public toggle failed: %s", app_strerror(err));
@@ -244,7 +246,8 @@ void quick_tui_screen_sites(quick_tui_app_state_t *state) {
 
     if (result.count == 0) {
       tui_show_message("Sites",
-                       "No deployed sites are known yet.\n\nUse New site to scaffold a folder, then Deploy it.");
+                       "No deployed sites are known yet.\n\nUse New site to "
+                       "scaffold a folder, then Deploy it.");
       quick_list_result_destroy(&result);
       return;
     }
@@ -264,35 +267,40 @@ void quick_tui_screen_sites(quick_tui_app_state_t *state) {
         continue;
       }
       (void)quick_tui_format_site_row(&result.items[i], labels[i], 512);
-      items[i] = (tui_menu_item_t){.label = labels[i],
-                                   .description = result.items[i].stale
-                                                      ? "cached local row; remote refresh failed"
-                                                      : "Open site actions",
-                                   .id = (int)i + 1};
+      items[i] = (tui_menu_item_t){
+          .label = labels[i],
+          .description = result.items[i].stale
+                             ? "cached local row; remote refresh failed"
+                             : "Open site actions",
+          .id = (int)i + 1};
     }
     items[result.count] = (tui_menu_item_t){.kind = TUI_MENU_ITEM_SEPARATOR};
-    items[result.count + 1U] = (tui_menu_item_t){.label = "&Back",
-                                                 .description = "Return to OpenQuick",
-                                                 .id = QUICK_TUI_SITE_BACK_ID};
+    items[result.count + 1U] =
+        (tui_menu_item_t){.label = "&Back",
+                          .description = "Return to OpenQuick",
+                          .id = QUICK_TUI_SITE_BACK_ID};
 
     tui_window_t *frame = tui_create_centered_window(20, 78);
     if (!frame) {
       quick_tui_free_site_menu(items, labels, result.count);
       quick_list_result_destroy(&result);
-      tui_show_message("Sites", "The terminal is too small for the sites list.");
+      tui_show_message("Sites",
+                       "The terminal is too small for the sites list.");
       return;
     }
     tui_push_background(frame);
     tui_menu_result_t selection = tui_show_menu(
-        frame, &(tui_menu_config_t){.title = "Sites",
-                                    .subtitle = "local rows first; remote rows when a profile has ssh",
-                                    .items = items,
-                                    .item_count = (int)item_count,
-                                    .default_index = 0,
-                                    .frame_height = 20,
-                                    .frame_width = 78,
-                                    .enable_search = true,
-                                    .show_numeric_keys = true});
+        frame,
+        &(tui_menu_config_t){
+            .title = "Sites",
+            .subtitle = "local rows first; remote rows when a profile has ssh",
+            .items = items,
+            .item_count = (int)item_count,
+            .default_index = 0,
+            .frame_height = 20,
+            .frame_width = 78,
+            .enable_search = true,
+            .show_numeric_keys = true});
     tui_pop_background();
     tui_destroy_window(frame);
 
@@ -301,7 +309,8 @@ void quick_tui_screen_sites(quick_tui_app_state_t *state) {
       keep_open = false;
     } else if (selection.selected_id > 0 &&
                (size_t)selection.selected_id <= result.count) {
-      quick_list_item_t *item = &result.items[(size_t)selection.selected_id - 1U];
+      quick_list_item_t *item =
+          &result.items[(size_t)selection.selected_id - 1U];
       char action = quick_tui_show_site_detail(item);
       if (action == 'o') {
         app_error open_err = quick_op_open_url(item->url);
@@ -317,7 +326,8 @@ void quick_tui_screen_sites(quick_tui_app_state_t *state) {
         if (copy_err == APP_SUCCESS) {
           tui_show_message("Copy URL", "URL copied to the clipboard.");
         } else {
-          tui_show_message("Copy URL", copy_msg ? copy_msg : app_strerror(copy_err));
+          tui_show_message("Copy URL",
+                           copy_msg ? copy_msg : app_strerror(copy_err));
         }
         free(copy_msg);
       } else if (action == 'd') {

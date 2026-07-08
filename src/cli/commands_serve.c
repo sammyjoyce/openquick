@@ -86,8 +86,8 @@ static app_error serve_dev(const app_config_t *config, int argc,
   quick_profile_config_destroy(&profiles);
   if (err == APP_ERROR_NOT_FOUND) {
     quick_serve_dev_command_destroy(&command);
-    quick_print_error(config,
-                      "quickd not found; set QUICK_QUICKD or install quickd on PATH");
+    quick_print_error(
+        config, "quickd not found; set QUICK_QUICKD or install quickd on PATH");
     return err;
   }
   if (err != APP_SUCCESS) {
@@ -106,17 +106,15 @@ static app_error serve_dev(const app_config_t *config, int argc,
 }
 
 static bool serve_iap_is_tailscale(const char *iap) {
-  return iap &&
-         (strcmp(iap, "tailscale") == 0 ||
-          strcmp(iap, "tailscale-localapi") == 0 ||
-          strcmp(iap, "tailscale-serve") == 0 ||
-          strcmp(iap, "tailscale-tsnet") == 0);
+  return iap && (strcmp(iap, "tailscale") == 0 ||
+                 strcmp(iap, "tailscale-localapi") == 0 ||
+                 strcmp(iap, "tailscale-serve") == 0 ||
+                 strcmp(iap, "tailscale-tsnet") == 0);
 }
 
 static bool serve_iap_is_cloudflare(const char *iap) {
-  return iap &&
-         (strcmp(iap, "cloudflare") == 0 ||
-          strcmp(iap, "cloudflare-access") == 0);
+  return iap && (strcmp(iap, "cloudflare") == 0 ||
+                 strcmp(iap, "cloudflare-access") == 0);
 }
 
 static bool serve_iap_is_allowed(const char *iap) {
@@ -125,20 +123,22 @@ static bool serve_iap_is_allowed(const char *iap) {
 }
 
 static const char *serve_default_iap_mode(const char *iap) {
-  if (!iap || strcmp(iap, "none") == 0) return "";
-  if (serve_iap_is_cloudflare(iap)) return "access";
-  if (strcmp(iap, "tailscale-serve") == 0) return "serve";
-  if (strcmp(iap, "tailscale-tsnet") == 0) return "tsnet";
-  if (serve_iap_is_tailscale(iap)) return "localapi";
+  if (!iap || strcmp(iap, "none") == 0)
+    return "";
+  if (serve_iap_is_cloudflare(iap))
+    return "access";
+  if (strcmp(iap, "tailscale-serve") == 0)
+    return "serve";
+  if (strcmp(iap, "tailscale-tsnet") == 0)
+    return "tsnet";
+  if (serve_iap_is_tailscale(iap))
+    return "localapi";
   return "";
 }
 
-static app_error serve_validate_install_inputs(const app_config_t *config,
-                                               const char *profile_name,
-                                               const char *host,
-                                               const char *remote_root,
-                                               const char *domain,
-                                               const char *iap) {
+static app_error serve_validate_install_inputs(
+    const app_config_t *config, const char *profile_name, const char *host,
+    const char *remote_root, const char *domain, const char *iap) {
   if (!quick_profile_name_is_safe(profile_name)) {
     quick_print_error(config, "profile contains unsafe characters");
     return APP_ERROR_VALIDATION;
@@ -148,16 +148,21 @@ static app_error serve_validate_install_inputs(const app_config_t *config,
     return APP_ERROR_VALIDATION;
   }
   if (!quick_remote_path_is_safe(remote_root)) {
-    quick_print_error(config, "remote root must be an absolute safe path without shell metacharacters");
+    quick_print_error(config,
+                      "remote root must be an absolute safe path without shell "
+                      "metacharacters");
     return APP_ERROR_VALIDATION;
   }
   if (domain && !quick_domain_is_safe(domain)) {
-    quick_print_error(config, "domain must be a DNS name without shell metacharacters");
+    quick_print_error(config,
+                      "domain must be a DNS name without shell metacharacters");
     return APP_ERROR_VALIDATION;
   }
   if (!serve_iap_is_allowed(iap)) {
-    quick_print_error(config,
-                      "iap must be tailscale, tailscale-localapi, tailscale-serve, tailscale-tsnet, cloudflare, cloudflare-access, or none");
+    quick_print_error(
+        config,
+        "iap must be tailscale, tailscale-localapi, tailscale-serve, "
+        "tailscale-tsnet, cloudflare, cloudflare-access, or none");
     return APP_ERROR_VALIDATION;
   }
   return APP_SUCCESS;
@@ -172,10 +177,12 @@ static char *serve_replace_all(const char *input, const char *needle,
   const size_t needle_len = strlen(needle);
   const size_t repl_len = strlen(replacement);
   size_t count = 0;
-  for (const char *p = strstr(input, needle); p; p = strstr(p + needle_len, needle)) {
+  for (const char *p = strstr(input, needle); p;
+       p = strstr(p + needle_len, needle)) {
     count++;
   }
-  size_t out_len = input_len + count * (repl_len > needle_len ? repl_len - needle_len : 0U);
+  size_t out_len =
+      input_len + count * (repl_len > needle_len ? repl_len - needle_len : 0U);
   if (needle_len > repl_len) {
     out_len = input_len - count * (needle_len - repl_len);
   }
@@ -256,7 +263,8 @@ static char *serve_iap_extra_json(const quick_iap_config_t *iap_config) {
 
 static char *serve_host_config_json(const char *remote_root, const char *domain,
                                     const quick_iap_config_t *iap_config) {
-  const char *iap = iap_config && iap_config->type ? iap_config->type : "tailscale";
+  const char *iap =
+      iap_config && iap_config->type ? iap_config->type : "tailscale";
   const char *public_domain = domain ? domain : "";
   const char *mode = iap_config && iap_config->mode && iap_config->mode[0]
                          ? iap_config->mode
@@ -349,7 +357,8 @@ static app_error serve_write_profile(const char *profile_name, const char *host,
   quick_profile_config_t profiles;
   quick_profile_config_init(&profiles);
   (void)quick_profile_config_load_default(&profiles);
-  quick_profile_t *profile = quick_profile_config_upsert(&profiles, profile_name);
+  quick_profile_t *profile =
+      quick_profile_config_upsert(&profiles, profile_name);
   if (!profile) {
     quick_profile_config_destroy(&profiles);
     return APP_ERROR_MEMORY;
@@ -364,7 +373,8 @@ static app_error serve_write_profile(const char *profile_name, const char *host,
   if (err == APP_SUCCESS && domain) {
     err = serve_profile_set_string(&profile->base_domain, domain);
   }
-  const char *iap = iap_config && iap_config->type ? iap_config->type : "tailscale";
+  const char *iap =
+      iap_config && iap_config->type ? iap_config->type : "tailscale";
   if (err == APP_SUCCESS) {
     err = serve_profile_set_string(&profile->iap.type, iap);
   }
@@ -373,14 +383,16 @@ static app_error serve_write_profile(const char *profile_name, const char *host,
                                    iap_config ? iap_config->mode : NULL);
   }
   if (err == APP_SUCCESS) {
-    err = serve_profile_set_string(
-        &profile->iap.team_domain,
-        iap_config && serve_iap_is_cloudflare(iap) ? iap_config->team_domain : NULL);
+    err = serve_profile_set_string(&profile->iap.team_domain,
+                                   iap_config && serve_iap_is_cloudflare(iap)
+                                       ? iap_config->team_domain
+                                       : NULL);
   }
   if (err == APP_SUCCESS) {
-    err = serve_profile_set_string(
-        &profile->iap.audience,
-        iap_config && serve_iap_is_cloudflare(iap) ? iap_config->audience : NULL);
+    err = serve_profile_set_string(&profile->iap.audience,
+                                   iap_config && serve_iap_is_cloudflare(iap)
+                                       ? iap_config->audience
+                                       : NULL);
   }
   if (err != APP_SUCCESS) {
     quick_profile_config_destroy(&profiles);
@@ -429,7 +441,9 @@ static app_error serve_ssh_expect(const app_config_t *config, const char *host,
   quick_process_result_t res = {0};
   app_error err = serve_ssh_capture(host, remote_argv, NULL, &res);
   if (err != APP_SUCCESS || res.exit_code != 0) {
-    quick_print_error(config, res.err && res.err[0] ? res.err : "remote install command failed");
+    quick_print_error(config, res.err && res.err[0]
+                                  ? res.err
+                                  : "remote install command failed");
     quick_process_result_destroy(&res);
     return err == APP_SUCCESS ? APP_ERROR_IO : err;
   }
@@ -438,8 +452,7 @@ static app_error serve_ssh_expect(const app_config_t *config, const char *host,
 }
 
 static app_error serve_ssh_script_expect(const app_config_t *config,
-                                         const char *host,
-                                         const char *script,
+                                         const char *host, const char *script,
                                          const char *arg_path) {
   if (!script || !arg_path || !quick_remote_path_is_safe(arg_path)) {
     quick_print_error(config, "remote script argument path is unsafe");
@@ -449,7 +462,9 @@ static app_error serve_ssh_script_expect(const app_config_t *config,
   quick_process_result_t res = {0};
   app_error err = serve_ssh_capture(host, argv, script, &res);
   if (err != APP_SUCCESS || res.exit_code != 0) {
-    quick_print_error(config, res.err && res.err[0] ? res.err : "remote install command failed");
+    quick_print_error(config, res.err && res.err[0]
+                                  ? res.err
+                                  : "remote install command failed");
     quick_process_result_destroy(&res);
     return err == APP_SUCCESS ? APP_ERROR_IO : err;
   }
@@ -463,7 +478,8 @@ static app_error serve_ssh_tee(const app_config_t *config, const char *host,
   quick_process_result_t res = {0};
   app_error err = serve_ssh_capture(host, argv, content, &res);
   if (err != APP_SUCCESS || res.exit_code != 0) {
-    quick_print_error(config, res.err && res.err[0] ? res.err : "remote tee failed");
+    quick_print_error(config,
+                      res.err && res.err[0] ? res.err : "remote tee failed");
     quick_process_result_destroy(&res);
     return err == APP_SUCCESS ? APP_ERROR_IO : err;
   }
@@ -472,21 +488,27 @@ static app_error serve_ssh_tee(const app_config_t *config, const char *host,
 }
 
 static char *serve_trimmed_copy(const char *value) {
-  if (!value) return NULL;
+  if (!value)
+    return NULL;
   const char *start = value;
-  while (*start == ' ' || *start == '\t' || *start == '\r' || *start == '\n') start++;
+  while (*start == ' ' || *start == '\t' || *start == '\r' || *start == '\n')
+    start++;
   const char *end = start + strlen(start);
-  while (end > start && (end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\r' || end[-1] == '\n')) end--;
+  while (end > start && (end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\r' ||
+                         end[-1] == '\n'))
+    end--;
   size_t len = (size_t)(end - start);
   char *copy = malloc(len + 1U);
-  if (!copy) return NULL;
+  if (!copy)
+    return NULL;
   memcpy(copy, start, len);
   copy[len] = '\0';
   return copy;
 }
 
 static bool serve_remote_user_is_safe(const char *user) {
-  if (!user || user[0] == '\0' || user[0] == '-') return false;
+  if (!user || user[0] == '\0' || user[0] == '-')
+    return false;
   for (const unsigned char *p = (const unsigned char *)user; *p; p++) {
     if ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
         (*p >= '0' && *p <= '9') || *p == '_' || *p == '-' || *p == '.') {
@@ -504,7 +526,8 @@ static app_error serve_remote_mktemp_dir(const app_config_t *config,
   quick_process_result_t res = {0};
   app_error err = serve_ssh_capture(host, argv, NULL, &res);
   if (err != APP_SUCCESS || res.exit_code != 0) {
-    quick_print_error(config, res.err && res.err[0] ? res.err : "remote mktemp failed");
+    quick_print_error(config,
+                      res.err && res.err[0] ? res.err : "remote mktemp failed");
     quick_process_result_destroy(&res);
     return err == APP_SUCCESS ? APP_ERROR_IO : err;
   }
@@ -532,13 +555,15 @@ static app_error serve_install_execute(const app_config_t *config,
   char *quickd = serve_find_quickd();
   if (!quickd) {
     quick_print_error(config,
-                      "quickd not found; set QUICK_QUICKD or install quickd on PATH before --execute");
+                      "quickd not found; set QUICK_QUICKD or install quickd on "
+                      "PATH before --execute");
     return APP_ERROR_NOT_FOUND;
   }
   char *scp = quick_find_executable_cli("scp");
   if (!scp) {
     free(quickd);
-    quick_print_error(config, "scp not found; install OpenSSH scp or put it on PATH");
+    quick_print_error(config,
+                      "scp not found; install OpenSSH scp or put it on PATH");
     return APP_ERROR_NOT_FOUND;
   }
   free(scp);
@@ -552,9 +577,10 @@ static app_error serve_install_execute(const app_config_t *config,
     quick_print_error(config, "failed to read openquick.service install asset");
     return err;
   }
-  char *unit_for_root = strcmp(remote_root, "/srv/quick") == 0
-                            ? strdup(unit)
-                            : serve_replace_all(unit, "/srv/quick", remote_root);
+  char *unit_for_root =
+      strcmp(remote_root, "/srv/quick") == 0
+          ? strdup(unit)
+          : serve_replace_all(unit, "/srv/quick", remote_root);
   free(unit);
   if (!unit_for_root) {
     free(host_json);
@@ -575,7 +601,8 @@ static app_error serve_install_execute(const app_config_t *config,
   bool backup_created = false;
 
   err = serve_remote_mktemp_dir(config, host, &remote_tmp_dir);
-  if (err != APP_SUCCESS) goto done;
+  if (err != APP_SUCCESS)
+    goto done;
   tmp_remote = quick_path_join_cli(remote_tmp_dir, "quickd");
   backup_dir = quick_path_join_cli(remote_tmp_dir, "backup");
   if (!tmp_remote || !backup_dir) {
@@ -589,15 +616,19 @@ static app_error serve_install_execute(const app_config_t *config,
   }
   sprintf(scp_dest, "%s:%s", host, tmp_remote);
 
-  char *const groupadd[] = {"sudo", "groupadd", "--system", "--force", "quick-deploy", NULL};
+  char *const groupadd[] = {"sudo",    "groupadd",     "--system",
+                            "--force", "quick-deploy", NULL};
   err = serve_ssh_expect(config, host, groupadd);
-  if (err != APP_SUCCESS) goto done;
+  if (err != APP_SUCCESS)
+    goto done;
 
   char *const id_user[] = {"id", "-un", NULL};
   quick_process_result_t user_res = {0};
   err = serve_ssh_capture(host, id_user, NULL, &user_res);
   if (err != APP_SUCCESS || user_res.exit_code != 0) {
-    quick_print_error(config, user_res.err && user_res.err[0] ? user_res.err : "failed to identify SSH user");
+    quick_print_error(config, user_res.err && user_res.err[0]
+                                  ? user_res.err
+                                  : "failed to identify SSH user");
     err = err == APP_SUCCESS ? APP_ERROR_IO : err;
     quick_process_result_destroy(&user_res);
     goto done;
@@ -615,28 +646,38 @@ static app_error serve_install_execute(const app_config_t *config,
   err = serve_ssh_capture(host, id_quick, NULL, &id_res);
   const bool quick_user_exists = err == APP_SUCCESS && id_res.exit_code == 0;
   quick_process_result_destroy(&id_res);
-  if (err != APP_SUCCESS) goto done;
+  if (err != APP_SUCCESS)
+    goto done;
   if (!quick_user_exists) {
-    char *const useradd[] = {"sudo", "useradd", "--system", "--home-dir",
-                             (char *)remote_root, "--create-home", "--shell",
-                             "/usr/sbin/nologin", "quick", NULL};
+    char *const useradd[] = {"sudo",       "useradd",           "--system",
+                             "--home-dir", (char *)remote_root, "--create-home",
+                             "--shell",    "/usr/sbin/nologin", "quick",
+                             NULL};
     err = serve_ssh_expect(config, host, useradd);
-    if (err != APP_SUCCESS) goto done;
+    if (err != APP_SUCCESS)
+      goto done;
   }
-  char *const usermod[] = {"sudo", "usermod", "-a", "-G", "quick-deploy", "quick", NULL};
+  char *const usermod[] = {"sudo",         "usermod", "-a", "-G",
+                           "quick-deploy", "quick",   NULL};
   err = serve_ssh_expect(config, host, usermod);
-  if (err != APP_SUCCESS) goto done;
+  if (err != APP_SUCCESS)
+    goto done;
   if (remote_user && strcmp(remote_user, "root") != 0 &&
       strcmp(remote_user, "quick") != 0) {
-    char *const deployer_usermod[] = {"sudo", "usermod", "-a", "-G",
+    char *const deployer_usermod[] = {"sudo",         "usermod",   "-a", "-G",
                                       "quick-deploy", remote_user, NULL};
     err = serve_ssh_expect(config, host, deployer_usermod);
-    if (err != APP_SUCCESS) goto done;
+    if (err != APP_SUCCESS)
+      goto done;
   }
 
-  char *const mkdir_root[] = {"sudo", "install", "-d", "-m", "2750", "-o", "quick", "-g", "quick-deploy", (char *)remote_root, NULL};
+  char *const mkdir_root[] = {
+      "sudo", "install", "-d", "-m",           "2750",
+      "-o",   "quick",   "-g", "quick-deploy", (char *)remote_root,
+      NULL};
   err = serve_ssh_expect(config, host, mkdir_root);
-  if (err != APP_SUCCESS) goto done;
+  if (err != APP_SUCCESS)
+    goto done;
   sites_dir = quick_path_join_cli(remote_root, "sites");
   data_dir = quick_path_join_cli(remote_root, "data");
   uploads_dir = quick_path_join_cli(remote_root, "uploads");
@@ -646,19 +687,33 @@ static app_error serve_install_execute(const app_config_t *config,
     err = APP_ERROR_MEMORY;
     goto dirs_done;
   }
-  char *const mkdir_sites[] = {"sudo", "install", "-d", "-m", "2770", "-o", "quick", "-g", "quick-deploy", sites_dir, NULL};
+  char *const mkdir_sites[] = {"sudo",         "install", "-d",    "-m",
+                               "2770",         "-o",      "quick", "-g",
+                               "quick-deploy", sites_dir, NULL};
   err = serve_ssh_expect(config, host, mkdir_sites);
-  if (err != APP_SUCCESS) goto dirs_done;
-  char *const mkdir_data[] = {"sudo", "install", "-d", "-m", "2770", "-o", "quick", "-g", "quick-deploy", data_dir, NULL};
+  if (err != APP_SUCCESS)
+    goto dirs_done;
+  char *const mkdir_data[] = {"sudo",         "install", "-d",    "-m",
+                              "2770",         "-o",      "quick", "-g",
+                              "quick-deploy", data_dir,  NULL};
   err = serve_ssh_expect(config, host, mkdir_data);
-  if (err != APP_SUCCESS) goto dirs_done;
-  char *const mkdir_uploads[] = {"sudo", "install", "-d", "-m", "2770", "-o", "quick", "-g", "quick-deploy", uploads_dir, NULL};
+  if (err != APP_SUCCESS)
+    goto dirs_done;
+  char *const mkdir_uploads[] = {"sudo",         "install",   "-d",    "-m",
+                                 "2770",         "-o",        "quick", "-g",
+                                 "quick-deploy", uploads_dir, NULL};
   err = serve_ssh_expect(config, host, mkdir_uploads);
-  if (err != APP_SUCCESS) goto dirs_done;
-  char *const mkdir_logs[] = {"sudo", "install", "-d", "-m", "2750", "-o", "quick", "-g", "quick-deploy", logs_dir, NULL};
+  if (err != APP_SUCCESS)
+    goto dirs_done;
+  char *const mkdir_logs[] = {"sudo",         "install", "-d",    "-m",
+                              "2750",         "-o",      "quick", "-g",
+                              "quick-deploy", logs_dir,  NULL};
   err = serve_ssh_expect(config, host, mkdir_logs);
-  if (err != APP_SUCCESS) goto dirs_done;
-  char *const mkdir_config[] = {"sudo", "install", "-d", "-m", "2750", "-o", "quick", "-g", "quick-deploy", config_dir, NULL};
+  if (err != APP_SUCCESS)
+    goto dirs_done;
+  char *const mkdir_config[] = {"sudo",         "install",  "-d",    "-m",
+                                "2750",         "-o",       "quick", "-g",
+                                "quick-deploy", config_dir, NULL};
   err = serve_ssh_expect(config, host, mkdir_config);
 
 dirs_done:
@@ -667,9 +722,12 @@ dirs_done:
         "set -e\n"
         "b=$1\n"
         "sudo install -d -m 0700 \"$b\"\n"
-        "if [ -e /usr/local/bin/quickd ]; then sudo cp -p /usr/local/bin/quickd \"$b/quickd\"; fi\n"
-        "if [ -e /etc/openquick/quickd.json ]; then sudo cp -p /etc/openquick/quickd.json \"$b/quickd.json\"; fi\n"
-        "if [ -e /etc/systemd/system/openquick.service ]; then sudo cp -p /etc/systemd/system/openquick.service \"$b/openquick.service\"; fi\n";
+        "if [ -e /usr/local/bin/quickd ]; then sudo cp -p "
+        "/usr/local/bin/quickd \"$b/quickd\"; fi\n"
+        "if [ -e /etc/openquick/quickd.json ]; then sudo cp -p "
+        "/etc/openquick/quickd.json \"$b/quickd.json\"; fi\n"
+        "if [ -e /etc/systemd/system/openquick.service ]; then sudo cp -p "
+        "/etc/systemd/system/openquick.service \"$b/openquick.service\"; fi\n";
     err = serve_ssh_script_expect(config, host, backup_script, backup_dir);
     if (err == APP_SUCCESS) {
       backup_created = true;
@@ -681,13 +739,18 @@ dirs_done:
     quick_process_result_t scp_res = {0};
     err = quick_process_capture(scp_argv, NULL, &scp_res);
     if (err != APP_SUCCESS || scp_res.exit_code != 0) {
-      quick_print_error(config, scp_res.err && scp_res.err[0] ? scp_res.err : "failed to copy quickd over scp");
+      quick_print_error(config, scp_res.err && scp_res.err[0]
+                                    ? scp_res.err
+                                    : "failed to copy quickd over scp");
       err = err == APP_SUCCESS ? APP_ERROR_IO : err;
     }
     quick_process_result_destroy(&scp_res);
   }
   if (err == APP_SUCCESS) {
-    char *const install_quickd[] = {"sudo", "install", "-m", "0755", "-o", "root", "-g", "root", tmp_remote, "/usr/local/bin/quickd", NULL};
+    char *const install_quickd[] = {
+        "sudo", "install", "-m",   "0755",     "-o",
+        "root", "-g",      "root", tmp_remote, "/usr/local/bin/quickd",
+        NULL};
     err = serve_ssh_expect(config, host, install_quickd);
   }
   if (err == APP_SUCCESS) {
@@ -695,7 +758,9 @@ dirs_done:
     (void)serve_ssh_expect(config, host, rm_tmp);
   }
   if (err == APP_SUCCESS) {
-    char *const mkdir_etc[] = {"sudo", "install", "-d", "-m", "0755", "-o", "root", "-g", "root", "/etc/openquick", NULL};
+    char *const mkdir_etc[] = {
+        "sudo", "install",        "-d", "-m", "0755", "-o", "root", "-g",
+        "root", "/etc/openquick", NULL};
     err = serve_ssh_expect(config, host, mkdir_etc);
   }
   if (err == APP_SUCCESS) {
@@ -721,23 +786,26 @@ dirs_done:
     }
   }
   if (err == APP_SUCCESS) {
-    err = serve_ssh_tee(config, host, "/etc/systemd/system/openquick.service", unit_for_root);
+    err = serve_ssh_tee(config, host, "/etc/systemd/system/openquick.service",
+                        unit_for_root);
   }
   if (err == APP_SUCCESS) {
     char *const daemon_reload[] = {"sudo", "systemctl", "daemon-reload", NULL};
     err = serve_ssh_expect(config, host, daemon_reload);
   }
   if (err == APP_SUCCESS) {
-    char *const enable_unit[] = {"sudo", "systemctl", "enable", "--now", "openquick.service", NULL};
+    char *const enable_unit[] = {"sudo",  "systemctl",         "enable",
+                                 "--now", "openquick.service", NULL};
     err = serve_ssh_expect(config, host, enable_unit);
   }
   if (err == APP_SUCCESS) {
-    char *const group_writable[] = {"sudo", "chgrp", "-R", "quick-deploy",
-                                    data_dir, sites_dir, uploads_dir, NULL};
+    char *const group_writable[] = {"sudo",         "chgrp",  "-R",
+                                    "quick-deploy", data_dir, sites_dir,
+                                    uploads_dir,    NULL};
     err = serve_ssh_expect(config, host, group_writable);
   }
   if (err == APP_SUCCESS) {
-    char *const mode_writable[] = {"sudo", "chmod", "-R", "g+rwX",
+    char *const mode_writable[] = {"sudo",   "chmod",   "-R",        "g+rwX",
                                    data_dir, sites_dir, uploads_dir, NULL};
     err = serve_ssh_expect(config, host, mode_writable);
   }
@@ -747,28 +815,41 @@ dirs_done:
     err = serve_ssh_capture(host, doctor, NULL, &doc_res);
     if (err != APP_SUCCESS || doc_res.exit_code != 0 ||
         (doc_res.out && strstr(doc_res.out, "\"status\":\"fail\""))) {
-      const char *detail = doc_res.err && doc_res.err[0]
-                               ? doc_res.err
-                               : (doc_res.out && doc_res.out[0]
-                                      ? doc_res.out
-                                      : "quickd doctor --host --json failed after install");
+      const char *detail =
+          doc_res.err && doc_res.err[0]
+              ? doc_res.err
+              : (doc_res.out && doc_res.out[0]
+                     ? doc_res.out
+                     : "quickd doctor --host --json failed after install");
       quick_print_error(config, detail);
       err = err == APP_SUCCESS ? APP_ERROR_IO : err;
       if (backup_created) {
-        app_output_format(config, true, "rollback   restoring backup from %s", backup_dir);
+        app_output_format(config, true, "rollback   restoring backup from %s",
+                          backup_dir);
         static const char restore_script[] =
             "set -e\n"
             "b=$1\n"
-            "if sudo test -f \"$b/quickd\"; then sudo cp -p \"$b/quickd\" /usr/local/bin/quickd; fi\n"
-            "if sudo test -f \"$b/quickd.json\"; then sudo cp -p \"$b/quickd.json\" /etc/openquick/quickd.json; fi\n"
-            "if sudo test -f \"$b/openquick.service\"; then sudo cp -p \"$b/openquick.service\" /etc/systemd/system/openquick.service; fi\n"
+            "if sudo test -f \"$b/quickd\"; then sudo cp -p \"$b/quickd\" "
+            "/usr/local/bin/quickd; fi\n"
+            "if sudo test -f \"$b/quickd.json\"; then sudo cp -p "
+            "\"$b/quickd.json\" /etc/openquick/quickd.json; fi\n"
+            "if sudo test -f \"$b/openquick.service\"; then sudo cp -p "
+            "\"$b/openquick.service\" /etc/systemd/system/openquick.service; "
+            "fi\n"
             "sudo systemctl daemon-reload\n"
             "sudo systemctl restart openquick.service || true\n";
-        app_error restore_err = serve_ssh_script_expect(config, host, restore_script, backup_dir);
+        app_error restore_err =
+            serve_ssh_script_expect(config, host, restore_script, backup_dir);
         if (restore_err == APP_SUCCESS) {
-          app_output("rollback   previous quickd/config restored; inspect backup before removing it", config, true);
+          app_output(
+              "rollback   previous quickd/config restored; inspect backup "
+              "before removing it",
+              config, true);
         } else {
-          app_output_format(config, true, "rollback   restore failed; manual backup remains at %s", backup_dir);
+          app_output_format(
+              config, true,
+              "rollback   restore failed; manual backup remains at %s",
+              backup_dir);
         }
       }
     }
@@ -806,16 +887,20 @@ static app_error serve_install(const app_config_t *config, int argc,
   const char *iap = iap_arg;
   const bool execute = quick_cmd_flag(argc, argv, "--execute");
   const bool unsafe = quick_cmd_flag(argc, argv, "--allow-public-unsafe");
-  if (!profile_name) profile_name = "default";
+  if (!profile_name)
+    profile_name = "default";
 
   quick_profile_config_t profiles;
   app_error err = quick_cmd_load_profiles(&profiles);
   if (err != APP_SUCCESS) {
     return err;
   }
-  const quick_profile_t *profile = quick_profile_config_find(&profiles, profile_name);
-  if (!host && profile && profile->ssh && profile->ssh[0]) host = profile->ssh;
-  if (!remote_root && profile && profile->remote_root && profile->remote_root[0]) {
+  const quick_profile_t *profile =
+      quick_profile_config_find(&profiles, profile_name);
+  if (!host && profile && profile->ssh && profile->ssh[0])
+    host = profile->ssh;
+  if (!remote_root && profile && profile->remote_root &&
+      profile->remote_root[0]) {
     remote_root = profile->remote_root;
   }
   if (!domain && profile && profile->base_domain && profile->base_domain[0]) {
@@ -824,8 +909,10 @@ static app_error serve_install(const app_config_t *config, int argc,
   if (!iap && profile && profile->iap.type && profile->iap.type[0]) {
     iap = profile->iap.type;
   }
-  if (!remote_root) remote_root = "/srv/quick";
-  if (!iap) iap = "tailscale";
+  if (!remote_root)
+    remote_root = "/srv/quick";
+  if (!iap)
+    iap = "tailscale";
 
   quick_iap_config_t install_iap = {
       .type = (char *)iap,
@@ -837,8 +924,8 @@ static app_error serve_install(const app_config_t *config, int argc,
                            : (char *)serve_default_iap_mode(iap);
     install_iap.team_domain = profile->iap.team_domain;
     install_iap.audience = profile->iap.audience;
-  } else if (profile && serve_iap_is_cloudflare(iap) &&
-             profile->iap.type && serve_iap_is_cloudflare(profile->iap.type)) {
+  } else if (profile && serve_iap_is_cloudflare(iap) && profile->iap.type &&
+             serve_iap_is_cloudflare(profile->iap.type)) {
     install_iap.team_domain = profile->iap.team_domain;
     install_iap.audience = profile->iap.audience;
   }
@@ -853,13 +940,14 @@ static app_error serve_install(const app_config_t *config, int argc,
       (!install_iap.team_domain || install_iap.team_domain[0] == '\0' ||
        !install_iap.audience || install_iap.audience[0] == '\0')) {
     quick_print_error(config,
-                      "iap=cloudflare requires iap.team_domain and iap.audience in the selected profile");
+                      "iap=cloudflare requires iap.team_domain and "
+                      "iap.audience in the selected profile");
     quick_profile_config_destroy(&profiles);
     return APP_ERROR_VALIDATION;
   }
 
-  err = serve_validate_install_inputs(config, profile_name, host,
-                                      remote_root, domain, iap);
+  err = serve_validate_install_inputs(config, profile_name, host, remote_root,
+                                      domain, iap);
   if (err != APP_SUCCESS) {
     quick_profile_config_destroy(&profiles);
     return err;
@@ -867,7 +955,8 @@ static app_error serve_install(const app_config_t *config, int argc,
   if (strcmp(iap, "none") == 0 && domain && strcmp(domain, "localhost") != 0 &&
       strcmp(domain, "127.0.0.1") != 0 && !unsafe) {
     quick_print_error(config,
-                      "iap=none is only allowed for loopback unless --allow-public-unsafe is passed");
+                      "iap=none is only allowed for loopback unless "
+                      "--allow-public-unsafe is passed");
     quick_profile_config_destroy(&profiles);
     return APP_ERROR_VALIDATION;
   }
@@ -903,9 +992,11 @@ static app_error serve_install(const app_config_t *config, int argc,
   } else {
     app_output("OpenQuick host install plan", config, false);
     app_output_format(config, false, "  profile       %s", profile_name);
-    app_output_format(config, false, "  host          %s", host ? host : "(local)");
+    app_output_format(config, false, "  host          %s",
+                      host ? host : "(local)");
     app_output_format(config, false, "  remote root   %s", remote_root);
-    app_output_format(config, false, "  domain        %s", domain ? domain : "(path fallback)");
+    app_output_format(config, false, "  domain        %s",
+                      domain ? domain : "(path fallback)");
     app_output_format(config, false, "  iap           %s", iap);
     app_output("  steps", config, false);
     for (size_t i = 0; i < steps.count; i++) {
@@ -923,7 +1014,8 @@ static app_error serve_install(const app_config_t *config, int argc,
       return err;
     }
   }
-  err = serve_write_profile(profile_name, host, remote_root, domain, &install_iap);
+  err = serve_write_profile(profile_name, host, remote_root, domain,
+                            &install_iap);
   quick_profile_config_destroy(&profiles);
   quick_serve_install_steps_destroy(&steps);
   return err;
@@ -935,7 +1027,7 @@ app_error app_cmd_serve(const app_config_t *config, int argc,
     return serve_dev(config, argc, argv);
   }
   const char *value_opts[] = {"--profile", "--host", "--remote-root",
-                              "--domain", "--iap", "--remote-api"};
+                              "--domain",  "--iap",  "--remote-api"};
   const char *sub = quick_cmd_first_positional(argc, argv, value_opts,
                                                APP_COUNTOF(value_opts));
   if (sub && strcmp(sub, "install") == 0) {

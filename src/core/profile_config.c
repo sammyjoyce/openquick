@@ -81,7 +81,8 @@ const quick_profile_t *quick_profile_config_find(
     return NULL;
   }
   for (size_t i = 0; i < config->profile_count; i++) {
-    if (config->profiles[i].name && strcmp(config->profiles[i].name, name) == 0) {
+    if (config->profiles[i].name &&
+        strcmp(config->profiles[i].name, name) == 0) {
       return &config->profiles[i];
     }
   }
@@ -94,7 +95,8 @@ quick_profile_t *quick_profile_config_upsert(quick_profile_config_t *config,
     return NULL;
   }
   for (size_t i = 0; i < config->profile_count; i++) {
-    if (config->profiles[i].name && strcmp(config->profiles[i].name, name) == 0) {
+    if (config->profiles[i].name &&
+        strcmp(config->profiles[i].name, name) == 0) {
       return &config->profiles[i];
     }
   }
@@ -559,8 +561,8 @@ static app_error quick_mkdir_parent(const char *path) {
   return APP_SUCCESS;
 }
 
-app_error quick_profile_config_write_file(const char *path,
-                                          const quick_profile_config_t *config) {
+app_error quick_profile_config_write_file(
+    const char *path, const quick_profile_config_t *config) {
   if (!path || !config) {
     return APP_ERROR_INVALID_ARG;
   }

@@ -144,9 +144,10 @@ static bool test_doctor_deep_option_exercises_runtime_probe(
     test_context_t *ctx) {
   const char *args[] = {"--json", "doctor", "--deep"};
   command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), NULL, 0);
-  bool ok = cc_expect_exit(&result, 0) &&
-            cc_expect_stdout_contains(&result, "\"name\":\"deep_temp_deploy\"") &&
-            cc_expect_stdout_contains(&result, "\"group\":\"edge/iap\"");
+  bool ok =
+      cc_expect_exit(&result, 0) &&
+      cc_expect_stdout_contains(&result, "\"name\":\"deep_temp_deploy\"") &&
+      cc_expect_stdout_contains(&result, "\"group\":\"edge/iap\"");
   cc_command_result_free(&result);
   return ok;
 }
@@ -156,9 +157,8 @@ static bool test_plain_mode_disables_forced_color(test_context_t *ctx) {
   const env_var_t env[] = {{"FORCE_COLOR", "1"}};
   command_result_t result =
       cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
-  const bool ok =
-      cc_expect_exit(&result, 0) &&
-      cc_expect_stdout_contains(&result, "quick_version");
+  const bool ok = cc_expect_exit(&result, 0) &&
+                  cc_expect_stdout_contains(&result, "quick_version");
   cc_command_result_free(&result);
   return ok;
 }
@@ -170,9 +170,8 @@ static bool test_force_color_zero_disables_color(test_context_t *ctx) {
   const env_var_t env[] = {{"FORCE_COLOR", "0"}};
   command_result_t result =
       cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
-  const bool ok =
-      cc_expect_exit(&result, 0) &&
-      cc_expect_stdout_contains(&result, "quick_version");
+  const bool ok = cc_expect_exit(&result, 0) &&
+                  cc_expect_stdout_contains(&result, "quick_version");
   cc_command_result_free(&result);
   return ok;
 }
@@ -438,7 +437,8 @@ static bool test_deploy_bootstrap_remediation_path(test_context_t *ctx) {
 #ifndef _WIN32
   char site_dir[] = "/tmp/openquick-bootstrap-site-XXXXXX";
   if (!make_site_dir(site_dir,
-                     "{\"name\":\"demo\",\"source\":\".\",\"output\":\".\",\"profile\":\"lab\"}")) {
+                     "{\"name\":\"demo\",\"source\":\".\",\"output\":\".\","
+                     "\"profile\":\"lab\"}")) {
     return false;
   }
   char bin_dir[] = "/tmp/openquick-bootstrap-bin-XXXXXX";
@@ -458,14 +458,14 @@ static bool test_deploy_bootstrap_remediation_path(test_context_t *ctx) {
   const env_var_t env[] = {{"PATH", path_env},
                            {"QUICK_REMOTE", "quick@box"},
                            {"QUICK_BASE_DOMAIN", "quick.example.com"}};
-  command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
-                                       ARRAY_LEN(env));
-  bool ok = cc_expect_not_exit(&result, 0) &&
-            cc_expect_stderr_contains(
-                &result,
-                "quick serve install --profile lab --host quick@box") &&
-            cc_expect_stderr_contains(&result, "--remote-root /srv/quick") &&
-            cc_expect_stderr_contains(&result, "--domain quick.example.com");
+  command_result_t result =
+      cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
+  bool ok =
+      cc_expect_not_exit(&result, 0) &&
+      cc_expect_stderr_contains(
+          &result, "quick serve install --profile lab --host quick@box") &&
+      cc_expect_stderr_contains(&result, "--remote-root /srv/quick") &&
+      cc_expect_stderr_contains(&result, "--domain quick.example.com");
   cc_command_result_free(&result);
   free(path_env);
   return ok;
@@ -479,7 +479,8 @@ static bool test_deploy_allow_unpublished_gating(test_context_t *ctx) {
 #ifndef _WIN32
   char site_dir[] = "/tmp/openquick-unpublished-site-XXXXXX";
   if (!make_site_dir(site_dir,
-                     "{\"name\":\"demo\",\"source\":\".\",\"output\":\".\",\"profile\":\"lab\"}")) {
+                     "{\"name\":\"demo\",\"source\":\".\",\"output\":\".\","
+                     "\"profile\":\"lab\"}")) {
     return false;
   }
   char bin_dir[] = "/tmp/openquick-unpublished-bin-XXXXXX";
@@ -493,15 +494,27 @@ static bool test_deploy_allow_unpublished_gating(test_context_t *ctx) {
   const char *ssh_script =
       "#!/bin/sh\n"
       "if [ \"$2\" = quickd ] && [ \"$3\" = doctor ]; then\n"
-      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"ok\":true,\"checks\":[{\"name\":\"domain\",\"group\":\"edge/iap\",\"status\":\"warn\",\"detail\":\"missing\",\"remediation\":\"configure\"}]}'\n"
+      "  printf '%s\\n' "
+      "'{\"format_version\":\"1.0\",\"ok\":true,\"checks\":[{\"name\":"
+      "\"domain\",\"group\":\"edge/"
+      "iap\",\"status\":\"warn\",\"detail\":\"missing\",\"remediation\":"
+      "\"configure\"}]}'\n"
       "  exit 0\n"
       "fi\n"
-      "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = prepare ]; then\n"
-      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"site\":\"demo\",\"deploy_id\":\"20260612T000000Z-abcdef\",\"staging_path\":\"/tmp/openquick-stage\",\"link_dest\":null}'\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = prepare ]; "
+      "then\n"
+      "  printf '%s\\n' "
+      "'{\"format_version\":\"1.0\",\"site\":\"demo\",\"deploy_id\":"
+      "\"20260612T000000Z-abcdef\",\"staging_path\":\"/tmp/"
+      "openquick-stage\",\"link_dest\":null}'\n"
       "  exit 0\n"
       "fi\n"
-      "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = activate ]; then\n"
-      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"site\":\"demo\",\"release\":\"20260612T000000Z-abcdef\",\"url\":\"https://demo.quick.example.com\"}'\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = activate ]; "
+      "then\n"
+      "  printf '%s\\n' "
+      "'{\"format_version\":\"1.0\",\"site\":\"demo\",\"release\":"
+      "\"20260612T000000Z-abcdef\",\"url\":\"https://"
+      "demo.quick.example.com\"}'\n"
       "  exit 0\n"
       "fi\n"
       "exit 1\n";
@@ -514,20 +527,20 @@ static bool test_deploy_allow_unpublished_gating(test_context_t *ctx) {
                            {"QUICK_REMOTE", "quick@box"},
                            {"QUICK_BASE_DOMAIN", "quick.example.com"}};
   const char *blocked_args[] = {"deploy", site_dir};
-  command_result_t blocked = cc_run_cli(ctx, blocked_args,
-                                        ARRAY_LEN(blocked_args), env,
-                                        ARRAY_LEN(env));
+  command_result_t blocked = cc_run_cli(
+      ctx, blocked_args, ARRAY_LEN(blocked_args), env, ARRAY_LEN(env));
   bool ok = cc_expect_exit(&blocked, APP_ERROR_VALIDATION) &&
             cc_expect_stderr_contains(&blocked, "--allow-unpublished");
   cc_command_result_free(&blocked);
 
   const char *allowed_args[] = {"--json", "deploy", site_dir,
                                 "--allow-unpublished"};
-  command_result_t allowed = cc_run_cli(ctx, allowed_args,
-                                        ARRAY_LEN(allowed_args), env,
-                                        ARRAY_LEN(env));
+  command_result_t allowed = cc_run_cli(
+      ctx, allowed_args, ARRAY_LEN(allowed_args), env, ARRAY_LEN(env));
   ok = cc_expect_exit(&allowed, 0) &&
-       cc_expect_stdout_contains(&allowed, "\"release\":\"20260612T000000Z-abcdef\"") && ok;
+       cc_expect_stdout_contains(&allowed,
+                                 "\"release\":\"20260612T000000Z-abcdef\"") &&
+       ok;
   cc_command_result_free(&allowed);
   free(path_env);
   return ok;
@@ -548,41 +561,81 @@ static bool test_site_admin_commands_use_ssh_contract(test_context_t *ctx) {
   const char *ssh_script =
       "#!/bin/sh\n"
       "if [ \"$2\" = quickd ] && [ \"$3\" = sites ] && [ \"$4\" = get ]; then\n"
-      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"name\":\"demo\",\"subdomain\":\"demo\",\"url\":\"https://demo.quick.example.com\",\"release\":\"rel1\",\"deployer\":\"alice\",\"public\":false}'\n"
+      "  printf '%s\\n' "
+      "'{\"format_version\":\"1.0\",\"name\":\"demo\",\"subdomain\":\"demo\","
+      "\"url\":\"https://"
+      "demo.quick.example.com\",\"release\":\"rel1\",\"deployer\":\"alice\","
+      "\"public\":false}'\n"
       "  exit 0\n"
       "fi\n"
-      "if [ \"$2\" = quickd ] && [ \"$3\" = sites ] && [ \"$4\" = delete ]; then\n"
-      "  if [ \"$5\" != demo ] || [ \"$6\" != --json ] || [ -n \"$7\" ]; then exit 1; fi\n"
-      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"site\":\"demo\",\"deleted\":true,\"archive\":\"/srv/quick/.trash/sites/demo-20260612T000000.000000000Z\"}'\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = sites ] && [ \"$4\" = delete ]; "
+      "then\n"
+      "  if [ \"$5\" != demo ] || [ \"$6\" != --json ] || [ -n \"$7\" ]; then "
+      "exit 1; fi\n"
+      "  printf '%s\\n' "
+      "'{\"format_version\":\"1.0\",\"site\":\"demo\",\"deleted\":true,"
+      "\"archive\":\"/srv/quick/.trash/sites/"
+      "demo-20260612T000000.000000000Z\"}'\n"
       "  exit 0\n"
       "fi\n"
-      "if [ \"$2\" = quickd ] && [ \"$3\" = sites ] && [ \"$4\" = restore ]; then\n"
-      "  if [ \"$5\" != --from ] || [ \"$6\" != /srv/quick/.trash/sites/demo-20260612T000000.000000000Z ] || [ \"$7\" != --json ] || [ \"$8\" != demo ] || [ -n \"$9\" ]; then exit 1; fi\n"
-      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"site\":\"demo\",\"archive\":\"/srv/quick/.trash/sites/demo-20260612T000000.000000000Z\",\"release\":\"rel1\",\"url\":\"https://demo.quick.example.com\",\"restored\":true}'\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = sites ] && [ \"$4\" = restore ]; "
+      "then\n"
+      "  if [ \"$5\" != --from ] || [ \"$6\" != "
+      "/srv/quick/.trash/sites/demo-20260612T000000.000000000Z ] || [ \"$7\" "
+      "!= --json ] || [ \"$8\" != demo ] || [ -n \"$9\" ]; then exit 1; fi\n"
+      "  printf '%s\\n' "
+      "'{\"format_version\":\"1.0\",\"site\":\"demo\",\"archive\":\"/srv/quick/"
+      ".trash/sites/"
+      "demo-20260612T000000.000000000Z\",\"release\":\"rel1\",\"url\":\"https:/"
+      "/demo.quick.example.com\",\"restored\":true}'\n"
       "  exit 0\n"
       "fi\n"
-      "if [ \"$2\" = quickd ] && [ \"$3\" = sites ] && [ \"$4\" = public ]; then\n"
-      "  if [ \"$6\" = --on ]; then printf '%s\\n' '{\"format_version\":\"1.0\",\"site\":\"demo\",\"public\":true}'; else printf '%s\\n' '{\"format_version\":\"1.0\",\"site\":\"demo\",\"public\":false}'; fi\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = sites ] && [ \"$4\" = public ]; "
+      "then\n"
+      "  if [ \"$6\" = --on ]; then printf '%s\\n' "
+      "'{\"format_version\":\"1.0\",\"site\":\"demo\",\"public\":true}'; else "
+      "printf '%s\\n' "
+      "'{\"format_version\":\"1.0\",\"site\":\"demo\",\"public\":false}'; fi\n"
       "  exit 0\n"
       "fi\n"
-      "if [ \"$2\" = quickd ] && [ \"$3\" = releases ] && [ \"$4\" = rollback ]; then\n"
-      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"site\":\"demo\",\"release\":\"rel0\",\"previous_release\":\"rel1\",\"url\":\"https://demo.quick.example.com\",\"rolled_back\":true}'\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = releases ] && [ \"$4\" = rollback "
+      "]; then\n"
+      "  printf '%s\\n' "
+      "'{\"format_version\":\"1.0\",\"site\":\"demo\",\"release\":\"rel0\","
+      "\"previous_release\":\"rel1\",\"url\":\"https://"
+      "demo.quick.example.com\",\"rolled_back\":true}'\n"
       "  exit 0\n"
       "fi\n"
       "if [ \"$2\" = quickd ] && [ \"$3\" = list ]; then\n"
-      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"sites\":[{\"name\":\"zeta\",\"subdomain\":\"zeta\",\"url\":\"https://zeta.quick.example.com\",\"release\":\"rel-z\",\"updated_at\":\"2026-06-11T00:00:00Z\",\"deployer\":\"zoe\",\"public\":false},{\"name\":\"demo\",\"subdomain\":\"demo\",\"url\":\"https://demo.quick.example.com\",\"release\":\"rel-d\",\"updated_at\":\"2026-06-12T00:00:00Z\",\"deployer\":\"alice\",\"public\":true}]}'\n"
+      "  printf '%s\\n' "
+      "'{\"format_version\":\"1.0\",\"sites\":[{\"name\":\"zeta\","
+      "\"subdomain\":\"zeta\",\"url\":\"https://"
+      "zeta.quick.example.com\",\"release\":\"rel-z\",\"updated_at\":\"2026-06-"
+      "11T00:00:00Z\",\"deployer\":\"zoe\",\"public\":false},{\"name\":"
+      "\"demo\",\"subdomain\":\"demo\",\"url\":\"https://"
+      "demo.quick.example.com\",\"release\":\"rel-d\",\"updated_at\":\"2026-06-"
+      "12T00:00:00Z\",\"deployer\":\"alice\",\"public\":true}]}'\n"
       "  exit 0\n"
       "fi\n"
-      "if [ \"$2\" = quickd ] && [ \"$3\" = domains ] && [ \"$4\" = list ]; then\n"
-      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"domains\":[{\"domain\":\"app.example.com\",\"site\":\"demo\"}]}'\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = domains ] && [ \"$4\" = list ]; "
+      "then\n"
+      "  printf '%s\\n' "
+      "'{\"format_version\":\"1.0\",\"domains\":[{\"domain\":\"app.example."
+      "com\",\"site\":\"demo\"}]}'\n"
       "  exit 0\n"
       "fi\n"
-      "if [ \"$2\" = quickd ] && [ \"$3\" = domains ] && [ \"$4\" = add ]; then\n"
-      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"domain\":\"app.example.com\",\"site\":\"demo\"}'\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = domains ] && [ \"$4\" = add ]; "
+      "then\n"
+      "  printf '%s\\n' "
+      "'{\"format_version\":\"1.0\",\"domain\":\"app.example.com\",\"site\":"
+      "\"demo\"}'\n"
       "  exit 0\n"
       "fi\n"
-      "if [ \"$2\" = quickd ] && [ \"$3\" = domains ] && [ \"$4\" = remove ]; then\n"
-      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"domain\":\"app.example.com\",\"removed\":true}'\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = domains ] && [ \"$4\" = remove ]; "
+      "then\n"
+      "  printf '%s\\n' "
+      "'{\"format_version\":\"1.0\",\"domain\":\"app.example.com\",\"removed\":"
+      "true}'\n"
       "  exit 0\n"
       "fi\n"
       "exit 1\n";
@@ -590,33 +643,38 @@ static bool test_site_admin_commands_use_ssh_contract(test_context_t *ctx) {
     return false;
   }
   char *path_env = cc_format_string("%s", bin_dir);
-  const env_var_t env[] = { {"PATH", path_env},
-                            {"QUICK_REMOTE", "quick@box"},
-                            {"QUICK_BASE_DOMAIN", "quick.example.com"} };
+  const env_var_t env[] = {{"PATH", path_env},
+                           {"QUICK_REMOTE", "quick@box"},
+                           {"QUICK_BASE_DOMAIN", "quick.example.com"}};
   bool ok = true;
   {
     const char *args[] = {"delete", "demo"};
-    command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
-                                         ARRAY_LEN(env));
+    command_result_t result =
+        cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
     ok = cc_expect_exit(&result, APP_ERROR_VALIDATION) &&
-         cc_expect_stderr_contains(&result, "requires typing the site name") && ok;
+         cc_expect_stderr_contains(&result, "requires typing the site name") &&
+         ok;
     cc_command_result_free(&result);
   }
   {
     const char *args[] = {"--json", "delete", "demo", "--yes"};
-    command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
-                                         ARRAY_LEN(env));
+    command_result_t result =
+        cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
     ok = cc_expect_exit(&result, 0) &&
          cc_expect_stdout_contains(&result, "\"deleted\":true") &&
          cc_expect_stdout_contains(&result, "\"archive\"") && ok;
     cc_command_result_free(&result);
   }
   {
-    const char *args[] = {"--json", "restore", "demo", "--from",
-                          "/srv/quick/.trash/sites/demo-20260612T000000.000000000Z",
-                          "--yes"};
-    command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
-                                         ARRAY_LEN(env));
+    const char *args[] = {
+        "--json",
+        "restore",
+        "demo",
+        "--from",
+        "/srv/quick/.trash/sites/demo-20260612T000000.000000000Z",
+        "--yes"};
+    command_result_t result =
+        cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
     ok = cc_expect_exit(&result, 0) &&
          cc_expect_stdout_contains(&result, "\"restored\":true") &&
          cc_expect_stdout_contains(&result, "\"release\":\"rel1\"") && ok;
@@ -624,32 +682,34 @@ static bool test_site_admin_commands_use_ssh_contract(test_context_t *ctx) {
   }
   {
     const char *args[] = {"--json", "public", "demo"};
-    command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
-                                         ARRAY_LEN(env));
+    command_result_t result =
+        cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
     ok = cc_expect_exit(&result, 0) &&
          cc_expect_stdout_contains(&result, "\"public\":false") && ok;
     cc_command_result_free(&result);
   }
   {
     const char *args[] = {"--json", "public", "demo", "on", "--yes"};
-    command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
-                                         ARRAY_LEN(env));
+    command_result_t result =
+        cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
     ok = cc_expect_exit(&result, 0) &&
          cc_expect_stdout_contains(&result, "\"public\":true") && ok;
     cc_command_result_free(&result);
   }
   {
     const char *args[] = {"rollback", "demo"};
-    command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
-                                         ARRAY_LEN(env));
+    command_result_t result =
+        cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
     ok = cc_expect_exit(&result, APP_ERROR_VALIDATION) &&
-         cc_expect_stderr_contains(&result, "requires typing the site name") && ok;
+         cc_expect_stderr_contains(&result, "requires typing the site name") &&
+         ok;
     cc_command_result_free(&result);
   }
   {
-    const char *args[] = {"--json", "rollback", "demo", "--to", "rel0", "--yes"};
-    command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
-                                         ARRAY_LEN(env));
+    const char *args[] = {"--json", "rollback", "demo",
+                          "--to",   "rel0",     "--yes"};
+    command_result_t result =
+        cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
     ok = cc_expect_exit(&result, 0) &&
          cc_expect_stdout_contains(&result, "\"rolled_back\":true") &&
          cc_expect_stdout_contains(&result, "\"release\":\"rel0\"") && ok;
@@ -657,8 +717,8 @@ static bool test_site_admin_commands_use_ssh_contract(test_context_t *ctx) {
   }
   {
     const char *args[] = {"--json", "list", "--remote"};
-    command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
-                                         ARRAY_LEN(env));
+    command_result_t result =
+        cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
     ok = cc_expect_exit(&result, 0) &&
          cc_expect_stdout_contains(&result, "\"remote_ok\":true") &&
          cc_expect_stdout_contains(&result, "\"name\":\"demo\"") &&
@@ -666,10 +726,10 @@ static bool test_site_admin_commands_use_ssh_contract(test_context_t *ctx) {
     cc_command_result_free(&result);
   }
   {
-    const char *args[] = {"--json", "list", "--remote", "--filter", "demo",
-                          "--sort", "updated"};
-    command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
-                                         ARRAY_LEN(env));
+    const char *args[] = {"--json", "list",   "--remote", "--filter",
+                          "demo",   "--sort", "updated"};
+    command_result_t result =
+        cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
     ok = cc_expect_exit(&result, 0) &&
          cc_expect_stdout_contains(&result, "\"query\":\"demo\"") &&
          cc_expect_stdout_contains(&result, "\"sort\":\"updated\"") &&
@@ -683,19 +743,20 @@ static bool test_site_admin_commands_use_ssh_contract(test_context_t *ctx) {
   }
   {
     const char *args[] = {"--json", "domain", "list"};
-    command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
-                                         ARRAY_LEN(env));
+    command_result_t result =
+        cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
     ok = cc_expect_exit(&result, 0) &&
          cc_expect_stdout_contains(&result, "\"domains\"") && ok;
     cc_command_result_free(&result);
   }
   {
-    const char *args[] = {"--json", "domain", "add", "app.example.com",
-                          "--site", "demo"};
-    command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
-                                         ARRAY_LEN(env));
+    const char *args[] = {"--json",          "domain", "add",
+                          "app.example.com", "--site", "demo"};
+    command_result_t result =
+        cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
     ok = cc_expect_exit(&result, 0) &&
-         cc_expect_stdout_contains(&result, "\"domain\":\"app.example.com\"") && ok;
+         cc_expect_stdout_contains(&result, "\"domain\":\"app.example.com\"") &&
+         ok;
     cc_command_result_free(&result);
   }
   free(path_env);
@@ -706,11 +767,13 @@ static bool test_site_admin_commands_use_ssh_contract(test_context_t *ctx) {
 #endif
 }
 
-static bool test_deploy_overwrite_requires_yes_when_headless(test_context_t *ctx) {
+static bool test_deploy_overwrite_requires_yes_when_headless(
+    test_context_t *ctx) {
 #ifndef _WIN32
   char site_dir[] = "/tmp/openquick-overwrite-site-XXXXXX";
   if (!make_site_dir(site_dir,
-                     "{\"name\":\"demo\",\"source\":\".\",\"output\":\".\",\"profile\":\"lab\"}")) {
+                     "{\"name\":\"demo\",\"source\":\".\",\"output\":\".\","
+                     "\"profile\":\"lab\"}")) {
     return false;
   }
   char bin_dir[] = "/tmp/openquick-overwrite-bin-XXXXXX";
@@ -722,11 +785,17 @@ static bool test_deploy_overwrite_requires_yes_when_headless(test_context_t *ctx
   const char *ssh_script =
       "#!/bin/sh\n"
       "if [ \"$2\" = quickd ] && [ \"$3\" = doctor ]; then\n"
-      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"ok\":true,\"checks\":[]}'\n"
+      "  printf '%s\\n' "
+      "'{\"format_version\":\"1.0\",\"ok\":true,\"checks\":[]}'\n"
       "  exit 0\n"
       "fi\n"
-      "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = prepare ]; then\n"
-      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"site\":\"demo\",\"deploy_id\":\"20260612T000000Z-abcdef\",\"staging_path\":\"/tmp/openquick-stage\",\"link_dest\":null,\"last_deployer\":\"bob\",\"last_release\":\"oldrel\",\"last_deployed_at\":\"2026-06-12T00:00:00Z\"}'\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = prepare ]; "
+      "then\n"
+      "  printf '%s\\n' "
+      "'{\"format_version\":\"1.0\",\"site\":\"demo\",\"deploy_id\":"
+      "\"20260612T000000Z-abcdef\",\"staging_path\":\"/tmp/"
+      "openquick-stage\",\"link_dest\":null,\"last_deployer\":\"bob\",\"last_"
+      "release\":\"oldrel\",\"last_deployed_at\":\"2026-06-12T00:00:00Z\"}'\n"
       "  exit 0\n"
       "fi\n"
       "exit 1\n";
@@ -734,14 +803,15 @@ static bool test_deploy_overwrite_requires_yes_when_headless(test_context_t *ctx
     return false;
   }
   char *path_env = cc_format_string("%s", bin_dir);
-  const char *args[] = {"deploy", site_dir, "--site", "demo",
-                        "--allow-unpublished", "--no-build"};
-  const env_var_t env[] = { {"PATH", path_env},
-                            {"QUICK_REMOTE", "quick@box"},
-                            {"QUICK_BASE_DOMAIN", "quick.example.com"},
-                            {"USER", "alice"} };
-  command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
-                                       ARRAY_LEN(env));
+  const char *args[] = {
+      "deploy",    site_dir, "--site", "demo", "--allow-unpublished",
+      "--no-build"};
+  const env_var_t env[] = {{"PATH", path_env},
+                           {"QUICK_REMOTE", "quick@box"},
+                           {"QUICK_BASE_DOMAIN", "quick.example.com"},
+                           {"USER", "alice"}};
+  command_result_t result =
+      cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
   bool ok = cc_expect_exit(&result, APP_ERROR_VALIDATION) &&
             cc_expect_stderr_contains(&result, "last deployed by bob") &&
             cc_expect_stderr_contains(&result, "--yes");
@@ -758,7 +828,8 @@ static bool test_deploy_failure_cleans_remote_staging(test_context_t *ctx) {
 #ifndef _WIN32
   char site_dir[] = "/tmp/openquick-cleanup-site-XXXXXX";
   if (!make_site_dir(site_dir,
-                     "{\"name\":\"demo\",\"source\":\".\",\"output\":\".\",\"profile\":\"lab\"}")) {
+                     "{\"name\":\"demo\",\"source\":\".\",\"output\":\".\","
+                     "\"profile\":\"lab\"}")) {
     return false;
   }
   char bin_dir[] = "/tmp/openquick-cleanup-bin-XXXXXX";
@@ -772,30 +843,39 @@ static bool test_deploy_failure_cleans_remote_staging(test_context_t *ctx) {
   const char *ssh_script =
       "#!/bin/sh\n"
       "if [ \"$2\" = quickd ] && [ \"$3\" = doctor ]; then\n"
-      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"ok\":true,\"checks\":[]}'\n"
+      "  printf '%s\\n' "
+      "'{\"format_version\":\"1.0\",\"ok\":true,\"checks\":[]}'\n"
       "  exit 0\n"
       "fi\n"
-      "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = prepare ]; then\n"
-      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"site\":\"demo\",\"deploy_id\":\"20260612T000000Z-abcdef\",\"staging_path\":\"/tmp/openquick-stage\",\"link_dest\":null}'\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = prepare ]; "
+      "then\n"
+      "  printf '%s\\n' "
+      "'{\"format_version\":\"1.0\",\"site\":\"demo\",\"deploy_id\":"
+      "\"20260612T000000Z-abcdef\",\"staging_path\":\"/tmp/"
+      "openquick-stage\",\"link_dest\":null}'\n"
       "  exit 0\n"
       "fi\n"
-      "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = cleanup ]; then\n"
-      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"site\":\"demo\",\"deploy_id\":\"20260612T000000Z-abcdef\",\"cleaned\":true}'\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = cleanup ]; "
+      "then\n"
+      "  printf '%s\\n' "
+      "'{\"format_version\":\"1.0\",\"site\":\"demo\",\"deploy_id\":"
+      "\"20260612T000000Z-abcdef\",\"cleaned\":true}'\n"
       "  exit 0\n"
       "fi\n"
       "exit 1\n";
   if (!write_executable_file(ssh_path, ssh_script) ||
-      !write_executable_file(rsync_path,
-                             "#!/bin/sh\necho 'rsync: network down' >&2\nexit 12\n")) {
+      !write_executable_file(
+          rsync_path, "#!/bin/sh\necho 'rsync: network down' >&2\nexit 12\n")) {
     return false;
   }
   char *path_env = cc_format_string("%s", bin_dir);
-  const char *args[] = {"deploy", site_dir, "--allow-unpublished", "--no-build"};
+  const char *args[] = {"deploy", site_dir, "--allow-unpublished",
+                        "--no-build"};
   const env_var_t env[] = {{"PATH", path_env},
                            {"QUICK_REMOTE", "quick@box"},
                            {"QUICK_BASE_DOMAIN", "quick.example.com"}};
-  command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
-                                       ARRAY_LEN(env));
+  command_result_t result =
+      cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
   bool ok = cc_expect_exit(&result, APP_ERROR_IO) &&
             cc_expect_stderr_contains(&result, "network down") &&
             cc_expect_stderr_contains(&result, "phase") &&
@@ -832,23 +912,34 @@ static bool test_zip_deploy_uses_scp_extract_activate(test_context_t *ctx) {
   const char *ssh_script =
       "#!/bin/sh\n"
       "if [ \"$2\" = quickd ] && [ \"$3\" = doctor ]; then\n"
-      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"ok\":true,\"checks\":[]}'\n"
+      "  printf '%s\\n' "
+      "'{\"format_version\":\"1.0\",\"ok\":true,\"checks\":[]}'\n"
       "  exit 0\n"
       "fi\n"
-      "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = prepare ]; then\n"
-      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"site\":\"demo\",\"deploy_id\":\"ziprel\",\"staging_path\":\"/tmp/openquick-stage\",\"link_dest\":null,\"last_deployer\":null,\"last_release\":null,\"last_deployed_at\":null}'\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = prepare ]; "
+      "then\n"
+      "  printf '%s\\n' "
+      "'{\"format_version\":\"1.0\",\"site\":\"demo\",\"deploy_id\":\"ziprel\","
+      "\"staging_path\":\"/tmp/"
+      "openquick-stage\",\"link_dest\":null,\"last_deployer\":null,\"last_"
+      "release\":null,\"last_deployed_at\":null}'\n"
       "  exit 0\n"
       "fi\n"
-      "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = extract-zip ]; then\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = extract-zip "
+      "]; then\n"
       "  printf '%s\\n' '{\"format_version\":\"1.0\",\"ok\":true}'\n"
       "  exit 0\n"
       "fi\n"
-      "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = activate ]; then\n"
-      "  printf '%s\\n' '{\"format_version\":\"1.0\",\"site\":\"demo\",\"release\":\"ziprel\",\"url\":\"https://demo.quick.example.com\"}'\n"
+      "if [ \"$2\" = quickd ] && [ \"$3\" = deploy ] && [ \"$4\" = activate ]; "
+      "then\n"
+      "  printf '%s\\n' "
+      "'{\"format_version\":\"1.0\",\"site\":\"demo\",\"release\":\"ziprel\","
+      "\"url\":\"https://demo.quick.example.com\"}'\n"
       "  exit 0\n"
       "fi\n"
       "exit 1\n";
-  char *scp_script = cc_format_string("#!/bin/sh\nprintf '%%s %%s\\n' \"$1\" \"$2\" > '%s'\nexit 0\n", scp_log);
+  char *scp_script = cc_format_string(
+      "#!/bin/sh\nprintf '%%s %%s\\n' \"$1\" \"$2\" > '%s'\nexit 0\n", scp_log);
   if (!scp_script || !write_executable_file(ssh_path, ssh_script) ||
       !write_executable_file(scp_path, scp_script)) {
     free(scp_script);
@@ -856,14 +947,20 @@ static bool test_zip_deploy_uses_scp_extract_activate(test_context_t *ctx) {
   }
   free(scp_script);
   char *path_env = cc_format_string("%s", bin_dir);
-  const char *args[] = {"--json", "deploy", zip_path, "--site", "demo",
-                        "--yes", "--allow-unpublished", "--no-build"};
-  const env_var_t env[] = { {"PATH", path_env},
-                            {"QUICK_REMOTE", "quick@box"},
-                            {"QUICK_BASE_DOMAIN", "quick.example.com"},
-                            {"USER", "alice"} };
-  command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
-                                       ARRAY_LEN(env));
+  const char *args[] = {"--json",
+                        "deploy",
+                        zip_path,
+                        "--site",
+                        "demo",
+                        "--yes",
+                        "--allow-unpublished",
+                        "--no-build"};
+  const env_var_t env[] = {{"PATH", path_env},
+                           {"QUICK_REMOTE", "quick@box"},
+                           {"QUICK_BASE_DOMAIN", "quick.example.com"},
+                           {"USER", "alice"}};
+  command_result_t result =
+      cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
   char *scp_seen = cc_read_text_file(scp_log);
   bool ok = cc_expect_exit(&result, 0) &&
             cc_expect_stdout_contains(&result, "\"release\":\"ziprel\"") &&
@@ -898,12 +995,13 @@ static bool test_doctor_deep_skip_without_remote(test_context_t *ctx) {
                            {"QUICK_BASE_DOMAIN", NULL},
                            {"QUICK_PROFILE", "lab"},
                            {"XDG_CONFIG_HOME", cfg_home}};
-  command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
-                                       ARRAY_LEN(env));
-  bool ok = cc_expect_exit(&result, 0) &&
-            cc_expect_stdout_contains(&result, "\"name\":\"deep_temp_deploy\"") &&
-            cc_expect_stdout_contains(&result, "\"status\":\"skip\"") &&
-            cc_expect_stdout_contains(&result, "no SSH host resolved");
+  command_result_t result =
+      cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
+  bool ok =
+      cc_expect_exit(&result, 0) &&
+      cc_expect_stdout_contains(&result, "\"name\":\"deep_temp_deploy\"") &&
+      cc_expect_stdout_contains(&result, "\"status\":\"skip\"") &&
+      cc_expect_stdout_contains(&result, "no SSH host resolved");
   cc_command_result_free(&result);
   return ok;
 #else
@@ -937,12 +1035,13 @@ static bool test_open_copy_uses_clipboard_tool(test_context_t *ctx) {
   const env_var_t env[] = {{"PATH", path_env},
                            {"QUICK_BASE_DOMAIN", "quick.example.com"},
                            {"XDG_CONFIG_HOME", bin_dir}};
-  command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
-                                       ARRAY_LEN(env));
+  command_result_t result =
+      cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
   char *copied = cc_read_text_file(copied_path);
-  bool ok = cc_expect_exit(&result, 0) &&
-            cc_expect_stdout_contains(&result, "https://demo.quick.example.com") &&
-            copied && strcmp(copied, "https://demo.quick.example.com") == 0;
+  bool ok =
+      cc_expect_exit(&result, 0) &&
+      cc_expect_stdout_contains(&result, "https://demo.quick.example.com") &&
+      copied && strcmp(copied, "https://demo.quick.example.com") == 0;
   if (!copied) {
     fprintf(stderr, "clipboard stub did not receive URL\n");
   }
@@ -974,7 +1073,9 @@ static bool test_serve_dev_remote_api_mints_token_and_execs_quickd(
       "[ \"$5\" = --site ] && [ \"$6\" = demo ] && "
       "[ \"$7\" = --ttl ] && [ \"$8\" = 3600 ] && "
       "[ \"$9\" = --json ]; then\n"
-      "  printf '%s\\n' '{\"token\":\"dev-token-123\",\"site\":\"demo\",\"expires_at\":\"2026-06-12T01:00:00Z\"}'\n"
+      "  printf '%s\\n' "
+      "'{\"token\":\"dev-token-123\",\"site\":\"demo\",\"expires_at\":\"2026-"
+      "06-12T01:00:00Z\"}'\n"
       "  exit 0\n"
       "fi\n"
       "printf 'unexpected ssh args:' >&2\n"
@@ -991,22 +1092,22 @@ static bool test_serve_dev_remote_api_mints_token_and_execs_quickd(
       !write_executable_file(quickd_path, quickd_script)) {
     return false;
   }
-  const char *args[] = {"serve", "--dev", "--remote-api", "lab",
-                        "--port", "9456"};
+  const char *args[] = {"serve", "--dev",  "--remote-api",
+                        "lab",   "--port", "9456"};
   const env_var_t env[] = {{"PATH", bin_dir},
                            {"QUICK_QUICKD", quickd_path},
                            {"QUICK_REMOTE", "quick@box"},
                            {"QUICK_BASE_DOMAIN", "quick.example.com"},
                            {"QUICK_SITE", "demo"},
                            {"XDG_CONFIG_HOME", bin_dir}};
-  command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
-                                       ARRAY_LEN(env));
-  bool ok = cc_expect_exit(&result, 0) &&
-            cc_expect_stdout_contains(&result, "[--remote-api]") &&
-            cc_expect_stdout_contains(&result,
-                                      "[https://demo.quick.example.com]") &&
-            cc_expect_stdout_contains(&result, "[--remote-api-token]") &&
-            cc_expect_stdout_contains(&result, "[dev-token-123]");
+  command_result_t result =
+      cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
+  bool ok =
+      cc_expect_exit(&result, 0) &&
+      cc_expect_stdout_contains(&result, "[--remote-api]") &&
+      cc_expect_stdout_contains(&result, "[https://demo.quick.example.com]") &&
+      cc_expect_stdout_contains(&result, "[--remote-api-token]") &&
+      cc_expect_stdout_contains(&result, "[dev-token-123]");
   cc_command_result_free(&result);
   unlink(ssh_path);
   unlink(quickd_path);
@@ -1024,17 +1125,20 @@ static bool test_serve_install_guided_output(test_context_t *ctx) {
   if (!mkdtemp(cfg_home)) {
     return false;
   }
-  const char *args[] = {"--plain", "serve", "install", "--profile", "lab",
-                        "--host", "quick@box", "--remote-root", "/srv/quick",
-                        "--domain", "quick.example.com", "--iap", "tailscale"};
+  const char *args[] = {
+      "--plain",    "serve",    "install",           "--profile",
+      "lab",        "--host",   "quick@box",         "--remote-root",
+      "/srv/quick", "--domain", "quick.example.com", "--iap",
+      "tailscale"};
   const env_var_t env[] = {{"XDG_CONFIG_HOME", cfg_home}};
-  command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
-                                       ARRAY_LEN(env));
-  bool ok = cc_expect_exit(&result, 0) &&
-            cc_expect_stdout_contains(&result, "OpenQuick host install plan") &&
-            cc_expect_stdout_contains(&result, "create quick user") &&
-            cc_expect_stdout_contains(&result, "write /etc/openquick/quickd.json") &&
-            cc_expect_stdout_contains(&result, "quickd doctor --host --json");
+  command_result_t result =
+      cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
+  bool ok =
+      cc_expect_exit(&result, 0) &&
+      cc_expect_stdout_contains(&result, "OpenQuick host install plan") &&
+      cc_expect_stdout_contains(&result, "create quick user") &&
+      cc_expect_stdout_contains(&result, "write /etc/openquick/quickd.json") &&
+      cc_expect_stdout_contains(&result, "quickd doctor --host --json");
   cc_command_result_free(&result);
   return ok;
 #else
@@ -1079,11 +1183,11 @@ static bool test_serve_install_explicit_iap_resets_profile_mode(
           "}\n")) {
     return false;
   }
-  const char *args[] = {"--plain", "serve", "install", "--profile", "lab",
-                        "--iap", "tailscale"};
+  const char *args[] = {"--plain", "serve", "install",  "--profile",
+                        "lab",     "--iap", "tailscale"};
   const env_var_t env[] = {{"XDG_CONFIG_HOME", cfg_home}};
-  command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
-                                       ARRAY_LEN(env));
+  command_result_t result =
+      cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
   bool ok = cc_expect_exit(&result, 0) &&
             file_contains_text(config_path, "\"mode\": \"localapi\"") &&
             file_contains_text(config_path, "\"team_domain\": null") &&
@@ -1132,11 +1236,11 @@ static bool test_serve_install_tailscale_tsnet_writes_tsnet_mode(
           "}\n")) {
     return false;
   }
-  const char *args[] = {"--plain", "serve", "install", "--profile", "lab",
-                        "--iap", "tailscale-tsnet"};
+  const char *args[] = {"--plain", "serve", "install",        "--profile",
+                        "lab",     "--iap", "tailscale-tsnet"};
   const env_var_t env[] = {{"XDG_CONFIG_HOME", cfg_home}};
-  command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
-                                       ARRAY_LEN(env));
+  command_result_t result =
+      cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
   bool ok = cc_expect_exit(&result, 0) &&
             file_contains_text(config_path, "\"type\": \"tailscale-tsnet\"") &&
             file_contains_text(config_path, "\"mode\": \"tsnet\"") &&
@@ -1150,7 +1254,8 @@ static bool test_serve_install_tailscale_tsnet_writes_tsnet_mode(
 #endif
 }
 
-static bool test_serve_install_execute_rolls_back_on_doctor_failure(test_context_t *ctx) {
+static bool test_serve_install_execute_rolls_back_on_doctor_failure(
+    test_context_t *ctx) {
 #ifndef _WIN32
   char bin_dir[] = "/tmp/openquick-serve-exec-bin-XXXXXX";
   if (!mkdtemp(bin_dir)) {
@@ -1172,7 +1277,8 @@ static bool test_serve_install_execute_rolls_back_on_doctor_failure(test_context
       "  exit 0\n"
       "fi\n"
       "if [ \"$2\" = quickd ] && [ \"$3\" = doctor ]; then\n"
-      "  printf '%s\\n' '{\"checks\":[{\"status\":\"fail\",\"name\":\"config\"}]}'\n"
+      "  printf '%s\\n' "
+      "'{\"checks\":[{\"status\":\"fail\",\"name\":\"config\"}]}'\n"
       "  exit 0\n"
       "fi\n"
       "if [ \"$2\" = sh ]; then\n"
@@ -1181,7 +1287,8 @@ static bool test_serve_install_execute_rolls_back_on_doctor_failure(test_context
       "    printf '%s\\n' \"$line\" >> \"$OPENQUICK_TEST_LOG\"\n"
       "    case \"$line\" in *'restart openquick'*) seen_restore=1;; esac\n"
       "  done\n"
-      "  if [ \"$seen_restore\" = 1 ]; then echo restore >> \"$OPENQUICK_TEST_LOG\"; fi\n"
+      "  if [ \"$seen_restore\" = 1 ]; then echo restore >> "
+      "\"$OPENQUICK_TEST_LOG\"; fi\n"
       "  exit 0\n"
       "fi\n"
       "exit 0\n";
@@ -1193,22 +1300,25 @@ static bool test_serve_install_execute_rolls_back_on_doctor_failure(test_context
   char log_path[512];
   snprintf(log_path, sizeof(log_path), "%s/install.log", bin_dir);
   char *path_env = cc_format_string("%s", bin_dir);
-  const char *args[] = {"--plain", "serve", "install", "--profile", "lab",
-                        "--host", "quick@box", "--remote-root", "/srv/quick",
-                        "--domain", "quick.example.com", "--iap", "tailscale",
-                        "--execute"};
+  const char *args[] = {
+      "--plain",    "serve",    "install",           "--profile",
+      "lab",        "--host",   "quick@box",         "--remote-root",
+      "/srv/quick", "--domain", "quick.example.com", "--iap",
+      "tailscale",  "--execute"};
   const env_var_t env[] = {{"PATH", path_env},
                            {"QUICK_QUICKD", quickd_path},
                            {"OPENQUICK_TEST_LOG", log_path},
                            {"XDG_CONFIG_HOME", bin_dir}};
-  command_result_t result = cc_run_cli(ctx, args, ARRAY_LEN(args), env,
-                                       ARRAY_LEN(env));
+  command_result_t result =
+      cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
   char *log = cc_read_text_file(log_path);
-  bool ok = cc_expect_exit(&result, APP_ERROR_IO) &&
-            cc_expect_stdout_contains(&result, "/tmp/openquick-install.Abc123/backup") &&
-            cc_expect_stderr_contains(&result, "rollback") &&
-            cc_expect_stderr_contains(&result, "previous quickd/config restored") &&
-            log && strstr(log, "restore");
+  bool ok =
+      cc_expect_exit(&result, APP_ERROR_IO) &&
+      cc_expect_stdout_contains(&result,
+                                "/tmp/openquick-install.Abc123/backup") &&
+      cc_expect_stderr_contains(&result, "rollback") &&
+      cc_expect_stderr_contains(&result, "previous quickd/config restored") &&
+      log && strstr(log, "restore");
   if (!log || !strstr(log, "restore")) {
     fprintf(stderr, "restore command was not invoked\n");
   }
@@ -1262,8 +1372,8 @@ static bool test_openquick_site_workflow_contracts(test_context_t *ctx) {
   }
 
   {
-    const char *args[] = {"--plain", "init", dir, "--name", "Lunch Vote",
-                          "--profile", "lab"};
+    const char *args[] = {"--plain",    "init",      dir,  "--name",
+                          "Lunch Vote", "--profile", "lab"};
     const env_var_t env[] = {{"XDG_CONFIG_HOME", cfg_home}};
     command_result_t result =
         cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
@@ -1288,8 +1398,8 @@ static bool test_openquick_site_workflow_contracts(test_context_t *ctx) {
   }
 
   {
-    const char *args[] = {"--plain", "init", dir, "--name", "Lunch Vote",
-                          "--profile", "lab"};
+    const char *args[] = {"--plain",    "init",      dir,  "--name",
+                          "Lunch Vote", "--profile", "lab"};
     const env_var_t env[] = {{"XDG_CONFIG_HOME", cfg_home}};
     command_result_t result =
         cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
@@ -1300,8 +1410,8 @@ static bool test_openquick_site_workflow_contracts(test_context_t *ctx) {
   }
 
   {
-    const char *args[] = {"--plain", "init", dir, "--name", "Lunch Vote",
-                          "--profile", "lab", "--adopt"};
+    const char *args[] = {"--plain",    "init",      dir,   "--name",
+                          "Lunch Vote", "--profile", "lab", "--adopt"};
     const env_var_t env[] = {{"XDG_CONFIG_HOME", cfg_home}};
     command_result_t result =
         cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
@@ -1337,8 +1447,10 @@ static bool test_openquick_site_workflow_contracts(test_context_t *ctx) {
     char escape_link[512];
     char outside_dir[] = "/tmp/openquick-dry-outside-XXXXXX";
     snprintf(quick_dir_local, sizeof(quick_dir_local), "%s/.quick", dir);
-    snprintf(deployments_dir, sizeof(deployments_dir), "%s/.quick/deployments", dir);
-    snprintf(manifest_path, sizeof(manifest_path), "%s/lab.manifest", deployments_dir);
+    snprintf(deployments_dir, sizeof(deployments_dir), "%s/.quick/deployments",
+             dir);
+    snprintf(manifest_path, sizeof(manifest_path), "%s/lab.manifest",
+             deployments_dir);
     snprintf(new_path, sizeof(new_path), "%s/new.html", dir);
     snprintf(env_path, sizeof(env_path), "%s/.env", dir);
     snprintf(ignore_path, sizeof(ignore_path), "%s/.quickignore", dir);
@@ -1346,7 +1458,8 @@ static bool test_openquick_site_workflow_contracts(test_context_t *ctx) {
     if (!mkdtemp(outside_dir)) {
       return false;
     }
-    snprintf(outside_file, sizeof(outside_file), "%s/secret-outside.html", outside_dir);
+    snprintf(outside_file, sizeof(outside_file), "%s/secret-outside.html",
+             outside_dir);
     (void)mkdir(quick_dir_local, 0755);
     (void)mkdir(deployments_dir, 0755);
     ok = write_text_file(manifest_path,
@@ -1357,8 +1470,8 @@ static bool test_openquick_site_workflow_contracts(test_context_t *ctx) {
          write_text_file(outside_file, "escaped output tree\n") &&
          symlink(outside_dir, escape_link) == 0 &&
          write_text_file(ignore_path, ".quick/\n.env\n") && ok;
-    const char *args[] = {"--json", "deploy", dir, "--dry-run", "--site",
-                          "lunch-vote"};
+    const char *args[] = {"--json",    "deploy", dir,
+                          "--dry-run", "--site", "lunch-vote"};
     const env_var_t env[] = {{"QUICK_REMOTE", "quick@box"},
                              {"QUICK_BASE_DOMAIN", "quick.example.com"},
                              {"XDG_CONFIG_HOME", cfg_home}};
@@ -1379,14 +1492,15 @@ static bool test_openquick_site_workflow_contracts(test_context_t *ctx) {
          cc_expect_stdout_contains(&result, "\"excluded\":") &&
          cc_expect_stdout_contains(&result, ".env") && !escaped_reported && ok;
     if (escaped_reported) {
-      fprintf(stderr, "dry-run summary followed a symlink outside the output tree\n");
+      fprintf(stderr,
+              "dry-run summary followed a symlink outside the output tree\n");
     }
     cc_command_result_free(&result);
   }
 
   {
-    const char *args[] = {"--plain", "deploy", dir, "--dry-run", "--site",
-                          "lunch-vote"};
+    const char *args[] = {"--plain",   "deploy", dir,
+                          "--dry-run", "--site", "lunch-vote"};
     const env_var_t env[] = {{"QUICK_REMOTE", "quick@box"},
                              {"QUICK_BASE_DOMAIN", "quick.example.com"},
                              {"XDG_CONFIG_HOME", cfg_home}};
@@ -1400,8 +1514,8 @@ static bool test_openquick_site_workflow_contracts(test_context_t *ctx) {
   }
 
   {
-    const char *args[] = {"--json", "deploy", dir, "--dry-run", "--no-delete",
-                          "--site", "lunch-vote"};
+    const char *args[] = {"--json",      "deploy", dir,         "--dry-run",
+                          "--no-delete", "--site", "lunch-vote"};
     const env_var_t env[] = {{"QUICK_REMOTE", "quick@box"},
                              {"QUICK_BASE_DOMAIN", "quick.example.com"},
                              {"XDG_CONFIG_HOME", cfg_home}};
@@ -1420,9 +1534,9 @@ static bool test_openquick_site_workflow_contracts(test_context_t *ctx) {
   }
 
   {
-    const char *args[] = {"--json", "config", "show", "--profile", "lab",
-                          "--site", "lunch-vote", "--subdomain",
-                          "lunch-vote"};
+    const char *args[] = {"--json",     "config",      "show",
+                          "--profile",  "lab",         "--site",
+                          "lunch-vote", "--subdomain", "lunch-vote"};
     const env_var_t env[] = {{"QUICK_REMOTE", "quick@box"},
                              {"QUICK_BASE_DOMAIN", "quick.example.com"},
                              {"XDG_CONFIG_HOME", cfg_home}};
@@ -1467,8 +1581,7 @@ static bool test_openquick_site_workflow_contracts(test_context_t *ctx) {
         cc_run_cli(ctx, args, ARRAY_LEN(args), env, ARRAY_LEN(env));
     ok = cc_expect_exit(&result, 0) &&
          cc_expect_stdout_contains(&result, "\"checks\"") &&
-         cc_expect_stdout_contains(&result, "\"format_version\":\"1.0\"") &&
-         ok;
+         cc_expect_stdout_contains(&result, "\"format_version\":\"1.0\"") && ok;
     cc_command_result_free(&result);
   }
 
@@ -1665,12 +1778,10 @@ const test_case_t cli_contract_cases[] = {
      test_zip_deploy_uses_scp_extract_activate},
     {"doctor --deep skips clearly without remote",
      test_doctor_deep_skip_without_remote},
-    {"open --copy uses clipboard tool",
-     test_open_copy_uses_clipboard_tool},
+    {"open --copy uses clipboard tool", test_open_copy_uses_clipboard_tool},
     {"serve --dev remote API mints token and execs quickd",
      test_serve_dev_remote_api_mints_token_and_execs_quickd},
-    {"serve install guided output",
-     test_serve_install_guided_output},
+    {"serve install guided output", test_serve_install_guided_output},
     {"serve install explicit iap resets stale profile mode",
      test_serve_install_explicit_iap_resets_profile_mode},
     {"serve install tailscale-tsnet writes tsnet mode",

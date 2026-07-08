@@ -1,9 +1,9 @@
-#include "tui_app_state.h"
-
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "tui_app_state.h"
 #ifndef _WIN32
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -18,7 +18,8 @@
 
 static const quick_profile_t *quick_tui_find_profile_or_default(
     quick_tui_app_state_t *state, const char *name) {
-  const char *profile_name = name && name[0] ? name : quick_tui_default_profile_name(state);
+  const char *profile_name =
+      name && name[0] ? name : quick_tui_default_profile_name(state);
   return quick_profile_config_find(&state->profiles, profile_name);
 }
 
@@ -58,8 +59,7 @@ static void quick_tui_serve_status_redraw(tui_window_t *window,
 }
 
 static tui_modal_decision_t quick_tui_serve_status_key(tui_window_t *window,
-                                                       int ch,
-                                                       void *userdata) {
+                                                       int ch, void *userdata) {
   (void)window;
   quick_tui_serve_status_state_t *panel = userdata;
   if (ch == 's' || ch == 'S') {
@@ -78,8 +78,7 @@ static tui_modal_decision_t quick_tui_serve_status_key(tui_window_t *window,
 
 static void quick_tui_serve_show_status(quick_tui_app_state_t *state) {
   quick_tui_serve_status_state_t panel = {.state = state, .action = 0};
-  (void)tui_modal_run(10, 70, "Local dev server",
-                      quick_tui_serve_status_redraw,
+  (void)tui_modal_run(10, 70, "Local dev server", quick_tui_serve_status_redraw,
                       quick_tui_serve_status_key, &panel);
   if (panel.action == 's') {
     quick_tui_stop_serve_child(state);
@@ -110,10 +109,11 @@ static void quick_tui_serve_start_dev(quick_tui_app_state_t *state) {
   const char *use_port = port[0] ? port : "9366";
   quick_serve_dev_command_t command;
   quick_serve_dev_command_init(&command);
-  quick_serve_dev_request_t request = {.profiles = &state->profiles,
-                                       .profile = quick_tui_default_profile_name(state),
-                                       .port = use_port,
-                                       .identity = identity[0] ? identity : NULL};
+  quick_serve_dev_request_t request = {
+      .profiles = &state->profiles,
+      .profile = quick_tui_default_profile_name(state),
+      .port = use_port,
+      .identity = identity[0] ? identity : NULL};
   app_error err = quick_op_serve_dev_command(&request, &command);
   if (err != APP_SUCCESS) {
     char msg[256];
@@ -144,7 +144,8 @@ static void quick_tui_serve_start_dev(quick_tui_app_state_t *state) {
   quick_tui_serve_show_status(state);
 #else
   quick_serve_dev_command_destroy(&command);
-  tui_show_message("Local dev server", "Local dev server is not supported on this platform.");
+  tui_show_message("Local dev server",
+                   "Local dev server is not supported on this platform.");
 #endif
 }
 
@@ -170,7 +171,9 @@ static bool quick_tui_serve_validate_install(const char *profile,
                                              const char *domain,
                                              const char *iap) {
   if (!quick_profile_name_is_safe(profile)) {
-    tui_show_message("Host install guide", "Profile names may use letters, digits, dot, underscore, and dash.");
+    tui_show_message(
+        "Host install guide",
+        "Profile names may use letters, digits, dot, underscore, and dash.");
     return false;
   }
   if (!quick_ssh_target_is_safe(host)) {
@@ -178,15 +181,20 @@ static bool quick_tui_serve_validate_install(const char *profile,
     return false;
   }
   if (!quick_remote_path_is_safe(remote_root)) {
-    tui_show_message("Host install guide", "Remote root must be an absolute safe path without .. segments.");
+    tui_show_message(
+        "Host install guide",
+        "Remote root must be an absolute safe path without .. segments.");
     return false;
   }
   if (!quick_domain_is_safe(domain)) {
-    tui_show_message("Host install guide", "Domain must be a safe DNS name or localhost.");
+    tui_show_message("Host install guide",
+                     "Domain must be a safe DNS name or localhost.");
     return false;
   }
   if (!quick_profile_name_is_safe(iap)) {
-    tui_show_message("Host install guide", "IAP type may use letters, digits, dot, underscore, and dash.");
+    tui_show_message(
+        "Host install guide",
+        "IAP type may use letters, digits, dot, underscore, and dash.");
     return false;
   }
   return true;
@@ -244,13 +252,15 @@ static void quick_tui_serve_install_guide(quick_tui_app_state_t *state) {
   char **lines = calloc(line_count, sizeof(char *));
   if (!lines) {
     quick_serve_install_steps_destroy(&steps);
-    tui_show_message("Host install guide", "Out of memory while rendering guide.");
+    tui_show_message("Host install guide",
+                     "Out of memory while rendering guide.");
     return;
   }
   lines[0] = malloc(1024);
   if (lines[0]) {
     snprintf(lines[0], 1024,
-             "Run when ready: quick serve install --profile %s --host %s --remote-root %s --domain %s --iap %s --execute",
+             "Run when ready: quick serve install --profile %s --host %s "
+             "--remote-root %s --domain %s --iap %s --execute",
              profile, host, remote_root, domain, iap);
   }
   lines[1] = malloc(2);
@@ -309,14 +319,15 @@ void quick_tui_screen_serve(quick_tui_app_state_t *state) {
         {.label = "&Back", .description = "Return to OpenQuick", .id = 4},
     };
     tui_menu_result_t r = tui_show_menu(
-        NULL, &(tui_menu_config_t){.title = "Serve",
-                                   .subtitle = subtitle,
-                                   .items = items,
-                                   .item_count = (int)(sizeof(items) / sizeof(items[0])),
-                                   .default_index = 0,
-                                   .frame_height = 14,
-                                   .frame_width = 74,
-                                   .show_numeric_keys = true});
+        NULL, &(tui_menu_config_t){
+                  .title = "Serve",
+                  .subtitle = subtitle,
+                  .items = items,
+                  .item_count = (int)(sizeof(items) / sizeof(items[0])),
+                  .default_index = 0,
+                  .frame_height = 14,
+                  .frame_width = 74,
+                  .show_numeric_keys = true});
     if (r.status != TUI_MENU_OK || r.selected_id == 4) {
       open = false;
     } else if (r.selected_id == 1) {

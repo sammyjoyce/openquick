@@ -82,8 +82,7 @@ void quick_tui_poll_serve_child(quick_tui_app_state_t *state) {
     state->serve_pid = -1;
     state->serve_port = 0;
     state->serve_url[0] = '\0';
-    snprintf(state->status, sizeof(state->status),
-             "local dev server stopped");
+    snprintf(state->status, sizeof(state->status), "local dev server stopped");
   }
 #endif
 }
@@ -134,6 +133,5 @@ void quick_tui_set_status(quick_tui_app_state_t *state, const char *message) {
   if (!state) {
     return;
   }
-  snprintf(state->status, sizeof(state->status), "%s",
-           message ? message : "");
+  snprintf(state->status, sizeof(state->status), "%s", message ? message : "");
 }

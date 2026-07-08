@@ -347,9 +347,8 @@ app_error quick_site_config_write_file(const char *path,
   fprintf(stream, "    \"enabled\": %s,\n",
           (!config->sdk.has_enabled || config->sdk.enabled) ? "true" : "false");
   fputs("    \"import\": ", stream);
-  quick_site_write_json_string(stream,
-                               config->sdk.import ? config->sdk.import
-                                                  : "/_quick/sdk.js");
+  quick_site_write_json_string(
+      stream, config->sdk.import ? config->sdk.import : "/_quick/sdk.js");
   fputs("\n  }\n", stream);
   fputs("}\n", stream);
   if (fclose(stream) != 0) {

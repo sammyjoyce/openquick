@@ -40,7 +40,8 @@ static void deploy_print_json_plan(const quick_deploy_plan_t *plan,
   app_json_write_string_field(stdout, "output", plan->output_dir, &comma);
   app_json_write_string_field(stdout, "url", plan->url, &comma);
   app_json_write_raw_field(stdout, "dry_run", "true", &comma);
-  app_json_write_raw_field(stdout, "activation", "\"quickd deploy activate\"", &comma);
+  app_json_write_raw_field(stdout, "activation", "\"quickd deploy activate\"",
+                           &comma);
   app_json_write_raw_field(stdout, "rsync", "[", &comma);
   const char *base[] = {"rsync", "-az", "--partial-dir=.rsync-partial",
                         "--safe-links", "--chmod=Dg+s,ug+rwX,o-rwx"};
@@ -74,14 +75,22 @@ static void deploy_print_human_plan(const app_config_t *config,
                                     const deploy_dry_summary_t *summary) {
   app_output_format(config, false, "quick deploy %s (dry run)", plan->site);
   app_output_format(config, false, "  profile     %s", plan->profile);
-  app_output_format(config, false, "  host        %s", plan->ssh ? plan->ssh : "(none)");
+  app_output_format(config, false, "  host        %s",
+                    plan->ssh ? plan->ssh : "(none)");
   app_output_format(config, false, "  output      %s", plan->output_dir);
   app_output_format(config, false, "  url         %s", plan->url);
-  app_output("  prepare     ssh <host> quickd deploy prepare --site <site> --json", config, false);
-  app_output_format(config, false,
-                    "  rsync       rsync -az %s%s--partial-dir=.rsync-partial --safe-links --chmod=Dg+s,ug+rwX,o-rwx <output>/ <host>:<staging>/",
-                    no_delete ? "" : "--delete ", checksum ? "--checksum " : "");
-  app_output("  activate    ssh <host> quickd deploy activate --site <site> --deploy-id <id> --json", config, false);
+  app_output(
+      "  prepare     ssh <host> quickd deploy prepare --site <site> --json",
+      config, false);
+  app_output_format(
+      config, false,
+      "  rsync       rsync -az %s%s--partial-dir=.rsync-partial --safe-links "
+      "--chmod=Dg+s,ug+rwX,o-rwx <output>/ <host>:<staging>/",
+      no_delete ? "" : "--delete ", checksum ? "--checksum " : "");
+  app_output(
+      "  activate    ssh <host> quickd deploy activate --site <site> "
+      "--deploy-id <id> --json",
+      config, false);
   if (summary) {
     deploy_print_human_summary(config, summary);
   }
@@ -190,10 +199,14 @@ static void deploy_summary_destroy(deploy_dry_summary_t *s) {
   }
   deploy_manifest_destroy(&s->previous);
   deploy_manifest_destroy(&s->current);
-  for (size_t i = 0; i < s->added_count; i++) free(s->added[i]);
-  for (size_t i = 0; i < s->changed_count; i++) free(s->changed[i]);
-  for (size_t i = 0; i < s->deleted_count; i++) free(s->deleted[i]);
-  for (size_t i = 0; i < s->excluded_count; i++) free(s->excluded[i]);
+  for (size_t i = 0; i < s->added_count; i++)
+    free(s->added[i]);
+  for (size_t i = 0; i < s->changed_count; i++)
+    free(s->changed[i]);
+  for (size_t i = 0; i < s->deleted_count; i++)
+    free(s->deleted[i]);
+  for (size_t i = 0; i < s->excluded_count; i++)
+    free(s->excluded[i]);
   free(s->added);
   free(s->changed);
   free(s->deleted);
@@ -469,7 +482,8 @@ static app_error deploy_summary_record_selected_path(
   }
   deploy_manifest_entry_t *old = deploy_manifest_find(&summary->previous, rel);
   if (!old) {
-    return deploy_string_list_append(&summary->added, &summary->added_count, rel)
+    return deploy_string_list_append(&summary->added, &summary->added_count,
+                                     rel)
                ? APP_SUCCESS
                : APP_ERROR_MEMORY;
   }
@@ -647,7 +661,8 @@ static app_error deploy_dry_summary_build(const quick_deploy_plan_t *plan,
   if (err == APP_SUCCESS && !no_delete) {
     for (size_t i = 0; i < summary->previous.count; i++) {
       if (!summary->previous.items[i].seen) {
-        if (!deploy_string_list_append(&summary->deleted, &summary->deleted_count,
+        if (!deploy_string_list_append(&summary->deleted,
+                                       &summary->deleted_count,
                                        summary->previous.items[i].path)) {
           err = APP_ERROR_MEMORY;
           break;
@@ -696,22 +711,27 @@ static void deploy_print_json_summary(const deploy_dry_summary_t *summary,
   app_json_write_raw_field(stdout, "excluded_count", buf, &sc);
   app_json_end_object(stdout);
   deploy_json_key_array("added", summary->added, summary->added_count, comma);
-  deploy_json_key_array("changed", summary->changed, summary->changed_count, comma);
-  deploy_json_key_array("deleted", summary->deleted, summary->deleted_count, comma);
-  deploy_json_key_array("excluded", summary->excluded, summary->excluded_count, comma);
+  deploy_json_key_array("changed", summary->changed, summary->changed_count,
+                        comma);
+  deploy_json_key_array("deleted", summary->deleted, summary->deleted_count,
+                        comma);
+  deploy_json_key_array("excluded", summary->excluded, summary->excluded_count,
+                        comma);
 }
 
 static void deploy_print_human_summary(const app_config_t *config,
                                        const deploy_dry_summary_t *summary) {
-  app_output_format(config, false,
-                    "  summary     %zu added, %zu changed, %zu deleted, %zu excluded",
-                    summary->added_count, summary->changed_count,
-                    summary->deleted_count, summary->excluded_count);
+  app_output_format(
+      config, false,
+      "  summary     %zu added, %zu changed, %zu deleted, %zu excluded",
+      summary->added_count, summary->changed_count, summary->deleted_count,
+      summary->excluded_count);
   if (summary->deleted_count > 0) {
     app_output("  deletes     destructive deletes planned:", config, false);
     size_t limit = summary->deleted_count < 5 ? summary->deleted_count : 5;
     for (size_t i = 0; i < limit; i++) {
-      app_output_format(config, false, "              - %s", summary->deleted[i]);
+      app_output_format(config, false, "              - %s",
+                        summary->deleted[i]);
     }
     if (summary->deleted_count > limit) {
       app_output_format(config, false, "              ... and %zu more",
@@ -722,7 +742,8 @@ static void deploy_print_human_summary(const app_config_t *config,
     size_t limit = summary->excluded_count < 5 ? summary->excluded_count : 5;
     app_output("  excluded    ignored by .quickignore:", config, false);
     for (size_t i = 0; i < limit; i++) {
-      app_output_format(config, false, "              - %s", summary->excluded[i]);
+      app_output_format(config, false, "              - %s",
+                        summary->excluded[i]);
     }
   }
 }
@@ -771,9 +792,9 @@ static app_error deploy_run_bootstrap_flow(
   argv[ai] = NULL;
   app_error err = app_cmd_serve(config, (int)ai, argv);
   if (err == APP_SUCCESS) {
-    quick_print_error(
-        config,
-        "bootstrap guidance printed; rerun quick deploy after install completes");
+    quick_print_error(config,
+                      "bootstrap guidance printed; rerun quick deploy after "
+                      "install completes");
     return APP_ERROR_IO;
   }
   return err;
@@ -805,7 +826,8 @@ static void deploy_print_success_human(const app_config_t *config,
   app_output_format(config, false, "quick deploy %s", plan->site);
   app_output_format(config, false, "  profile     %s", plan->profile);
   app_output_format(config, false, "  host        %s", plan->ssh);
-  app_output_format(config, false, "  files       %ld changed, %ld reused, %ld deleted",
+  app_output_format(config, false,
+                    "  files       %ld changed, %ld reused, %ld deleted",
                     result->changed, result->reused, result->deleted);
   app_output_format(config, false, "  release     %s", result->release);
   app_output_format(config, false, "  url         %s", result->url);
@@ -843,14 +865,16 @@ app_error app_cmd_deploy(const app_config_t *config, int argc,
   const bool no_delete = quick_cmd_flag(argc, argv, "--no-delete");
   const bool open_after = quick_cmd_flag(argc, argv, "--open");
   const bool bootstrap = quick_cmd_flag(argc, argv, "--bootstrap");
-  const bool allow_unpublished = quick_cmd_flag(argc, argv, "--allow-unpublished");
+  const bool allow_unpublished =
+      quick_cmd_flag(argc, argv, "--allow-unpublished");
   const bool checksum = quick_cmd_flag(argc, argv, "--checksum");
   const bool yes = quick_cmd_flag(argc, argv, "--yes");
   const bool zip_deploy = deploy_path_is_zip(path);
 
   if (dry_run) {
     deploy_dry_summary_t summary;
-    app_error summary_err = deploy_dry_summary_build(&plan, no_delete, &summary);
+    app_error summary_err =
+        deploy_dry_summary_build(&plan, no_delete, &summary);
     if (summary_err != APP_SUCCESS) {
       quick_print_error(config, "failed to build dry-run transfer summary");
       quick_deploy_plan_destroy(&plan);
@@ -889,10 +913,11 @@ app_error app_cmd_deploy(const app_config_t *config, int argc,
                                   deploy_cli_progress, &progress, &result);
     if (err != APP_SUCCESS && result.overwrite_confirmation_required) {
       char msg[768];
-      snprintf(msg, sizeof(msg),
-               "%s\nNon-interactive deploys require --yes to overwrite this site.",
-               result.failure_message ? result.failure_message
-                                      : "Deploy requires overwrite confirmation.");
+      snprintf(
+          msg, sizeof(msg),
+          "%s\nNon-interactive deploys require --yes to overwrite this site.",
+          result.failure_message ? result.failure_message
+                                 : "Deploy requires overwrite confirmation.");
       if (quick_cmd_prompt_site_confirmation(config, plan.site,
                                              result.failure_message)) {
         options.overwrite_confirmed = true;
@@ -929,11 +954,21 @@ app_error app_cmd_deploy(const app_config_t *config, int argc,
     }
     if (err != APP_SUCCESS && result.cleanup_attempted) {
       if (result.cleanup_ok) {
-        app_output_format(config, true, "cleanup     %s", result.cleanup_message ? result.cleanup_message : "remote staging cleaned");
-        app_output("retry       staging cleaned; rerun quick deploy when the transient error is resolved", config, true);
+        app_output_format(config, true, "cleanup     %s",
+                          result.cleanup_message ? result.cleanup_message
+                                                 : "remote staging cleaned");
+        app_output(
+            "retry       staging cleaned; rerun quick deploy when the "
+            "transient error is resolved",
+            config, true);
       } else {
-        app_output_format(config, true, "cleanup     failed: %s", result.cleanup_message ? result.cleanup_message : "remote staging remains");
-        app_output("retry       clean the reported staging path before retrying deploy", config, true);
+        app_output_format(config, true, "cleanup     failed: %s",
+                          result.cleanup_message ? result.cleanup_message
+                                                 : "remote staging remains");
+        app_output(
+            "retry       clean the reported staging path before retrying "
+            "deploy",
+            config, true);
       }
     }
     quick_deploy_result_destroy(&result);

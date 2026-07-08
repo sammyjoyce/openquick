@@ -60,28 +60,32 @@ typedef enum {
 } app_overlay_menu_id_t;
 
 static void app_show_keybindings(void) {
-  tui_show_message("Key Bindings",
-                   "Up / Down or j / k   Move selection\n"
-                   "PgUp / PgDn          Jump a page\n"
-                   "Home / End           First / last item\n"
-                   "1-9                  Jump to a numbered item\n"
-                   "/                    Incremental search\n"
-                   "Enter                Select\n"
-                   "Esc                  Open this menu / go back\n"
-                   "q                    Quit or go back\n\n"
-                   "CLI equivalents: quick list --remote, quick deploy, quick init,\n"
-                   "quick doctor, quick serve --dev, quick serve install, quick config show");
+  tui_show_message(
+      "Key Bindings",
+      "Up / Down or j / k   Move selection\n"
+      "PgUp / PgDn          Jump a page\n"
+      "Home / End           First / last item\n"
+      "1-9                  Jump to a numbered item\n"
+      "/                    Incremental search\n"
+      "Enter                Select\n"
+      "Esc                  Open this menu / go back\n"
+      "q                    Quit or go back\n\n"
+      "CLI equivalents: quick list --remote, quick deploy, quick init,\n"
+      "quick doctor, quick serve --dev, quick serve install, quick config "
+      "show");
 }
 
 static void app_show_about(void) {
   const app_build_info_t *build = app_build_info();
   char about[640];
-  snprintf(about, sizeof(about),
-           "%s %s\n\n"
-           "OpenQuick deploys static sites to any SSH+rsync host running quickd.\n\n"
-           "Core flows: New site, Deploy, Sites, Doctor, Serve, and Settings.\n"
-           "The TUI calls the shared OpenQuick ops layer; it does not construct ssh or rsync commands itself.",
-           build->name, build->version);
+  snprintf(
+      about, sizeof(about),
+      "%s %s\n\n"
+      "OpenQuick deploys static sites to any SSH+rsync host running quickd.\n\n"
+      "Core flows: New site, Deploy, Sites, Doctor, Serve, and Settings.\n"
+      "The TUI calls the shared OpenQuick ops layer; it does not construct ssh "
+      "or rsync commands itself.",
+      build->name, build->version);
   tui_show_message("About OpenQuick", about);
 }
 
@@ -99,14 +103,15 @@ static void app_show_help_about(void) {
   bool open = true;
   while (open) {
     tui_menu_result_t r = tui_show_menu(
-        NULL, &(tui_menu_config_t){.title = "Help/About",
-                                   .subtitle = APP_NAME,
-                                   .items = items,
-                                   .item_count = (int)(sizeof(items) / sizeof(items[0])),
-                                   .default_index = 0,
-                                   .frame_height = 14,
-                                   .frame_width = MAIN_MENU_FRAME_WIDTH,
-                                   .show_numeric_keys = true});
+        NULL, &(tui_menu_config_t){
+                  .title = "Help/About",
+                  .subtitle = APP_NAME,
+                  .items = items,
+                  .item_count = (int)(sizeof(items) / sizeof(items[0])),
+                  .default_index = 0,
+                  .frame_height = 14,
+                  .frame_width = MAIN_MENU_FRAME_WIDTH,
+                  .show_numeric_keys = true});
     if (r.status != TUI_MENU_OK || r.selected_id == 100) {
       open = false;
     } else if (r.selected_id == APP_OVERLAY_KEYS) {
@@ -135,15 +140,16 @@ static bool app_show_menu_overlay(void) {
   bool open = true;
   while (open) {
     tui_menu_result_t r = tui_show_menu(
-        NULL, &(tui_menu_config_t){.title = "Menu",
-                                   .subtitle = APP_NAME,
-                                   .items = overlay_items,
-                                   .item_count = (int)(sizeof(overlay_items) /
-                                                       sizeof(overlay_items[0])),
-                                   .default_index = 0,
-                                   .frame_height = MAIN_MENU_FRAME_HEIGHT,
-                                   .frame_width = MAIN_MENU_FRAME_WIDTH,
-                                   .show_numeric_keys = true});
+        NULL, &(tui_menu_config_t){
+                  .title = "Menu",
+                  .subtitle = APP_NAME,
+                  .items = overlay_items,
+                  .item_count =
+                      (int)(sizeof(overlay_items) / sizeof(overlay_items[0])),
+                  .default_index = 0,
+                  .frame_height = MAIN_MENU_FRAME_HEIGHT,
+                  .frame_width = MAIN_MENU_FRAME_WIDTH,
+                  .show_numeric_keys = true});
     if (r.status != TUI_MENU_OK) {
       open = false;
       break;
@@ -201,7 +207,8 @@ static app_error app_error_from_tui_interrupt(void) {
 
 static void app_build_subtitle(const quick_tui_app_state_t *state, char *out,
                                size_t out_size) {
-  snprintf(out, out_size, "profile %s · %s", quick_tui_default_profile_name(state),
+  snprintf(out, out_size, "profile %s · %s",
+           quick_tui_default_profile_name(state),
            quick_tui_profile_config_path(state));
 }
 
@@ -232,17 +239,18 @@ app_error tui_run_app(void) {
     app_build_subtitle(&state, subtitle, sizeof(subtitle));
     tui_menu_result_t r = tui_show_menu(
         menu_frame,
-        &(tui_menu_config_t){.title = "OpenQuick",
-                             .subtitle = subtitle,
-                             .items = main_menu,
-                             .item_count = (int)(sizeof(main_menu) / sizeof(main_menu[0])),
-                             .default_index = 0,
-                             .frame_height = MAIN_MENU_FRAME_HEIGHT,
-                             .frame_width = MAIN_MENU_FRAME_WIDTH,
-                             .enable_search = true,
-                             .enable_mouse = true,
-                             .enable_menu_key = true,
-                             .show_numeric_keys = true});
+        &(tui_menu_config_t){
+            .title = "OpenQuick",
+            .subtitle = subtitle,
+            .items = main_menu,
+            .item_count = (int)(sizeof(main_menu) / sizeof(main_menu[0])),
+            .default_index = 0,
+            .frame_height = MAIN_MENU_FRAME_HEIGHT,
+            .frame_width = MAIN_MENU_FRAME_WIDTH,
+            .enable_search = true,
+            .enable_mouse = true,
+            .enable_menu_key = true,
+            .show_numeric_keys = true});
     switch (r.status) {
     case TUI_MENU_OK:
       if (r.selected_id == APP_MENU_EXIT) {
