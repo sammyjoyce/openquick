@@ -1,7 +1,7 @@
 # Pi Artifact extension for OpenQuick
 
 This Pi extension registers an `artifact` tool. The tool writes artifact files to
-`.pi/openquick-artifacts/<site>/` and publishes them with:
+`.pi/artifacts/<site>/` and publishes them with:
 
 ```bash
 quick deploy <artifact-dir> --site <site> --profile cf --no-build --json

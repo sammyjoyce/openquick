@@ -17,7 +17,7 @@ import {
 import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
 
 const PROFILE = "cf";
-const ARTIFACT_ROOT = join(CONFIG_DIR_NAME, "openquick-artifacts");
+const ARTIFACT_ROOT = join(CONFIG_DIR_NAME, "artifacts");
 
 const ArtifactParamsSchema = Type.Object(
 	{
@@ -32,7 +32,7 @@ const ArtifactParamsSchema = Type.Object(
 				},
 				{ additionalProperties: false },
 			),
-			{ description: "Optional array of text files with `{ path, content }`. In static mode, files are written under `.pi/openquick-artifacts/<site>` and must include `index.html` unless `html` is provided. In Code Mode, entries become editable starter files embedded in the generated editor; missing `index.html`, `style.css`, and `script.js` are defaulted. Duplicate normalized paths are resolved by the later entry winning." },
+			{ description: "Optional array of text files with `{ path, content }`. In static mode, files are written under `.pi/artifacts/<site>` and must include `index.html` unless `html` is provided. In Code Mode, entries become editable starter files embedded in the generated editor; missing `index.html`, `style.css`, and `script.js` are defaulted. Duplicate normalized paths are resolved by the later entry winning." },
 		)),
 		mode: Type.Optional(StringEnum(["static", "codemode"] as const, { description: "Optional enum string: `\"static\"` or `\"codemode\"`. Defaults to `\"static\"`. `static` publishes the provided files directly and requires an `index.html`. `codemode` publishes exactly one generated `index.html` containing an SDK-backed editor shell, sandboxed live preview, and `quick.db.collection('codemode_files')` persistence; supplied `html`/`files` are starter content, not separately published files. Use static mode with `sdk: true` when the final page itself should call OpenQuick APIs." })),
 		sdk: Type.Optional(Type.Boolean({ description: "Optional boolean. Defaults to `false` in static mode. In static mode, `true` injects a bridge into `index.html` unless the HTML already contains `/_quick/sdk.js` or `openquick:sdk-ready`; the bridge imports `/_quick/sdk.js`, sets `window.quick`, and dispatches `openquick:sdk-ready`. In Code Mode, this parameter has no effect on generation because the editor shell always imports the SDK and returned details report `sdk: true`." })),

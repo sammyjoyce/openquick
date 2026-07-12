@@ -301,7 +301,7 @@ int main(int argc, char *argv[]) {
     // gives, so both entry points stay byte-identical; routing to the headless
     // path here instead would misdescribe the problem as missing stdin input.
     if (app_terminal_is_interactive()) {
-      err = app_run_tui(config);
+      err = app_run_tui(config, true);
     } else {
       err = app_run_headless_json(config, start_ms);
     }

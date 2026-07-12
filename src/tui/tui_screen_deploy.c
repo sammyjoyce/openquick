@@ -14,6 +14,7 @@
 #include "tui_internal.h"
 #include "tui_panel.h"
 #include "tui_product_model.h"
+#include "tui_screen_host.h"
 
 static bool quick_tui_file_exists(const char *path) {
   if (!path) {
@@ -434,6 +435,94 @@ static void quick_tui_run_deploy(quick_tui_app_state_t *state,
   quick_deploy_result_destroy(&result);
 }
 
+typedef enum {
+  QUICK_DEPLOY_HOST_BACK = 0,
+  QUICK_DEPLOY_HOST_CONNECT = 1,
+  QUICK_DEPLOY_HOST_INSTALL = 2,
+} quick_deploy_host_choice_t;
+
+static quick_deploy_host_choice_t quick_tui_choose_deploy_host_setup(
+    const char *profile) {
+  char subtitle[300];
+  snprintf(subtitle, sizeof(subtitle),
+           "Profile \"%s\" has no SSH target. Set it up before reviewing this "
+           "deploy.",
+           profile && profile[0] ? profile : "local");
+  const tui_menu_item_t items[] = {
+      {.label = "&Connect existing host",
+       .description = "Verify and save a host that already runs OpenQuick",
+       .id = QUICK_DEPLOY_HOST_CONNECT},
+      {.label = "&Set up new host",
+       .description = "Install OpenQuick on a Linux host over SSH",
+       .id = QUICK_DEPLOY_HOST_INSTALL},
+      {.label = "&Back",
+       .description = "Return without creating remote deploy state",
+       .id = QUICK_DEPLOY_HOST_BACK},
+  };
+  tui_menu_result_t result =
+      tui_show_menu(NULL, &(tui_menu_config_t){.title = "Deploy needs a host",
+                                               .subtitle = subtitle,
+                                               .items = items,
+                                               .item_count = 3,
+                                               .default_index = 0,
+                                               .frame_height = 13,
+                                               .frame_width = 76,
+                                               .show_numeric_keys = true});
+  if (result.status != TUI_MENU_OK) {
+    return QUICK_DEPLOY_HOST_BACK;
+  }
+  return (quick_deploy_host_choice_t)result.selected_id;
+}
+
+static bool quick_tui_rescue_deploy_host(
+    quick_tui_app_state_t *state, const char *profile,
+    const quick_plan_overrides_t *base_overrides,
+    quick_deploy_plan_t *preliminary) {
+  quick_deploy_host_choice_t choice =
+      quick_tui_choose_deploy_host_setup(profile);
+  if (choice == QUICK_DEPLOY_HOST_BACK) {
+    return false;
+  }
+
+  quick_onboarding_model_reset(&state->onboarding, QUICK_ONBOARD_RETURN_DEPLOY);
+  snprintf(state->onboarding.values.profile,
+           sizeof(state->onboarding.values.profile), "%s",
+           profile && profile[0] ? profile : "local");
+  bool setup_ok = choice == QUICK_DEPLOY_HOST_CONNECT
+                      ? quick_tui_screen_connect_host(state)
+                      : quick_tui_screen_new_host(state);
+  if (!setup_ok || state->onboarding.state != QUICK_ONBOARD_STATE_COMPLETE) {
+    return false;
+  }
+
+  (void)quick_tui_reload_profiles(state);
+  quick_deploy_plan_destroy(preliminary);
+  quick_deploy_plan_init(preliminary);
+  app_error err =
+      quick_deploy_plan_resolve(base_overrides, &state->profiles, preliminary);
+  if (err != APP_SUCCESS) {
+    char message[360];
+    snprintf(message, sizeof(message),
+             "The host was saved, but the original deploy plan could not be "
+             "resolved again: %s",
+             app_strerror(err));
+    tui_show_message("Deploy", message);
+    return false;
+  }
+  if (!preliminary->ssh || !preliminary->ssh[0]) {
+    char message[500];
+    snprintf(message, sizeof(message),
+             "Profile \"%s\" still has no SSH target. Open Settings or run "
+             "`quick serve install --profile %s --host user@host`, then retry "
+             "Deploy.",
+             profile && profile[0] ? profile : "local",
+             profile && profile[0] ? profile : "local");
+    tui_show_message("Deploy needs a host", message);
+    return false;
+  }
+  return true;
+}
+
 static void quick_tui_deploy_flow(quick_tui_app_state_t *state,
                                   const char *site_override) {
   (void)quick_tui_reload_profiles(state);
@@ -464,6 +553,14 @@ static void quick_tui_deploy_flow(quick_tui_app_state_t *state,
     snprintf(msg, sizeof(msg), "Could not resolve deploy plan: %s",
              app_strerror(err));
     tui_show_message("Deploy", msg);
+    quick_deploy_plan_destroy(&preliminary);
+    free(profile);
+    return;
+  }
+
+  if ((!preliminary.ssh || !preliminary.ssh[0]) &&
+      !quick_tui_rescue_deploy_host(state, profile, &base_overrides,
+                                    &preliminary)) {
     quick_deploy_plan_destroy(&preliminary);
     free(profile);
     return;

@@ -528,10 +528,13 @@ pub fn build(b: *std.Build) void {
             "src/tui/tui_menu_model.c",
             "src/tui/tui_panel.c",
             "src/tui/tui_product_model.c",
+            "src/tui/tui_onboarding_model.c",
             "src/tui/tui_progress.c",
+            "src/tui/tui_onboarding.c",
             "src/tui/tui_screen_config.c",
             "src/tui/tui_screen_deploy.c",
             "src/tui/tui_screen_doctor.c",
+            "src/tui/tui_screen_host.c",
             "src/tui/tui_screen_init.c",
             "src/tui/tui_screen_serve.c",
             "src/tui/tui_screen_sites.c",
@@ -722,6 +725,7 @@ pub fn build(b: *std.Build) void {
             "src/tui/tui_menu_adapter.c",
             "src/tui/tui_menu_model.c",
             "src/tui/tui_product_model.c",
+            "src/tui/tui_onboarding_model.c",
             // The CLI->action projection. Its only external dependency is
             // app_commands(), which the shared-primitives test stubs with a
             // controlled table so the hidden-skip/example-carry logic is tested

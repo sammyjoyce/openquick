@@ -7,7 +7,9 @@
 #endif
 
 #include "../core/error.h"
+#include "../core/ops.h"
 #include "../core/profile_config.h"
+#include "tui_onboarding_model.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,6 +27,7 @@ typedef struct {
   int serve_port;
   char serve_url[160];
   char status[256];
+  quick_onboarding_model_t onboarding;
 } quick_tui_app_state_t;
 
 void quick_tui_app_state_init(quick_tui_app_state_t *state);
@@ -34,6 +37,9 @@ const char *quick_tui_default_profile_name(const quick_tui_app_state_t *state);
 const char *quick_tui_profile_config_path(const quick_tui_app_state_t *state);
 void quick_tui_set_status(quick_tui_app_state_t *state, const char *message);
 void quick_tui_poll_serve_child(quick_tui_app_state_t *state);
+app_error quick_tui_start_serve_child(quick_tui_app_state_t *state,
+                                      const char *dir, const char *port,
+                                      const char *identity);
 void quick_tui_stop_serve_child(quick_tui_app_state_t *state);
 
 void quick_tui_screen_sites(quick_tui_app_state_t *state);
@@ -45,6 +51,7 @@ void quick_tui_screen_doctor(quick_tui_app_state_t *state);
 void quick_tui_show_host_stats(quick_tui_app_state_t *state);
 void quick_tui_screen_serve(quick_tui_app_state_t *state);
 void quick_tui_screen_config(quick_tui_app_state_t *state);
+void quick_tui_screen_site_config(quick_tui_app_state_t *state);
 
 #ifdef __cplusplus
 }

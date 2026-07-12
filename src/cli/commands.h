@@ -129,7 +129,8 @@ APP_NODISCARD app_error app_command_validate_invocation(
     const app_config_t *config, const char *program_name);
 
 // Shared TUI entry point used by both `quick menu` and bare TTY launches.
-APP_NODISCARD app_error app_run_tui(const app_config_t *config);
+APP_NODISCARD app_error app_run_tui(const app_config_t *config,
+                                    bool run_onboarding);
 
 static inline const char *app_yes_no(bool value) {
   return app_bool_word(value);

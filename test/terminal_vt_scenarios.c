@@ -308,20 +308,39 @@ int run_tui_menu_test(test_stats_t *stats, const char *binary,
 
 int run_tui_bare_invocation(test_stats_t *stats, const char *binary,
                             bool tui_enabled) {
-  const char *name = "bare TTY invocation launches the TUI menu";
+  const char *name =
+      "returning user with a profile launches straight to the dashboard";
   if (!tui_enabled) {
     test_skip(stats, name, "rebuild with -Denable-tui=true");
     return 0;
   }
 
-  vt_session_t session;
-  if (!vt_session_start(&session, binary, NULL, 0, 80, 24)) {
-    return test_fail(stats, name, "failed to start PTY session");
+  char xdg[] = "/tmp/openquick-vt-xdg-bare-XXXXXX";
+  if (!make_temp_dir_path(xdg)) {
+    return test_fail(stats, name, "failed to create temp XDG dir");
+  }
+  if (!write_profile_config(xdg)) {
+    char cfg[PATH_MAX];
+    snprintf(cfg, sizeof(cfg), "%s/openquick/config.json", xdg);
+    unlink(cfg);
+    char od[PATH_MAX];
+    snprintf(od, sizeof(od), "%s/openquick", xdg);
+    rmdir(od);
+    rmdir(xdg);
+    return test_fail(stats, name, "failed to write profile config");
   }
 
+  env_guard_t guard;
+  env_guard_set(&guard, "XDG_CONFIG_HOME", xdg);
+  vt_session_t session;
+  bool started = vt_session_start(&session, binary, NULL, 0, 80, 24);
   char *snapshot = NULL;
   int failed = 0;
-  if (!vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS, &snapshot)) {
+  if (!started) {
+    failed = test_fail(stats, name, "failed to start PTY session");
+  }
+  if (!failed &&
+      !vt_expect_text(&session, "OPENQUICK", PTY_TIMEOUT_MS, &snapshot)) {
     failed = test_fail(stats, name, "bare invocation did not render the menu");
   }
   if (!failed && (!vt_send(&session, "q") ||
@@ -341,7 +360,17 @@ int run_tui_bare_invocation(test_stats_t *stats, const char *binary,
     test_pass(stats, name);
   }
   free(snapshot);
-  vt_session_close(&session);
+  if (started) {
+    vt_session_close(&session);
+  }
+  env_guard_restore(&guard);
+  char cfg[PATH_MAX];
+  snprintf(cfg, sizeof(cfg), "%s/openquick/config.json", xdg);
+  unlink(cfg);
+  char od[PATH_MAX];
+  snprintf(od, sizeof(od), "%s/openquick", xdg);
+  rmdir(od);
+  rmdir(xdg);
   return failed;
 }
 
@@ -508,9 +537,9 @@ int run_tui_menu_separator(test_stats_t *stats, const char *binary,
   if (!failed &&
       !vt_expect_text(&session, "Help/About", PTY_TIMEOUT_MS, &snapshot))
     failed = test_fail(stats, name, "menu items did not finish rendering");
-  /* Selection starts on Sites. Six j presses should advance past the separator
+  /* Selection starts on Sites. Eight j presses should advance past the separator
    * to Help/About. */
-  if (!failed && !vt_send(&session, "jjjjjj"))
+  if (!failed && !vt_send(&session, "jjjjjjjj"))
     failed = test_fail(stats, name, "failed to send navigation");
   if (!failed && !vt_send(&session, "\r"))
     failed = test_fail(stats, name, "failed to confirm");
@@ -1557,4 +1586,1318 @@ int run_tui_serve_install_guide(test_stats_t *stats, const char *binary,
   rmdir(oq);
   rmdir(xdg);
   return failed;
+}
+
+int run_tui_onboarding_welcome_skip(test_stats_t *stats, const char *binary,
+                                    bool tui_enabled) {
+  const char *name =
+      "fresh environment shows Get Started and can be skipped to the dashboard";
+  if (!tui_enabled) {
+    test_skip(stats, name, "rebuild with -Denable-tui=true");
+    return 0;
+  }
+  char xdg[] = "/tmp/openquick-vt-xdg-welcome-XXXXXX";
+  if (!make_temp_dir_path(xdg)) {
+    return test_fail(stats, name, "failed to create temp XDG dir");
+  }
+  env_guard_t guards[2];
+  env_guard_set(&guards[0], "XDG_CONFIG_HOME", xdg);
+  env_guard_set(&guards[1], "QUICK_QUICKD", NULL);
+  vt_session_t session;
+  bool started = vt_session_start(&session, binary, NULL, 0, 80, 24);
+  char *snapshot = NULL;
+  int failed = 0;
+  if (!started) {
+    failed = test_fail(stats, name, "failed to start PTY session");
+  }
+  if (!failed &&
+      !vt_expect_text(&session, "Try OpenQuick locally", PTY_TIMEOUT_MS,
+                      &snapshot))
+    failed = test_fail(stats, name, "welcome screen did not render");
+  if (!failed &&
+      !vt_expect_text(&session, "Connect a deployment host", 1500, &snapshot))
+    failed = test_fail(stats, name, "welcome options did not render");
+  if (!failed && !vt_send(&session, "\x1b"))
+    failed = test_fail(stats, name, "failed to dismiss welcome");
+  if (!failed &&
+      !vt_expect_text(&session, "Sites", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "dashboard did not render after skip");
+  if (!failed && !vt_send(&session, "q"))
+    failed = test_fail(stats, name, "failed to start exit");
+  if (!failed &&
+      !vt_expect_text(&session, "Return to the shell?", PTY_TIMEOUT_MS,
+                      &snapshot))
+    failed = test_fail(stats, name, "exit confirm did not render");
+  if (!failed && !vt_send(&session, "y"))
+    failed = test_fail(stats, name, "failed to confirm exit");
+  if (!failed && vt_wait_for_exit(&session, PTY_TIMEOUT_MS) != 0)
+    failed = test_fail(stats, name, "process did not exit cleanly");
+  if (!failed)
+    test_pass(stats, name);
+  free(snapshot);
+  if (started)
+    vt_session_close(&session);
+  env_guard_restore(&guards[0]);
+  env_guard_restore(&guards[1]);
+  rmdir(xdg);
+  return failed;
+}
+
+static void ob_cleanup_project(const char *proj) {
+  char p[PATH_MAX];
+  const char *files[] = {"index.html", "quick.json", "AGENTS.md",
+                         ".quickignore", "docs/openquick-api.md"};
+  for (size_t i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
+    snprintf(p, sizeof(p), "%s/%s", proj, files[i]);
+    unlink(p);
+  }
+  snprintf(p, sizeof(p), "%s/docs", proj);
+  rmdir(p);
+  rmdir(proj);
+}
+
+int run_tui_onboarding_local_create(test_stats_t *stats, const char *binary,
+                                    bool tui_enabled) {
+  const char *name =
+      "fresh local quickstart creates a site and previews it at the correct "
+      "URL";
+  if (!tui_enabled) {
+    test_skip(stats, name, "rebuild with -Denable-tui=true");
+    return 0;
+  }
+  char xdg[] = "/tmp/openquick-vt-xdg-lcreate-XXXXXX";
+  char proj[] = "/tmp/openquick-vt-proj-XXXXXX";
+  char bin_dir[] = "/tmp/openquick-vt-bin-XXXXXX";
+  if (!make_temp_dir_path(xdg) || !make_temp_dir_path(proj) ||
+      !make_temp_dir_path(bin_dir)) {
+    return test_fail(stats, name, "failed to create temp dirs");
+  }
+  char quickd_path[PATH_MAX];
+  snprintf(quickd_path, sizeof(quickd_path), "%s/quickd", bin_dir);
+  if (!write_text_file(quickd_path, "#!/bin/sh\nexec sleep 120\n") ||
+      chmod(quickd_path, 0755) != 0) {
+    return test_fail(stats, name, "failed to write fake quickd");
+  }
+  env_guard_t guards[3];
+  env_guard_set(&guards[0], "XDG_CONFIG_HOME", xdg);
+  env_guard_set(&guards[1], "QUICK_QUICKD", quickd_path);
+  env_guard_set(&guards[2], "QUICK_PROFILE", NULL);
+  vt_session_t session;
+  bool started = vt_session_start(&session, binary, NULL, 0, 90, 28);
+  char *snapshot = NULL;
+  int failed = 0;
+  char send_dir[PATH_MAX + 4];
+  if (!started)
+    failed = test_fail(stats, name, "failed to start PTY session");
+  if (!failed &&
+      !vt_expect_text(&session, "Try OpenQuick locally", PTY_TIMEOUT_MS,
+                      &snapshot))
+    failed = test_fail(stats, name, "welcome did not render");
+  if (!failed && !vt_send(&session, "t"))
+    failed = test_fail(stats, name, "failed to choose Try locally");
+  if (!failed &&
+      !vt_expect_text(&session, "Folder to create", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "folder prompt did not render");
+  snprintf(send_dir, sizeof(send_dir), "%s\r", proj);
+  if (!failed && !vt_send(&session, send_dir))
+    failed = test_fail(stats, name, "failed to submit folder");
+  if (!failed &&
+      !vt_expect_text(&session, "Site name", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "name prompt did not render");
+  if (!failed && !vt_send(&session, "pty-local\r"))
+    failed = test_fail(stats, name, "failed to submit name");
+  if (!failed &&
+      !vt_expect_text(&session, "CHOOSE A STARTER", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "template menu did not render");
+  if (!failed && !vt_send(&session, "\r"))
+    failed = test_fail(stats, name, "failed to select template");
+  if (!failed &&
+      !vt_expect_text(&session, "Review: create this site", PTY_TIMEOUT_MS,
+                      &snapshot))
+    failed = test_fail(stats, name, "review panel did not render");
+  if (!failed && !vt_send(&session, "\r"))
+    failed = test_fail(stats, name, "failed to confirm review");
+  if (!failed &&
+      !vt_expect_text(&session, "Your site", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "preview panel did not render");
+  if (!failed &&
+      !vt_expect_text(&session, "http://localhost:9366/~/pty-local/", 3000,
+                      &snapshot))
+    failed = test_fail(stats, name, "local preview URL did not render");
+  if (!failed && !vt_send(&session, "\r"))
+    failed = test_fail(stats, name, "failed to close preview panel");
+  if (!failed &&
+      !vt_expect_text(&session, "Try OpenQuick locally", PTY_TIMEOUT_MS,
+                      &snapshot))
+    failed = test_fail(stats, name, "did not return to welcome");
+  if (!failed && !vt_send(&session, "\x1b"))
+    failed = test_fail(stats, name, "failed to dismiss welcome");
+  if (!failed &&
+      !vt_expect_text(&session, "Sites", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "dashboard did not render");
+  if (!failed && !vt_send(&session, "q"))
+    failed = test_fail(stats, name, "failed to start exit");
+  if (!failed &&
+      !vt_expect_text(&session, "Return to the shell?", PTY_TIMEOUT_MS,
+                      &snapshot))
+    failed = test_fail(stats, name, "exit confirm did not render");
+  if (!failed && !vt_send(&session, "y"))
+    failed = test_fail(stats, name, "failed to confirm exit");
+  if (!failed && vt_wait_for_exit(&session, PTY_TIMEOUT_MS) != 0)
+    failed = test_fail(stats, name, "process did not exit cleanly");
+  char idx[PATH_MAX];
+  char qj[PATH_MAX];
+  snprintf(idx, sizeof(idx), "%s/index.html", proj);
+  snprintf(qj, sizeof(qj), "%s/quick.json", proj);
+  if (!failed && (access(idx, F_OK) != 0 || access(qj, F_OK) != 0))
+    failed =
+        test_fail(stats, name, "scaffold files missing in the project dir");
+  if (!failed)
+    test_pass(stats, name);
+  free(snapshot);
+  if (started)
+    vt_session_close(&session);
+  env_guard_restore(&guards[0]);
+  env_guard_restore(&guards[1]);
+  env_guard_restore(&guards[2]);
+  ob_cleanup_project(proj);
+  unlink(quickd_path);
+  rmdir(bin_dir);
+  rmdir(xdg);
+  return failed;
+}
+
+int run_tui_onboarding_adopt_no_overwrite(test_stats_t *stats,
+                                          const char *binary, bool tui_enabled) {
+  const char *name =
+      "existing folder is adopted without overwriting user files";
+  if (!tui_enabled) {
+    test_skip(stats, name, "rebuild with -Denable-tui=true");
+    return 0;
+  }
+  char xdg[] = "/tmp/openquick-vt-xdg-adopt-XXXXXX";
+  char proj[] = "/tmp/openquick-vt-adopt-XXXXXX";
+  char bin_dir[] = "/tmp/openquick-vt-abin-XXXXXX";
+  if (!make_temp_dir_path(xdg) || !make_temp_dir_path(proj) ||
+      !make_temp_dir_path(bin_dir)) {
+    return test_fail(stats, name, "failed to create temp dirs");
+  }
+  char idx[PATH_MAX];
+  snprintf(idx, sizeof(idx), "%s/index.html", proj);
+  if (!write_text_file(idx, "<html>SENTINEL-ADOPT</html>")) {
+    return test_fail(stats, name, "failed to seed index.html");
+  }
+  char quickd_path[PATH_MAX];
+  snprintf(quickd_path, sizeof(quickd_path), "%s/quickd", bin_dir);
+  if (!write_text_file(quickd_path, "#!/bin/sh\nexec sleep 120\n") ||
+      chmod(quickd_path, 0755) != 0) {
+    return test_fail(stats, name, "failed to write fake quickd");
+  }
+  env_guard_t guards[2];
+  env_guard_set(&guards[0], "XDG_CONFIG_HOME", xdg);
+  env_guard_set(&guards[1], "QUICK_QUICKD", quickd_path);
+  vt_session_t session;
+  bool started = vt_session_start(&session, binary, NULL, 0, 90, 28);
+  char *snapshot = NULL;
+  int failed = 0;
+  char send_dir[PATH_MAX + 4];
+  if (!started)
+    failed = test_fail(stats, name, "failed to start PTY session");
+  if (!failed &&
+      !vt_expect_text(&session, "Use an existing project", PTY_TIMEOUT_MS,
+                      &snapshot))
+    failed = test_fail(stats, name, "welcome did not render");
+  if (!failed && !vt_send(&session, "u"))
+    failed = test_fail(stats, name, "failed to choose Use existing");
+  if (!failed &&
+      !vt_expect_text(&session, "Folder to adopt", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "adopt folder prompt did not render");
+  snprintf(send_dir, sizeof(send_dir), "%s\r", proj);
+  if (!failed && !vt_send(&session, send_dir))
+    failed = test_fail(stats, name, "failed to submit folder");
+  if (!failed &&
+      !vt_expect_text(&session, "Site name", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "name prompt did not render");
+  if (!failed && !vt_send(&session, "adopted\r"))
+    failed = test_fail(stats, name, "failed to submit name");
+  if (!failed &&
+      !vt_expect_text(&session, "Review: adopt this folder", PTY_TIMEOUT_MS,
+                      &snapshot))
+    failed = test_fail(stats, name, "adopt review did not render");
+  if (!failed && !vt_send(&session, "\r"))
+    failed = test_fail(stats, name, "failed to confirm adopt");
+  if (!failed &&
+      !vt_expect_text(&session, "Your site", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "preview panel did not render");
+  if (!failed && !vt_send(&session, "\r"))
+    failed = test_fail(stats, name, "failed to close preview panel");
+  if (!failed &&
+      !vt_expect_text(&session, "Use an existing project", PTY_TIMEOUT_MS,
+                      &snapshot))
+    failed = test_fail(stats, name, "did not return to welcome");
+  if (!failed && !vt_send(&session, "\x1b"))
+    failed = test_fail(stats, name, "failed to dismiss welcome");
+  if (!failed &&
+      !vt_expect_text(&session, "Sites", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "dashboard did not render");
+  if (!failed && !vt_send(&session, "q"))
+    failed = test_fail(stats, name, "failed to start exit");
+  if (!failed &&
+      !vt_expect_text(&session, "Return to the shell?", PTY_TIMEOUT_MS,
+                      &snapshot))
+    failed = test_fail(stats, name, "exit confirm did not render");
+  if (!failed && !vt_send(&session, "y"))
+    failed = test_fail(stats, name, "failed to confirm exit");
+  if (!failed && vt_wait_for_exit(&session, PTY_TIMEOUT_MS) != 0)
+    failed = test_fail(stats, name, "process did not exit cleanly");
+  char qj[PATH_MAX];
+  snprintf(qj, sizeof(qj), "%s/quick.json", proj);
+  char buf[256] = {0};
+  FILE *f = fopen(idx, "rb");
+  if (f) {
+    (void)fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+  }
+  if (!failed && !strstr(buf, "SENTINEL-ADOPT"))
+    failed = test_fail(stats, name, "adopt overwrote the existing index.html");
+  if (!failed && access(qj, F_OK) != 0)
+    failed = test_fail(stats, name, "adopt did not add quick.json");
+  if (!failed)
+    test_pass(stats, name);
+  free(snapshot);
+  if (started)
+    vt_session_close(&session);
+  env_guard_restore(&guards[0]);
+  env_guard_restore(&guards[1]);
+  ob_cleanup_project(proj);
+  unlink(quickd_path);
+  rmdir(bin_dir);
+  rmdir(xdg);
+  return failed;
+}
+
+int run_tui_onboarding_resize(test_stats_t *stats, const char *binary,
+                              bool tui_enabled) {
+  const char *name = "onboarding welcome screen stays usable after resize";
+  if (!tui_enabled) {
+    test_skip(stats, name, "rebuild with -Denable-tui=true");
+    return 0;
+  }
+  char xdg[] = "/tmp/openquick-vt-xdg-resize-XXXXXX";
+  if (!make_temp_dir_path(xdg)) {
+    return test_fail(stats, name, "failed to create temp XDG dir");
+  }
+  env_guard_t guards[2];
+  env_guard_set(&guards[0], "XDG_CONFIG_HOME", xdg);
+  env_guard_set(&guards[1], "QUICK_QUICKD", NULL);
+  vt_session_t session;
+  bool started = vt_session_start(&session, binary, NULL, 0, 80, 24);
+  char *snapshot = NULL;
+  int failed = 0;
+  if (!started)
+    failed = test_fail(stats, name, "failed to start PTY session");
+  if (!failed &&
+      !vt_expect_text(&session, "Try OpenQuick locally", PTY_TIMEOUT_MS,
+                      &snapshot))
+    failed = test_fail(stats, name, "welcome did not render");
+  if (!failed && !vt_resize(&session, 100, 30))
+    failed = test_fail(stats, name, "failed to grow the terminal");
+  if (!failed &&
+      !vt_expect_text(&session, "Try OpenQuick locally", PTY_TIMEOUT_MS,
+                      &snapshot))
+    failed = test_fail(stats, name, "welcome disappeared after growing");
+  if (!failed && !vt_resize(&session, 80, 24))
+    failed = test_fail(stats, name, "failed to shrink the terminal");
+  if (!failed &&
+      !vt_expect_text(&session, "Try OpenQuick locally", PTY_TIMEOUT_MS,
+                      &snapshot))
+    failed = test_fail(stats, name, "welcome disappeared after shrinking");
+  if (!failed && !vt_send(&session, "\x1b"))
+    failed = test_fail(stats, name, "failed to dismiss welcome");
+  if (!failed &&
+      !vt_expect_text(&session, "Sites", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "dashboard did not render after resize");
+  if (!failed && !vt_send(&session, "q"))
+    failed = test_fail(stats, name, "failed to start exit");
+  if (!failed &&
+      !vt_expect_text(&session, "Return to the shell?", PTY_TIMEOUT_MS,
+                      &snapshot))
+    failed = test_fail(stats, name, "exit confirm did not render");
+  if (!failed && !vt_send(&session, "y"))
+    failed = test_fail(stats, name, "failed to confirm exit");
+  if (!failed && vt_wait_for_exit(&session, PTY_TIMEOUT_MS) != 0)
+    failed = test_fail(stats, name, "process did not exit cleanly");
+  if (!failed)
+    test_pass(stats, name);
+  free(snapshot);
+  if (started)
+    vt_session_close(&session);
+  env_guard_restore(&guards[0]);
+  env_guard_restore(&guards[1]);
+  rmdir(xdg);
+  return failed;
+}
+
+int run_tui_onboarding_connect_invalid_retains(test_stats_t *stats,
+                                               const char *binary,
+                                               bool tui_enabled) {
+  const char *name =
+      "connect-host wizard keeps entered values on invalid input and writes no "
+      "config on cancel";
+  if (!tui_enabled) {
+    test_skip(stats, name, "rebuild with -Denable-tui=true");
+    return 0;
+  }
+  char xdg[] = "/tmp/openquick-vt-xdg-connect-XXXXXX";
+  if (!make_temp_dir_path(xdg)) {
+    return test_fail(stats, name, "failed to create temp XDG dir");
+  }
+  env_guard_t guards[2];
+  env_guard_set(&guards[0], "XDG_CONFIG_HOME", xdg);
+  env_guard_set(&guards[1], "QUICK_QUICKD", NULL);
+  vt_session_t session;
+  bool started = vt_session_start(&session, binary, NULL, 0, 90, 28);
+  char *snapshot = NULL;
+  int failed = 0;
+  if (!started)
+    failed = test_fail(stats, name, "failed to start PTY session");
+  if (!failed &&
+      !vt_expect_text(&session, "Connect a deployment host", PTY_TIMEOUT_MS,
+                      &snapshot))
+    failed = test_fail(stats, name, "welcome did not render");
+  if (!failed && !vt_send(&session, "c"))
+    failed = test_fail(stats, name, "failed to choose connect host");
+  if (!failed &&
+      !vt_expect_text(&session, "saved host connection", PTY_TIMEOUT_MS,
+                      &snapshot))
+    failed = test_fail(stats, name, "connect intro did not render");
+  if (!failed && !vt_send(&session, "\r"))
+    failed = test_fail(stats, name, "failed to dismiss intro");
+  if (!failed &&
+      !vt_expect_text(&session, "Profile nickname", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "profile prompt did not render");
+  if (!failed && !vt_send(&session, "lab\r"))
+    failed = test_fail(stats, name, "failed to submit profile");
+  if (!failed &&
+      !vt_expect_text(&session, "SSH target", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "ssh prompt did not render");
+  if (!failed && !vt_send(&session, "bad host\r"))
+    failed = test_fail(stats, name, "failed to submit unsafe ssh target");
+  if (!failed &&
+      !vt_expect_text(&session, "Storage folder", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "storage prompt did not render");
+  if (!failed && !vt_send(&session, "\r"))
+    failed = test_fail(stats, name, "failed to keep storage default");
+  if (!failed &&
+      !vt_expect_text(&session, "Website address", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "website prompt did not render");
+  if (!failed && !vt_send(&session, "example.com\r"))
+    failed = test_fail(stats, name, "failed to submit initial domain");
+  if (!failed &&
+      !vt_expect_text(&session, "Cloudflare Access", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "iap menu did not render");
+  if (!failed && !vt_send(&session, "t"))
+    failed = test_fail(stats, name, "failed to choose tailscale");
+  if (!failed &&
+      !vt_expect_text(&session, "SSH target looks unsafe", PTY_TIMEOUT_MS,
+                      &snapshot))
+    failed = test_fail(stats, name, "unsafe ssh validation did not fire");
+  if (!failed && !vt_send(&session, "\r"))
+    failed = test_fail(stats, name, "failed to dismiss ssh validation");
+  if (!failed &&
+      !vt_expect_text(&session, "[lab]", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name,
+                       "profile value was not retained after ssh error");
+  if (!failed && !vt_send(&session, "\r"))
+    failed = test_fail(stats, name, "failed to keep retained profile");
+  if (!failed &&
+      !vt_expect_text(&session, "[bad host]", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name,
+                       "unsafe ssh value was not retained for correction");
+  if (!failed && !vt_send(&session, "quick@box\r"))
+    failed = test_fail(stats, name, "failed to correct ssh target");
+  if (!failed &&
+      !vt_expect_text(&session, "[/srv/quick]", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "storage value was not retained");
+  if (!failed && !vt_send(&session, "\r"))
+    failed = test_fail(stats, name, "failed to keep retained storage");
+  if (!failed &&
+      !vt_expect_text(&session, "[example.com]", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "domain value was not retained");
+  if (!failed && !vt_send(&session, "bad domain!\r"))
+    failed = test_fail(stats, name, "failed to submit bad domain");
+  if (!failed &&
+      !vt_expect_text(&session, "Cloudflare Access", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "iap menu did not render on retry");
+  if (!failed && !vt_send(&session, "t"))
+    failed = test_fail(stats, name, "failed to keep tailscale");
+  if (!failed &&
+      !vt_expect_text(&session, "must be a plain DNS name", PTY_TIMEOUT_MS,
+                      &snapshot))
+    failed = test_fail(stats, name, "domain validation did not fire");
+  if (!failed && !vt_send(&session, "\r"))
+    failed = test_fail(stats, name, "failed to dismiss domain validation");
+  if (!failed &&
+      !vt_expect_text(&session, "[lab]", PTY_TIMEOUT_MS, &snapshot))
+    failed =
+        test_fail(stats, name, "profile value was not retained after error");
+  if (!failed && !vt_send(&session, "\x1b"))
+    failed = test_fail(stats, name, "failed to cancel wizard");
+  if (!failed &&
+      !vt_expect_text(&session, "Try OpenQuick locally", PTY_TIMEOUT_MS,
+                      &snapshot))
+    failed = test_fail(stats, name, "did not return to welcome after cancel");
+  if (!failed && !vt_send(&session, "\x1b"))
+    failed = test_fail(stats, name, "failed to dismiss welcome");
+  if (!failed &&
+      !vt_expect_text(&session, "Sites", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "dashboard did not render");
+  if (!failed && !vt_send(&session, "q"))
+    failed = test_fail(stats, name, "failed to start exit");
+  if (!failed &&
+      !vt_expect_text(&session, "Return to the shell?", PTY_TIMEOUT_MS,
+                      &snapshot))
+    failed = test_fail(stats, name, "exit confirm did not render");
+  if (!failed && !vt_send(&session, "y"))
+    failed = test_fail(stats, name, "failed to confirm exit");
+  if (!failed && vt_wait_for_exit(&session, PTY_TIMEOUT_MS) != 0)
+    failed = test_fail(stats, name, "process did not exit cleanly");
+  char cfg[PATH_MAX];
+  snprintf(cfg, sizeof(cfg), "%s/openquick/config.json", xdg);
+  if (!failed && access(cfg, F_OK) == 0)
+    failed = test_fail(stats, name,
+                       "cancelled wizard wrote a profile config file");
+  if (!failed)
+    test_pass(stats, name);
+  free(snapshot);
+  if (started)
+    vt_session_close(&session);
+  env_guard_restore(&guards[0]);
+  env_guard_restore(&guards[1]);
+  unlink(cfg);
+  char od[PATH_MAX];
+  snprintf(od, sizeof(od), "%s/openquick", xdg);
+  rmdir(od);
+  rmdir(xdg);
+  return failed;
+}
+
+int run_tui_onboarding_newhost_review_no_mutation(test_stats_t *stats,
+                                                  const char *binary,
+                                                  bool tui_enabled) {
+  const char *name =
+      "new-host wizard shows a review and makes no changes before confirmation";
+  if (!tui_enabled) {
+    test_skip(stats, name, "rebuild with -Denable-tui=true");
+    return 0;
+  }
+  char xdg[] = "/tmp/openquick-vt-xdg-newrev-XXXXXX";
+  char bin_dir[] = "/tmp/openquick-vt-nbin-XXXXXX";
+  if (!make_temp_dir_path(xdg) || !make_temp_dir_path(bin_dir)) {
+    return test_fail(stats, name, "failed to create temp dirs");
+  }
+  char ssh_path[PATH_MAX];
+  char ssh_log[PATH_MAX];
+  snprintf(ssh_path, sizeof(ssh_path), "%s/ssh", bin_dir);
+  snprintf(ssh_log, sizeof(ssh_log), "%s/ssh.log", bin_dir);
+  if (!write_text_file(ssh_path,
+                       "#!/bin/sh\necho called >> \"$OQ_SSH_LOG\"\nexit 0\n") ||
+      chmod(ssh_path, 0755) != 0) {
+    return test_fail(stats, name, "failed to write fake ssh");
+  }
+  char path_value[PATH_MAX * 2];
+  const char *old_path = getenv("PATH");
+  snprintf(path_value, sizeof(path_value), "%s%s%s", bin_dir,
+           old_path && old_path[0] ? ":" : "",
+           old_path && old_path[0] ? old_path : "");
+  env_guard_t guards[3];
+  env_guard_set(&guards[0], "XDG_CONFIG_HOME", xdg);
+  env_guard_set(&guards[1], "PATH", path_value);
+  env_guard_set(&guards[2], "OQ_SSH_LOG", ssh_log);
+  vt_session_t session;
+  bool started = vt_session_start(&session, binary, NULL, 0, 90, 28);
+  char *snapshot = NULL;
+  int failed = 0;
+  if (!started)
+    failed = test_fail(stats, name, "failed to start PTY session");
+  if (!failed &&
+      !vt_expect_text(&session, "Set up a new host", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "welcome did not render");
+  if (!failed && !vt_send(&session, "s"))
+    failed = test_fail(stats, name, "failed to choose set up host");
+  if (!failed &&
+      !vt_expect_text(&session, "installs OpenQuick", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "requirements message did not render");
+  if (!failed && !vt_send(&session, "\r"))
+    failed = test_fail(stats, name, "failed to dismiss requirements");
+  if (!failed &&
+      !vt_expect_text(&session, "Profile nickname", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "profile prompt did not render");
+  if (!failed && !vt_send(&session, "lab\r"))
+    failed = test_fail(stats, name, "failed to submit profile");
+  if (!failed &&
+      !vt_expect_text(&session, "SSH target", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "ssh prompt did not render");
+  if (!failed && !vt_send(&session, "quick@box\r"))
+    failed = test_fail(stats, name, "failed to submit ssh target");
+  if (!failed &&
+      !vt_expect_text(&session, "Storage folder", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "storage prompt did not render");
+  if (!failed && !vt_send(&session, "\r"))
+    failed = test_fail(stats, name, "failed to keep storage default");
+  if (!failed &&
+      !vt_expect_text(&session, "Website address", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "website prompt did not render");
+  if (!failed && !vt_send(&session, "example.com\r"))
+    failed = test_fail(stats, name, "failed to submit domain");
+  if (!failed &&
+      !vt_expect_text(&session, "Cloudflare Access", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "iap menu did not render");
+  if (!failed && !vt_send(&session, "t"))
+    failed = test_fail(stats, name, "failed to choose tailscale");
+  if (!failed &&
+      !vt_expect_text(&session, "Review install plan", PTY_TIMEOUT_MS,
+                      &snapshot))
+    failed = test_fail(stats, name, "install review did not render");
+  if (!failed &&
+      !vt_expect_text(&session, "nothing changed yet", 1500, &snapshot))
+    failed = test_fail(stats, name, "review did not promise no mutation");
+  if (!failed && !vt_send(&session, "\x1b"))
+    failed = test_fail(stats, name, "failed to go back from review");
+  if (!failed &&
+      !vt_expect_text(&session, "Profile nickname", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "did not return to editing after Back");
+  if (!failed && !vt_send(&session, "\x1b"))
+    failed = test_fail(stats, name, "failed to cancel wizard");
+  if (!failed &&
+      !vt_expect_text(&session, "Try OpenQuick locally", PTY_TIMEOUT_MS,
+                      &snapshot))
+    failed = test_fail(stats, name, "did not return to welcome");
+  if (!failed && !vt_send(&session, "\x1b"))
+    failed = test_fail(stats, name, "failed to dismiss welcome");
+  if (!failed &&
+      !vt_expect_text(&session, "Sites", PTY_TIMEOUT_MS, &snapshot))
+    failed = test_fail(stats, name, "dashboard did not render");
+  if (!failed && !vt_send(&session, "q"))
+    failed = test_fail(stats, name, "failed to start exit");
+  if (!failed &&
+      !vt_expect_text(&session, "Return to the shell?", PTY_TIMEOUT_MS,
+                      &snapshot))
+    failed = test_fail(stats, name, "exit confirm did not render");
+  if (!failed && !vt_send(&session, "y"))
+    failed = test_fail(stats, name, "failed to confirm exit");
+  if (!failed && vt_wait_for_exit(&session, PTY_TIMEOUT_MS) != 0)
+    failed = test_fail(stats, name, "process did not exit cleanly");
+  if (!failed && access(ssh_log, F_OK) == 0)
+    failed = test_fail(stats, name,
+                       "ssh ran before the plan was confirmed (mutation)");
+  char cfg[PATH_MAX];
+  snprintf(cfg, sizeof(cfg), "%s/openquick/config.json", xdg);
+  if (!failed && access(cfg, F_OK) == 0)
+    failed = test_fail(stats, name,
+                       "profile was written before install succeeded");
+  if (!failed)
+    test_pass(stats, name);
+  free(snapshot);
+  if (started)
+    vt_session_close(&session);
+  env_guard_restore(&guards[0]);
+  env_guard_restore(&guards[1]);
+  env_guard_restore(&guards[2]);
+  unlink(ssh_log);
+  unlink(ssh_path);
+  unlink(cfg);
+  char od[PATH_MAX];
+  snprintf(od, sizeof(od), "%s/openquick", xdg);
+  rmdir(od);
+  rmdir(bin_dir);
+  rmdir(xdg);
+  return failed;
+}
+
+static char *ob_read_text_file(const char *path) {
+  FILE *f = fopen(path, "rb");
+  if (!f) {
+    return NULL;
+  }
+  if (fseek(f, 0, SEEK_END) != 0) {
+    fclose(f);
+    return NULL;
+  }
+  long size = ftell(f);
+  if (size < 0 || fseek(f, 0, SEEK_SET) != 0) {
+    fclose(f);
+    return NULL;
+  }
+  char *body = calloc((size_t)size + 1U, 1U);
+  if (!body) {
+    fclose(f);
+    return NULL;
+  }
+  size_t read_size = fread(body, 1, (size_t)size, f);
+  if (ferror(f)) {
+    free(body);
+    body = NULL;
+  } else {
+    body[read_size] = '\0';
+  }
+  fclose(f);
+  return body;
+}
+
+static bool ob_file_contains(const char *path, const char *needle) {
+  char *body = ob_read_text_file(path);
+  bool found = body && strstr(body, needle) != NULL;
+  free(body);
+  return found;
+}
+
+static void ob_cleanup_xdg(const char *xdg) {
+  char path[PATH_MAX];
+  snprintf(path, sizeof(path), "%s/openquick/config.json", xdg);
+  unlink(path);
+  snprintf(path, sizeof(path), "%s/openquick", xdg);
+  rmdir(path);
+  rmdir(xdg);
+}
+
+static int ob_expect(test_stats_t *stats, const char *name,
+                     vt_session_t *session, const char *needle, int timeout_ms,
+                     char **snapshot, const char *failure) {
+  if (vt_expect_text(session, needle, timeout_ms, snapshot)) {
+    return 0;
+  }
+  print_tail(stderr, "screen:\n", *snapshot ? *snapshot : "",
+             *snapshot ? strlen(*snapshot) : 0, 4000);
+  print_tail(stderr, "transcript:\n", buffer_cstr(&session->transcript),
+             session->transcript.len, 4000);
+  return test_fail(stats, name, "%s", failure);
+}
+
+static bool ob_write_executable(const char *path, const char *body) {
+  return write_text_file(path, body) && chmod(path, 0755) == 0;
+}
+
+static bool ob_write_fake_host_tools(const char *bin_dir) {
+  static const char ssh_script[] =
+      "#!/bin/sh\n"
+      "{ printf 'ssh'; for arg in \"$@\"; do printf ' <%s>' \"$arg\"; done; "
+      "printf '\\n'; } >> \"$OQ_SSH_LOG\"\n"
+      "while [ \"$1\" = -o ]; do [ \"$#\" -ge 2 ] || exit 97; shift 2; "
+      "done\n"
+      "host=$1\n"
+      "shift\n"
+      "delay=${OQ_FAKE_DELAY:-0}\n"
+      "[ \"$delay\" = 0 ] || sleep \"$delay\"\n"
+      "if [ \"$1\" = sh ] && [ \"$2\" = -s ] && [ \"$3\" = -- ]; then\n"
+      "  script=$(cat)\n"
+      "  printf '%s\\n' \"$script\" >> \"$OQ_SCRIPT_LOG\"\n"
+      "  case \"$script\" in\n"
+      "    *'# openquick backup'*) echo backup >> \"$OQ_EVENTS_LOG\" ;;\n"
+      "    *'# openquick rollback'*) echo rollback >> \"$OQ_EVENTS_LOG\" ;;\n"
+      "    *'# openquick pre-mutation cleanup'*) echo cleanup >> "
+      "\"$OQ_EVENTS_LOG\" ;;\n"
+      "    *) echo unknown-script >> \"$OQ_EVENTS_LOG\"; exit 96 ;;\n"
+      "  esac\n"
+      "  exit 0\n"
+      "fi\n"
+      "if [ \"$1\" = sudo ] && [ \"$2\" = tee ]; then\n"
+      "  cat >/dev/null\n"
+      "  echo \"tee $3\" >> \"$OQ_EVENTS_LOG\"\n"
+      "  exit 0\n"
+      "fi\n"
+      "case \"$*\" in\n"
+      "  'uname -s') printf '%s\\n' Linux; exit 0 ;;\n"
+      "  'mktemp -d /tmp/openquick-install.XXXXXX')\n"
+      "    printf '%s\\n' /tmp/oq; exit 0 ;;\n"
+      "  'id -un') printf '%s\\n' deployer; exit 0 ;;\n"
+      "  'id -u quick') exit 1 ;;\n"
+      "  'quickd doctor --host --json')\n"
+      "    echo host-doctor >> \"$OQ_EVENTS_LOG\"\n"
+      "    if [ \"${OQ_DOCTOR_FAIL:-0}\" = 1 ]; then\n"
+      "      printf '%s\\n' "
+      "'{\"status\":\"fail\",\"checks\":[{\"status\":\"fail\",\"name\":\"service\"}]}'\n"
+      "      exit 1\n"
+      "    fi\n"
+      "    printf '%s\\n' "
+      "'{\"status\":\"ok\",\"checks\":[{\"status\":\"ok\"}]}'\n"
+      "    exit 0 ;;\n"
+      "  'quickd admin stats --json')\n"
+      "    printf '%s\\n' '{\"sites\":2,\"releases\":3}'; exit 0 ;;\n"
+      "  'sudo groupadd --system --force quick-deploy')\n"
+      "    echo groupadd >> \"$OQ_EVENTS_LOG\"; exit 0 ;;\n"
+      "esac\n"
+      "exit 0\n";
+  static const char scp_script[] =
+      "#!/bin/sh\n"
+      "{ printf 'scp'; for arg in \"$@\"; do printf ' <%s>' \"$arg\"; done; "
+      "printf '\\n'; } >> \"$OQ_SCP_LOG\"\n"
+      "while [ \"$1\" = -o ]; do [ \"$#\" -ge 2 ] || exit 97; shift 2; "
+      "done\n"
+      "echo scp >> \"$OQ_EVENTS_LOG\"\n"
+      "exit 0\n";
+  static const char rsync_script[] = "#!/bin/sh\nexit 0\n";
+  static const char curl_script[] =
+      "#!/bin/sh\n"
+      "{ printf 'curl'; for arg in \"$@\"; do printf ' <%s>' \"$arg\"; done; "
+      "printf '\\n'; } >> \"$OQ_CURL_LOG\"\n"
+      "url=\n"
+      "for arg in \"$@\"; do url=$arg; done\n"
+      "delay=${OQ_FAKE_DELAY:-0}\n"
+      "[ \"$delay\" = 0 ] || sleep \"$delay\"\n"
+      "case \"$url\" in\n"
+      "  */_quick/identity) printf '%s\\n' "
+      "'{\"authenticated\":true,\"provider\":\"tailscale\",\"subject\":\"user:test\"}' ;;\n"
+      "  */_quick/health) printf '%s\\n' '{\"status\":\"ok\"}' ;;\n"
+      "  *) printf '%s\\n' ok ;;\n"
+      "esac\n"
+      "exit 0\n";
+  static const char quickd_script[] = "#!/bin/sh\nexit 0\n";
+
+  char path[PATH_MAX];
+  snprintf(path, sizeof(path), "%s/ssh", bin_dir);
+  if (!ob_write_executable(path, ssh_script)) {
+    return false;
+  }
+  snprintf(path, sizeof(path), "%s/scp", bin_dir);
+  if (!ob_write_executable(path, scp_script)) {
+    return false;
+  }
+  snprintf(path, sizeof(path), "%s/rsync", bin_dir);
+  if (!ob_write_executable(path, rsync_script)) {
+    return false;
+  }
+  snprintf(path, sizeof(path), "%s/curl", bin_dir);
+  if (!ob_write_executable(path, curl_script)) {
+    return false;
+  }
+  snprintf(path, sizeof(path), "%s/quickd", bin_dir);
+  return ob_write_executable(path, quickd_script);
+}
+
+static void ob_cleanup_fake_host_tools(const char *bin_dir) {
+  const char *names[] = {"ssh", "scp", "rsync", "curl", "quickd"};
+  char path[PATH_MAX];
+  for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+    snprintf(path, sizeof(path), "%s/%s", bin_dir, names[i]);
+    unlink(path);
+  }
+  rmdir(bin_dir);
+}
+
+static void ob_cleanup_fake_state(const char *state_dir) {
+  const char *names[] = {"ssh.log", "scp.log", "scripts.log", "events.log",
+                         "curl.log"};
+  char path[PATH_MAX];
+  for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+    snprintf(path, sizeof(path), "%s/%s", state_dir, names[i]);
+    unlink(path);
+  }
+  rmdir(state_dir);
+}
+
+static int ob_drive_host_to_review(test_stats_t *stats, const char *name,
+                                   vt_session_t *session, bool install,
+                                   char **snapshot) {
+  const char *welcome =
+      install ? "Set up a new host" : "Connect a deployment host";
+  const char *intro = install ? "installs OpenQuick" : "saved host connection";
+  const char *review =
+      install ? "Review install plan" : "Review host connection";
+  if (ob_expect(stats, name, session, welcome, PTY_TIMEOUT_MS, snapshot,
+                "onboarding welcome choice did not render")) {
+    return 1;
+  }
+  if (!vt_send(session, install ? "s" : "c")) {
+    return test_fail(stats, name, "failed to choose host onboarding flow");
+  }
+  if (ob_expect(stats, name, session, intro, PTY_TIMEOUT_MS, snapshot,
+                "host setup introduction did not render")) {
+    return 1;
+  }
+  if (!vt_send(session, "\r")) {
+    return test_fail(stats, name, "failed to dismiss host setup introduction");
+  }
+  if (ob_expect(stats, name, session, "Profile nickname", PTY_TIMEOUT_MS,
+                snapshot, "profile prompt did not render")) {
+    return 1;
+  }
+  if (!vt_send(session, "lab\r")) {
+    return test_fail(stats, name, "failed to submit profile nickname");
+  }
+  if (ob_expect(stats, name, session, "SSH target", PTY_TIMEOUT_MS, snapshot,
+                "ssh prompt did not render")) {
+    return 1;
+  }
+  if (!vt_send(session, "quick@box\r")) {
+    return test_fail(stats, name, "failed to submit ssh target");
+  }
+  if (ob_expect(stats, name, session, "Storage folder", PTY_TIMEOUT_MS,
+                snapshot, "storage prompt did not render")) {
+    return 1;
+  }
+  if (!vt_send(session, install ? "/q\r" : "\r")) {
+    return test_fail(stats, name, "failed to submit storage folder");
+  }
+  if (ob_expect(stats, name, session, "Website address", PTY_TIMEOUT_MS,
+                snapshot, "website prompt did not render")) {
+    return 1;
+  }
+  if (!vt_send(session, "example.com\r")) {
+    return test_fail(stats, name, "failed to submit website address");
+  }
+  if (ob_expect(stats, name, session, "Cloudflare Access", PTY_TIMEOUT_MS,
+                snapshot, "access menu did not render")) {
+    return 1;
+  }
+  if (!vt_send(session, "t")) {
+    return test_fail(stats, name, "failed to choose Tailscale");
+  }
+  if (ob_expect(stats, name, session, review, PTY_TIMEOUT_MS, snapshot,
+                "host review did not render")) {
+    return 1;
+  }
+  return 0;
+}
+
+static int ob_exit_dashboard(test_stats_t *stats, const char *name,
+                             vt_session_t *session, char **snapshot) {
+  if (!vt_send(session, "q")) {
+    return test_fail(stats, name, "failed to start dashboard exit");
+  }
+  if (ob_expect(stats, name, session, "Return to the shell?", PTY_TIMEOUT_MS,
+                snapshot, "exit confirmation did not render")) {
+    return 1;
+  }
+  if (!vt_send(session, "y")) {
+    return test_fail(stats, name, "failed to confirm dashboard exit");
+  }
+  int exit_code = vt_wait_for_exit(session, PTY_TIMEOUT_MS);
+  return exit_code == 0
+             ? 0
+             : test_fail(stats, name, "expected exit 0, got %d", exit_code);
+}
+
+int run_tui_onboarding_connect_success(test_stats_t *stats, const char *binary,
+                                       bool tui_enabled) {
+  const char *name =
+      "connect-host onboarding verifies a bounded candidate before saving it";
+  if (!tui_enabled) {
+    test_skip(stats, name, "rebuild with -Denable-tui=true");
+    return 0;
+  }
+
+  char xdg[] = "/tmp/openquick-vt-xdg-connect-ok-XXXXXX";
+  char project[] = "/tmp/openquick-vt-project-connect-ok-XXXXXX";
+  char bin_dir[] = "/tmp/openquick-vt-bin-connect-ok-XXXXXX";
+  char state_dir[] = "/tmp/openquick-vt-state-connect-ok-XXXXXX";
+  char original_cwd[PATH_MAX] = {0};
+  char config_path[PATH_MAX] = {0};
+  char quick_json[PATH_MAX] = {0}, index_path[PATH_MAX] = {0};
+  char ignore_path[PATH_MAX] = {0};
+  char quickd_path[PATH_MAX] = {0}, ssh_log[PATH_MAX] = {0};
+  char scp_log[PATH_MAX] = {0}, script_log[PATH_MAX] = {0};
+  char events_log[PATH_MAX] = {0}, curl_log[PATH_MAX] = {0};
+  char path_value[PATH_MAX * 2] = {0};
+  env_guard_t guards[14] = {0};
+  size_t guard_count = 0;
+  vt_session_t session;
+  bool started = false;
+  bool cwd_changed = false;
+  char *snapshot = NULL;
+  int failed = 0;
+
+  if (!getcwd(original_cwd, sizeof(original_cwd)) ||
+      !make_temp_dir_path(xdg) || !make_temp_dir_path(project) ||
+      !make_temp_dir_path(bin_dir) || !make_temp_dir_path(state_dir)) {
+    failed = test_fail(stats, name, "failed to create isolated test inputs: %s",
+                       strerror(errno));
+    goto cleanup;
+  }
+  snprintf(config_path, sizeof(config_path), "%s/openquick/config.json", xdg);
+  snprintf(quick_json, sizeof(quick_json), "%s/quick.json", project);
+  snprintf(index_path, sizeof(index_path), "%s/index.html", project);
+  snprintf(ignore_path, sizeof(ignore_path), "%s/.quickignore", project);
+  snprintf(quickd_path, sizeof(quickd_path), "%s/quickd", bin_dir);
+  snprintf(ssh_log, sizeof(ssh_log), "%s/ssh.log", state_dir);
+  snprintf(scp_log, sizeof(scp_log), "%s/scp.log", state_dir);
+  snprintf(script_log, sizeof(script_log), "%s/scripts.log", state_dir);
+  snprintf(events_log, sizeof(events_log), "%s/events.log", state_dir);
+  snprintf(curl_log, sizeof(curl_log), "%s/curl.log", state_dir);
+
+  if (!write_text_file(quick_json,
+                       "{\"name\":\"candidate\",\"source\":\".\","
+                       "\"output\":\".\",\"subdomain\":\"candidate\"}\n") ||
+      !write_text_file(index_path, "<!doctype html><title>candidate</title>\n") ||
+      !write_text_file(ignore_path, ".git/\n") ||
+      !ob_write_fake_host_tools(bin_dir)) {
+    failed = test_fail(stats, name, "failed to write project or fake tools");
+    goto cleanup;
+  }
+
+  const char *old_path = getenv("PATH");
+  snprintf(path_value, sizeof(path_value), "%s%s%s", bin_dir,
+           old_path && old_path[0] ? ":" : "",
+           old_path && old_path[0] ? old_path : "");
+#define OB_SET_ENV(key, value)                                                   \
+  env_guard_set(&guards[guard_count++], (key), (value))
+  OB_SET_ENV("XDG_CONFIG_HOME", xdg);
+  OB_SET_ENV("PATH", path_value);
+  OB_SET_ENV("QUICK_QUICKD", quickd_path);
+  OB_SET_ENV("OQ_SSH_LOG", ssh_log);
+  OB_SET_ENV("OQ_SCP_LOG", scp_log);
+  OB_SET_ENV("OQ_SCRIPT_LOG", script_log);
+  OB_SET_ENV("OQ_EVENTS_LOG", events_log);
+  OB_SET_ENV("OQ_CURL_LOG", curl_log);
+  OB_SET_ENV("OQ_DOCTOR_FAIL", "0");
+  OB_SET_ENV("OQ_FAKE_DELAY", "0.20");
+  OB_SET_ENV("QUICK_PROFILE", NULL);
+  OB_SET_ENV("QUICK_REMOTE", NULL);
+  OB_SET_ENV("QUICK_BASE_DOMAIN", NULL);
+  OB_SET_ENV("QUICK_CONFIG_PATH", NULL);
+#undef OB_SET_ENV
+
+  if (chdir(project) != 0) {
+    failed = test_fail(stats, name, "failed to enter candidate project: %s",
+                       strerror(errno));
+    goto cleanup;
+  }
+  cwd_changed = true;
+  started = vt_session_start(&session, binary, NULL, 0, 100, 30);
+  if (chdir(original_cwd) != 0) {
+    failed = test_fail(stats, name, "failed to restore parent cwd: %s",
+                       strerror(errno));
+    goto cleanup;
+  }
+  cwd_changed = false;
+  if (!started) {
+    failed = test_fail(stats, name, "failed to start PTY session");
+    goto cleanup;
+  }
+
+  failed = ob_expect(stats, name, &session, "Get started", PTY_TIMEOUT_MS,
+                     &snapshot,
+                     "valid candidate project dashboard did not render");
+  if (!failed && !vt_send(&session, "g")) {
+    failed = test_fail(stats, name, "failed to open onboarding from project");
+  }
+  if (!failed) {
+    failed = ob_drive_host_to_review(stats, name, &session, false, &snapshot);
+  }
+  if (!failed && access(config_path, F_OK) == 0) {
+    failed = test_fail(stats, name, "profile was written before review");
+  }
+  if (!failed && !vt_send(&session, "\r")) {
+    failed = test_fail(stats, name, "failed to confirm host review");
+  }
+  if (!failed) {
+    failed = ob_expect(stats, name, &session, "Checking host", PTY_TIMEOUT_MS,
+                       &snapshot, "host verification progress did not render");
+  }
+  if (!failed && access(config_path, F_OK) == 0) {
+    failed = test_fail(stats, name,
+                       "profile was written before verification completed");
+  }
+  if (!failed) {
+    failed = ob_expect(stats, name, &session,
+                       "Saved profile \"lab\" and verified the host.",
+                       PTY_TIMEOUT_MS, &snapshot,
+                       "verified connection success did not render");
+  }
+  if (!failed && access(config_path, F_OK) != 0) {
+    failed = test_fail(stats, name, "verified profile config was not saved");
+  }
+  if (!failed &&
+      (!ob_file_contains(config_path, "\"default_profile\": \"lab\"") ||
+       !ob_file_contains(config_path, "\"ssh\": \"quick@box\""))) {
+    failed = test_fail(stats, name,
+                       "saved profile does not contain the candidate host");
+  }
+  if (!failed && !vt_send(&session, "\r")) {
+    failed = test_fail(stats, name, "failed to dismiss connection success");
+  }
+  if (!failed) {
+    failed = ob_expect(stats, name, &session, "Sites", PTY_TIMEOUT_MS,
+                       &snapshot, "dashboard did not return after connection");
+  }
+  if (!failed) {
+    failed = ob_exit_dashboard(stats, name, &session, &snapshot);
+  }
+  if (!failed &&
+      (!ob_file_contains(ssh_log, "BatchMode=yes") ||
+       !ob_file_contains(ssh_log, "ConnectTimeout=10") ||
+       !ob_file_contains(ssh_log, "ConnectionAttempts=1") ||
+       !ob_file_contains(ssh_log, "quick@box") ||
+       !ob_file_contains(ssh_log, "<quickd>") ||
+       !ob_file_contains(ssh_log, "<doctor>") ||
+       !ob_file_contains(ssh_log, "<--host>") ||
+       !ob_file_contains(ssh_log, "<admin>") ||
+       !ob_file_contains(ssh_log, "<stats>"))) {
+    failed = test_fail(stats, name,
+                       "SSH verification did not use bounded candidate args");
+  }
+  if (!failed &&
+      (!ob_file_contains(curl_log, "/_quick/health") ||
+       !ob_file_contains(curl_log, "/_quick/identity"))) {
+    failed = test_fail(stats, name,
+                       "verification did not probe health and identity");
+  }
+  if (!failed) {
+    test_pass(stats, name);
+  }
+
+cleanup:
+  if (started) {
+    vt_session_close(&session);
+  }
+  if (cwd_changed && original_cwd[0]) {
+    (void)chdir(original_cwd);
+  }
+  free(snapshot);
+  restore_common_env(guards, guard_count);
+  if (quick_json[0])
+    unlink(quick_json);
+  if (index_path[0])
+    unlink(index_path);
+  if (ignore_path[0])
+    unlink(ignore_path);
+  rmdir(project);
+  ob_cleanup_fake_host_tools(bin_dir);
+  ob_cleanup_fake_state(state_dir);
+  ob_cleanup_xdg(xdg);
+  return failed;
+}
+
+static int ob_run_install_case(test_stats_t *stats, const char *binary,
+                               bool tui_enabled, bool doctor_fail) {
+  const char *name = doctor_fail
+                         ? "new-host onboarding rolls back a failed host doctor"
+                         : "new-host onboarding installs, verifies, then saves";
+  if (!tui_enabled) {
+    test_skip(stats, name, "rebuild with -Denable-tui=true");
+    return 0;
+  }
+
+  char xdg[] = "/tmp/openquick-vt-xdg-install-XXXXXX";
+  char bin_dir[] = "/tmp/openquick-vt-bin-install-XXXXXX";
+  char state_dir[] = "/tmp/openquick-vt-state-install-XXXXXX";
+  char config_path[PATH_MAX] = {0};
+  char quickd_path[PATH_MAX] = {0};
+  char ssh_log[PATH_MAX] = {0}, scp_log[PATH_MAX] = {0};
+  char script_log[PATH_MAX] = {0}, events_log[PATH_MAX] = {0};
+  char curl_log[PATH_MAX] = {0}, path_value[PATH_MAX * 2] = {0};
+  env_guard_t guards[15] = {0};
+  size_t guard_count = 0;
+  vt_session_t session;
+  bool started = false;
+  char *snapshot = NULL;
+  int failed = 0;
+
+  if (!make_temp_dir_path(xdg) || !make_temp_dir_path(bin_dir) ||
+      !make_temp_dir_path(state_dir)) {
+    failed = test_fail(stats, name, "failed to create isolated temp dirs: %s",
+                       strerror(errno));
+    goto cleanup;
+  }
+  snprintf(config_path, sizeof(config_path), "%s/openquick/config.json", xdg);
+  snprintf(quickd_path, sizeof(quickd_path), "%s/quickd", bin_dir);
+  snprintf(ssh_log, sizeof(ssh_log), "%s/ssh.log", state_dir);
+  snprintf(scp_log, sizeof(scp_log), "%s/scp.log", state_dir);
+  snprintf(script_log, sizeof(script_log), "%s/scripts.log", state_dir);
+  snprintf(events_log, sizeof(events_log), "%s/events.log", state_dir);
+  snprintf(curl_log, sizeof(curl_log), "%s/curl.log", state_dir);
+  if (!ob_write_fake_host_tools(bin_dir)) {
+    failed = test_fail(stats, name, "failed to write fake host tools");
+    goto cleanup;
+  }
+
+  const char *old_path = getenv("PATH");
+  snprintf(path_value, sizeof(path_value), "%s%s%s", bin_dir,
+           old_path && old_path[0] ? ":" : "",
+           old_path && old_path[0] ? old_path : "");
+#define OB_SET_ENV(key, value)                                                   \
+  env_guard_set(&guards[guard_count++], (key), (value))
+  OB_SET_ENV("XDG_CONFIG_HOME", xdg);
+  OB_SET_ENV("PATH", path_value);
+  OB_SET_ENV("QUICK_QUICKD", quickd_path);
+  OB_SET_ENV("OQ_SSH_LOG", ssh_log);
+  OB_SET_ENV("OQ_SCP_LOG", scp_log);
+  OB_SET_ENV("OQ_SCRIPT_LOG", script_log);
+  OB_SET_ENV("OQ_EVENTS_LOG", events_log);
+  OB_SET_ENV("OQ_CURL_LOG", curl_log);
+  OB_SET_ENV("OQ_DOCTOR_FAIL", doctor_fail ? "1" : "0");
+  OB_SET_ENV("OQ_FAKE_DELAY", "0.03");
+  OB_SET_ENV("QUICK_PROFILE", NULL);
+  OB_SET_ENV("QUICK_REMOTE", NULL);
+  OB_SET_ENV("QUICK_BASE_DOMAIN", NULL);
+  OB_SET_ENV("QUICK_CONFIG_PATH", NULL);
+  OB_SET_ENV("QUICK_INSTALL_DIR", NULL);
+#undef OB_SET_ENV
+
+  started = vt_session_start(&session, binary, NULL, 0, 110, 40);
+  if (!started) {
+    failed = test_fail(stats, name, "failed to start PTY session");
+    goto cleanup;
+  }
+  failed = ob_drive_host_to_review(stats, name, &session, true, &snapshot);
+  if (!failed) {
+    failed = ob_expect(stats, name, &session, "nothing changed yet", 1500,
+                       &snapshot, "review did not promise no mutation");
+  }
+  if (!failed && (access(ssh_log, F_OK) == 0 || access(scp_log, F_OK) == 0 ||
+                  access(config_path, F_OK) == 0)) {
+    failed = test_fail(stats, name,
+                       "install mutated or saved before confirmation");
+  }
+  if (!failed && !vt_send(&session, "\r")) {
+    failed = test_fail(stats, name, "failed to confirm install review");
+  }
+  if (!failed) {
+    failed = ob_expect(stats, name, &session, "Setting up host", PTY_TIMEOUT_MS,
+                       &snapshot, "install progress did not render");
+  }
+  if (!failed && access(config_path, F_OK) == 0) {
+    failed = test_fail(stats, name,
+                       "profile was saved while installation was in progress");
+  }
+
+  if (!doctor_fail) {
+    if (!failed) {
+      failed = ob_expect(stats, name, &session, "HOST READY", PTY_TIMEOUT_MS,
+                         &snapshot, "install success panel did not render");
+    }
+    if (!failed) {
+      failed = ob_expect(stats, name, &session, "Host doctor: healthy", 1500,
+                         &snapshot, "healthy host doctor status was missing");
+    }
+    if (!failed) {
+      failed = ob_expect(stats, name, &session,
+                         "Backup kept: /tmp/oq/backup", 1500, &snapshot,
+                         "backup path was missing on success");
+    }
+    if (!failed && access(config_path, F_OK) != 0) {
+      failed = test_fail(stats, name,
+                         "profile config was not saved after install success");
+    }
+    if (!failed &&
+        (!ob_file_contains(config_path, "\"default_profile\": \"lab\"") ||
+         !ob_file_contains(config_path, "\"ssh\": \"quick@box\""))) {
+      failed = test_fail(stats, name,
+                         "saved install profile is missing expected values");
+    }
+    if (!failed && !vt_send(&session, "\r")) {
+      failed = test_fail(stats, name, "failed to dismiss install success");
+    }
+    if (!failed) {
+      failed = ob_expect(stats, name, &session, "Sites", PTY_TIMEOUT_MS,
+                         &snapshot, "dashboard did not return after install");
+    }
+    if (!failed) {
+      failed = ob_exit_dashboard(stats, name, &session, &snapshot);
+    }
+  } else {
+    if (!failed) {
+      failed = ob_expect(stats, name, &session, "HOST SETUP FAILED",
+                         PTY_TIMEOUT_MS, &snapshot,
+                         "install failure panel did not render");
+    }
+    const char *failure_text[] = {
+        "Setup failed during: host doctor",
+        "Inspect quickd on the host",
+        "/tmp/oq/backup",
+        "Rollback restored the previous",
+        "Cleanup residue remains",
+        "quick user, quick-deploy group",
+    };
+    for (size_t i = 0; !failed &&
+                       i < sizeof(failure_text) / sizeof(failure_text[0]);
+         i++) {
+      failed = ob_expect(stats, name, &session, failure_text[i], 1500,
+                         &snapshot,
+                         "doctor failure details/remediation were incomplete");
+    }
+    if (!failed && access(config_path, F_OK) == 0) {
+      failed = test_fail(stats, name,
+                         "failed install wrote a local profile config");
+    }
+    if (!failed && !vt_send(&session, "\r")) {
+      failed = test_fail(stats, name, "failed to dismiss install failure");
+    }
+    if (!failed) {
+      failed = ob_expect(stats, name, &session, "Try OpenQuick locally",
+                         PTY_TIMEOUT_MS, &snapshot,
+                         "welcome did not return after failed install");
+    }
+    if (!failed && !vt_send(&session, "\x1b")) {
+      failed = test_fail(stats, name, "failed to dismiss returned welcome");
+    }
+    if (!failed) {
+      failed = ob_expect(stats, name, &session, "Sites", PTY_TIMEOUT_MS,
+                         &snapshot,
+                         "dashboard did not render after failed install");
+    }
+    if (!failed) {
+      failed = ob_exit_dashboard(stats, name, &session, &snapshot);
+    }
+  }
+
+  if (!failed &&
+      (!ob_file_contains(ssh_log, "BatchMode=yes") ||
+       !ob_file_contains(ssh_log, "ConnectTimeout=10") ||
+       !ob_file_contains(ssh_log, "ConnectionAttempts=1") ||
+       !ob_file_contains(ssh_log, "quick@box"))) {
+    failed = test_fail(stats, name, "SSH install calls were not bounded");
+  }
+  if (!failed &&
+      (!ob_file_contains(scp_log, "BatchMode=yes") ||
+       !ob_file_contains(scp_log, "ConnectTimeout=10") ||
+       !ob_file_contains(scp_log, "ConnectionAttempts=1") ||
+       !ob_file_contains(scp_log, "quick@box:"))) {
+    failed = test_fail(stats, name, "scp install call was not bounded");
+  }
+  char *events = !failed ? ob_read_text_file(events_log) : NULL;
+  if (!failed) {
+    char *backup = events ? strstr(events, "backup") : NULL;
+    char *groupadd = events ? strstr(events, "groupadd") : NULL;
+    if (!backup || !groupadd || backup >= groupadd) {
+      failed = test_fail(stats, name,
+                         "backup event did not precede user/group mutation");
+    }
+  }
+  if (!failed && doctor_fail &&
+      (!ob_file_contains(events_log, "rollback") ||
+       !ob_file_contains(script_log, "# openquick rollback") ||
+       !ob_file_contains(script_log, "sudo cp -p"))) {
+    failed = test_fail(stats, name,
+                       "rollback/restore script was not executed and logged");
+  }
+  if (!failed && !doctor_fail && ob_file_contains(events_log, "rollback")) {
+    failed = test_fail(stats, name, "successful install unexpectedly rolled back");
+  }
+  free(events);
+  if (!failed) {
+    test_pass(stats, name);
+  }
+
+cleanup:
+  if (started) {
+    vt_session_close(&session);
+  }
+  free(snapshot);
+  restore_common_env(guards, guard_count);
+  ob_cleanup_fake_host_tools(bin_dir);
+  ob_cleanup_fake_state(state_dir);
+  ob_cleanup_xdg(xdg);
+  return failed;
+}
+
+int run_tui_onboarding_install_success(test_stats_t *stats, const char *binary,
+                                       bool tui_enabled) {
+  return ob_run_install_case(stats, binary, tui_enabled, false);
+}
+
+int run_tui_onboarding_install_failure_rollback(test_stats_t *stats,
+                                                const char *binary,
+                                                bool tui_enabled) {
+  return ob_run_install_case(stats, binary, tui_enabled, true);
 }

@@ -1,14 +1,8 @@
-#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "tui_app_state.h"
-#ifndef _WIN32
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <unistd.h>
-#endif
 
 #include "../core/deploy_plan.h"
 #include "../core/ops.h"
@@ -107,46 +101,21 @@ static void quick_tui_serve_start_dev(quick_tui_app_state_t *state) {
     return;
   }
   const char *use_port = port[0] ? port : "9366";
-  quick_serve_dev_command_t command;
-  quick_serve_dev_command_init(&command);
-  quick_serve_dev_request_t request = {
-      .profiles = &state->profiles,
-      .profile = quick_tui_default_profile_name(state),
-      .port = use_port,
-      .identity = identity[0] ? identity : NULL};
-  app_error err = quick_op_serve_dev_command(&request, &command);
+  app_error err = quick_tui_start_serve_child(
+      state, NULL, use_port, identity[0] ? identity : NULL);
+  if (err == APP_ERROR_FEATURE_BASE) {
+    tui_show_message("Local dev server",
+                     "Local dev server is not supported on this platform.");
+    return;
+  }
   if (err != APP_SUCCESS) {
     char msg[256];
-    snprintf(msg, sizeof(msg), "Could not build dev server command: %s",
+    snprintf(msg, sizeof(msg), "Could not start local dev server: %s",
              app_strerror(err));
     tui_show_message("Local dev server", msg);
-    quick_serve_dev_command_destroy(&command);
     return;
   }
-#ifndef _WIN32
-  pid_t pid = fork();
-  if (pid < 0) {
-    char msg[160];
-    snprintf(msg, sizeof(msg), "fork failed: %s", strerror(errno));
-    tui_show_message("Local dev server", msg);
-    quick_serve_dev_command_destroy(&command);
-    return;
-  }
-  if (pid == 0) {
-    execvp(command.argv[0], command.argv);
-    _exit(errno == ENOENT ? 127 : 126);
-  }
-  state->serve_pid = pid;
-  state->serve_port = atoi(use_port);
-  snprintf(state->serve_url, sizeof(state->serve_url), "http://localhost:%s",
-           use_port);
-  quick_serve_dev_command_destroy(&command);
   quick_tui_serve_show_status(state);
-#else
-  quick_serve_dev_command_destroy(&command);
-  tui_show_message("Local dev server",
-                   "Local dev server is not supported on this platform.");
-#endif
 }
 
 static void quick_tui_prompt_default(const char *title, const char *label,

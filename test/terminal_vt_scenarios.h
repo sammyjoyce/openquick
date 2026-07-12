@@ -41,5 +41,26 @@ int run_tui_deploy_cancel_cleanup_status(test_stats_t *stats,
                                          const char *binary, bool tui_enabled);
 int run_tui_serve_install_guide(test_stats_t *stats, const char *binary,
                                 bool tui_enabled);
+int run_tui_onboarding_welcome_skip(test_stats_t *stats, const char *binary,
+                                    bool tui_enabled);
+int run_tui_onboarding_local_create(test_stats_t *stats, const char *binary,
+                                    bool tui_enabled);
+int run_tui_onboarding_adopt_no_overwrite(test_stats_t *stats,
+                                          const char *binary, bool tui_enabled);
+int run_tui_onboarding_resize(test_stats_t *stats, const char *binary,
+                              bool tui_enabled);
+int run_tui_onboarding_connect_invalid_retains(test_stats_t *stats,
+                                               const char *binary,
+                                               bool tui_enabled);
+int run_tui_onboarding_newhost_review_no_mutation(test_stats_t *stats,
+                                                  const char *binary,
+                                                  bool tui_enabled);
+int run_tui_onboarding_connect_success(test_stats_t *stats, const char *binary,
+                                       bool tui_enabled);
+int run_tui_onboarding_install_success(test_stats_t *stats, const char *binary,
+                                       bool tui_enabled);
+int run_tui_onboarding_install_failure_rollback(test_stats_t *stats,
+                                                const char *binary,
+                                                bool tui_enabled);
 
 #endif

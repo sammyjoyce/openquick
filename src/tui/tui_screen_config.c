@@ -566,6 +566,11 @@ static void quick_tui_site_config_section(void) {
   quick_site_config_destroy(&site);
 }
 
+void quick_tui_screen_site_config(quick_tui_app_state_t *state) {
+  (void)state;
+  quick_tui_site_config_section();
+}
+
 void quick_tui_screen_config(quick_tui_app_state_t *state) {
   if (!state) {
     return;

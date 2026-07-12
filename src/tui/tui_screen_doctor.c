@@ -182,10 +182,15 @@ void quick_tui_screen_doctor(quick_tui_app_state_t *state) {
   }
   quick_doctor_result_t result;
   quick_doctor_result_init(&result);
-  quick_doctor_request_t request = {.profiles = &state->profiles,
-                                    .profile = profile,
-                                    .remote = scope == 2 || scope == 3,
-                                    .deep = scope == 3};
+  quick_doctor_request_t request = {
+      .profiles = &state->profiles,
+      .profile = profile,
+      .remote = scope == 2 || scope == 3,
+      .deep = scope == 3,
+      .non_interactive = true,
+      .connect_timeout_seconds = 10,
+      .cancel_flag = tui_interrupt_flag(),
+  };
   app_error err = quick_op_doctor(&request, &result);
   if (progress) {
     tui_progress_update(

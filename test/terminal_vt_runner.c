@@ -79,6 +79,8 @@ int main(int argc, char **argv) {
   const char *binary = NULL;
   const char *tui_enabled_arg = "auto";
 
+  setvbuf(stdout, NULL, _IONBF, 0);
+
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "--binary") == 0 && i + 1 < argc) {
       binary = argv[++i];
@@ -110,6 +112,15 @@ int main(int argc, char **argv) {
   printf("TAP version 13\n");
   run_tui_bare_invocation(&stats, binary, tui_enabled);
   run_tui_bare_invocation_json(&stats, binary, tui_enabled);
+  run_tui_onboarding_welcome_skip(&stats, binary, tui_enabled);
+  run_tui_onboarding_local_create(&stats, binary, tui_enabled);
+  run_tui_onboarding_adopt_no_overwrite(&stats, binary, tui_enabled);
+  run_tui_onboarding_resize(&stats, binary, tui_enabled);
+  run_tui_onboarding_connect_invalid_retains(&stats, binary, tui_enabled);
+  run_tui_onboarding_newhost_review_no_mutation(&stats, binary, tui_enabled);
+  run_tui_onboarding_connect_success(&stats, binary, tui_enabled);
+  run_tui_onboarding_install_success(&stats, binary, tui_enabled);
+  run_tui_onboarding_install_failure_rollback(&stats, binary, tui_enabled);
   run_tui_menu_test(&stats, binary, tui_enabled);
   run_tui_stress_smoke(&stats, binary, tui_enabled);
   run_tui_menu_search(&stats, binary, tui_enabled);

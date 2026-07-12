@@ -1261,39 +1261,72 @@ static bool test_serve_install_execute_rolls_back_on_doctor_failure(
   if (!mkdtemp(bin_dir)) {
     return false;
   }
-  char ssh_path[512], scp_path[512], quickd_path[512];
+  char ssh_path[512], scp_path[512], rsync_path[512], quickd_path[512];
   snprintf(ssh_path, sizeof(ssh_path), "%s/ssh", bin_dir);
   snprintf(scp_path, sizeof(scp_path), "%s/scp", bin_dir);
+  snprintf(rsync_path, sizeof(rsync_path), "%s/rsync", bin_dir);
   snprintf(quickd_path, sizeof(quickd_path), "%s/quickd", bin_dir);
   const char *ssh_script =
       "#!/bin/sh\n"
-      "case \"$*\" in *mktemp*)\n"
-      "  printf '%s\\n' '/tmp/openquick-install.Abc123'\n"
-      "  exit 0\n"
-      "  ;;\n"
-      "esac\n"
-      "if [ \"$2\" = id ] && [ \"$3\" = -un ]; then\n"
-      "  printf '%s\\n' 'deployer'\n"
-      "  exit 0\n"
-      "fi\n"
-      "if [ \"$2\" = quickd ] && [ \"$3\" = doctor ]; then\n"
-      "  printf '%s\\n' "
+      "while [ \"$#\" -gt 0 ]; do\n"
+      "  case \"$1\" in\n"
+      "    -o)\n"
+      "      shift\n"
+      "      [ \"$#\" -gt 0 ] && shift\n"
+      "      ;;\n"
+      "    *)\n"
+      "      shift\n"
+      "      break\n"
+      "      ;;\n"
+      "  esac\n"
+      "done\n"
+      "case \"$*\" in\n"
+      "  true)\n"
+      "    exit 0\n"
+      "    ;;\n"
+      "  \"uname -s\")\n"
+      "    printf '%s\\n' 'Linux'\n"
+      "    exit 0\n"
+      "    ;;\n"
+      "  \"systemctl --version\")\n"
+      "    printf '%s\\n' 'systemd 249'\n"
+      "    exit 0\n"
+      "    ;;\n"
+      "  \"sudo -n true\")\n"
+      "    exit 0\n"
+      "    ;;\n"
+      "  *mktemp*)\n"
+      "    printf '%s\\n' '/tmp/openquick-install.Abc123'\n"
+      "    exit 0\n"
+      "    ;;\n"
+      "  \"id -un\")\n"
+      "    printf '%s\\n' 'deployer'\n"
+      "    exit 0\n"
+      "    ;;\n"
+      "  \"quickd doctor\"*)\n"
+      "    printf '%s\\n' "
       "'{\"checks\":[{\"status\":\"fail\",\"name\":\"config\"}]}'\n"
-      "  exit 0\n"
-      "fi\n"
-      "if [ \"$2\" = sh ]; then\n"
-      "  seen_restore=0\n"
-      "  while IFS= read -r line; do\n"
-      "    printf '%s\\n' \"$line\" >> \"$OPENQUICK_TEST_LOG\"\n"
-      "    case \"$line\" in *'restart openquick'*) seen_restore=1;; esac\n"
-      "  done\n"
-      "  if [ \"$seen_restore\" = 1 ]; then echo restore >> "
+      "    exit 0\n"
+      "    ;;\n"
+      "  \"sudo tee \"*|\"tee \"*)\n"
+      "    cat > /dev/null 2>&1\n"
+      "    exit 0\n"
+      "    ;;\n"
+      "  sh*)\n"
+      "    seen_restore=0\n"
+      "    while IFS= read -r line; do\n"
+      "      printf '%s\\n' \"$line\" >> \"$OPENQUICK_TEST_LOG\"\n"
+      "      case \"$line\" in *'restart openquick'*) seen_restore=1;; esac\n"
+      "    done\n"
+      "    if [ \"$seen_restore\" = 1 ]; then echo restore >> "
       "\"$OPENQUICK_TEST_LOG\"; fi\n"
-      "  exit 0\n"
-      "fi\n"
+      "    exit 0\n"
+      "    ;;\n"
+      "esac\n"
       "exit 0\n";
   if (!write_executable_file(ssh_path, ssh_script) ||
       !write_executable_file(scp_path, "#!/bin/sh\nexit 0\n") ||
+      !write_executable_file(rsync_path, "#!/bin/sh\nexit 0\n") ||
       !write_executable_file(quickd_path, "#!/bin/sh\nexit 0\n")) {
     return false;
   }
@@ -1301,10 +1334,10 @@ static bool test_serve_install_execute_rolls_back_on_doctor_failure(
   snprintf(log_path, sizeof(log_path), "%s/install.log", bin_dir);
   char *path_env = cc_format_string("%s", bin_dir);
   const char *args[] = {
-      "--plain",    "serve",    "install",           "--profile",
-      "lab",        "--host",   "quick@box",         "--remote-root",
-      "/srv/quick", "--domain", "quick.example.com", "--iap",
-      "tailscale",  "--execute"};
+      "--plain",    "serve",    "install",        "--profile",
+      "lab",        "--host",   "quick@box",      "--remote-root",
+      "/srv/quick", "--domain", "public.example", "--iap",
+      "none",       "--allow-public-unsafe",       "--execute"};
   const env_var_t env[] = {{"PATH", path_env},
                            {"QUICK_QUICKD", quickd_path},
                            {"OPENQUICK_TEST_LOG", log_path},
@@ -1318,7 +1351,9 @@ static bool test_serve_install_execute_rolls_back_on_doctor_failure(
                                 "/tmp/openquick-install.Abc123/backup") &&
       cc_expect_stderr_contains(&result, "rollback") &&
       cc_expect_stderr_contains(&result, "previous quickd/config restored") &&
-      log && strstr(log, "restore");
+      cc_expect_stderr_contains(&result, "cleanup") &&
+      cc_expect_stderr_contains(&result, "quick-deploy group") && log &&
+      strstr(log, "restore");
   if (!log || !strstr(log, "restore")) {
     fprintf(stderr, "restore command was not invoked\n");
   }
@@ -1328,6 +1363,7 @@ static bool test_serve_install_execute_rolls_back_on_doctor_failure(
   unlink(log_path);
   unlink(ssh_path);
   unlink(scp_path);
+  unlink(rsync_path);
   unlink(quickd_path);
   rmdir(bin_dir);
   return ok;

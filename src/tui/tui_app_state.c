@@ -1,5 +1,6 @@
 #include "tui_app_state.h"
 
+#include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,6 +30,7 @@ void quick_tui_app_state_init(quick_tui_app_state_t *state) {
   }
   *state = (quick_tui_app_state_t){0};
   quick_profile_config_init(&state->profiles);
+  quick_onboarding_model_init(&state->onboarding);
 #ifndef _WIN32
   state->serve_pid = -1;
 #else
@@ -84,6 +86,64 @@ void quick_tui_poll_serve_child(quick_tui_app_state_t *state) {
     state->serve_url[0] = '\0';
     snprintf(state->status, sizeof(state->status), "local dev server stopped");
   }
+#endif
+}
+
+app_error quick_tui_start_serve_child(quick_tui_app_state_t *state,
+                                      const char *dir, const char *port,
+                                      const char *identity) {
+  quick_tui_poll_serve_child(state);
+  if (!state) {
+    return APP_ERROR_INVALID_ARG;
+  }
+#ifndef _WIN32
+  if (state->serve_pid > 0) {
+    return APP_SUCCESS;
+  }
+#endif
+
+  const char *port_used = (port && port[0]) ? port : "9366";
+  quick_serve_dev_request_t request = {
+      .profiles = &state->profiles,
+      .profile = quick_tui_default_profile_name(state),
+      .port = port_used,
+      .identity = (identity && identity[0]) ? identity : NULL,
+      .dir = (dir && dir[0]) ? dir : NULL,
+  };
+  quick_serve_dev_command_t command;
+  quick_serve_dev_command_init(&command);
+  app_error err = quick_op_serve_dev_command(&request, &command);
+  if (err != APP_SUCCESS) {
+    quick_serve_dev_command_destroy(&command);
+    return err;
+  }
+
+#ifndef _WIN32
+  pid_t pid = fork();
+  if (pid < 0) {
+    quick_serve_dev_command_destroy(&command);
+    return APP_ERROR_IO;
+  }
+  if (pid == 0) {
+    if (dir && dir[0] && chdir(dir) != 0) {
+      _exit(126);
+    }
+    execvp(command.argv[0], command.argv);
+    _exit(errno == ENOENT ? 127 : 126);
+  }
+
+  state->serve_pid = pid;
+  state->serve_port = atoi(port_used);
+  char *url = NULL;
+  (void)quick_op_serve_local_url(command.site, port_used, &url);
+  snprintf(state->serve_url, sizeof(state->serve_url), "%s",
+           url ? url : "http://localhost:<port>/");
+  free(url);
+  quick_serve_dev_command_destroy(&command);
+  return APP_SUCCESS;
+#else
+  quick_serve_dev_command_destroy(&command);
+  return APP_ERROR_FEATURE_BASE;
 #endif
 }
 

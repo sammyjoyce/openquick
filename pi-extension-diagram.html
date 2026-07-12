@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skills → pi extension: capabilities as on-demand tools</title>
+<script>
+/* Apply theme before first paint to avoid flash. */
+(function () {
+  try {
+    var stored = localStorage.getItem("theme");
+    var theme = stored ||
+      (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    if (theme === "dark") document.documentElement.classList.add("dark");
+  } catch (e) {}
+})();
+</script>
+<style>
+:root {
+  --ivory:    #FAF9F5;
+  --paper:    #FFFFFF;
+  --slate:    #141413;
+  --clay:     #D97757;
+  --clay-d:   #B85C3E;
+  --oat:      #E3DACC;
+  --olive:    #788C5D;
+  --rust:     #B04A3F;
+  --gray-100: #F0EEE6;
+  --gray-150: #F0EEE6;
+  --gray-300: #D1CFC5;
+  --gray-500: #87867F;
+  --gray-700: #3D3D3A;
+
+  --bg:     var(--ivory);
+  --panel:  var(--paper);
+  --fg:     var(--slate);
+  --body:   var(--gray-700);
+  --muted:  var(--gray-500);
+  --line:   var(--gray-300);
+  --soft:   var(--oat);
+
+  --serif: ui-serif, Georgia, "Times New Roman", Times, serif;
+  --sans:  system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono:  ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+}
+
+html.dark {
+  --bg:     #141413;
+  --panel:  #1F1E1B;
+  --fg:     #F0EEE6;
+  --body:   #E7E5DD;
+  --muted:  #9C9A93;
+  --line:   #3D3D3A;
+  --soft:   #2A2824;
+  --gray-300: #3D3D3A;
+  --paper:  #1F1E1B;
+  --oat:    #2A2824;
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--body);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  transition: background .2s ease, color .2s ease;
+}
+
+.page {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 60px 28px 130px;
+}
+
+/* ---- Theme toggle ---- */
+.theme-toggle {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 13px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1.5px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: transform .15s ease, box-shadow .15s ease, color .15s ease;
+}
+.theme-toggle:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(20,20,19,.10);
+  color: var(--fg);
+}
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--clay);
+  outline-offset: 3px;
+}
+.theme-toggle svg { width: 15px; height: 15px; display: block; }
+html:not(.dark) .theme-toggle .moon,
+html:not(.dark) .theme-toggle .label-dark { display: none; }
+html.dark .theme-toggle .sun,
+html.dark .theme-toggle .label-light { display: none; }
+
+/* ---- Masthead ---- */
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--clay);
+  margin: 0 0 14px;
+}
+h1 {
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: clamp(34px, 5vw, 54px);
+  line-height: 1.05;
+  letter-spacing: -0.018em;
+  color: var(--fg);
+  margin: 0 0 18px;
+}
+.lede {
+  max-width: 720px;
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--body);
+  margin: 0;
+}
+.lede strong { color: var(--fg); font-weight: 600; }
+
+/* ---- Section headers ---- */
+.section { margin-top: 64px; }
+h2 {
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: 25px;
+  letter-spacing: -0.012em;
+  color: var(--fg);
+  margin: 0 0 6px;
+}
+.section-note {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 26px;
+}
+
+/* ---- Contrast grid ---- */
+.contrast {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 24px;
+  align-items: stretch;
+}
+.arrow-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-width: 64px;
+}
+.arrow-col svg { width: 40px; height: 40px; color: var(--clay); }
+.arrow-col .arrow-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+  max-width: 84px;
+  line-height: 1.4;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  padding: 26px 24px;
+  display: flex;
+  flex-direction: column;
+}
+.panel-tag {
+  align-self: flex-start;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 999px;
+  margin-bottom: 16px;
+}
+.panel.before .panel-tag { background: var(--soft); color: var(--gray-700); }
+html.dark .panel.before .panel-tag { color: var(--body); }
+.panel.after .panel-tag { background: var(--clay); color: #fff; }
+.panel h3 {
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: 21px;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+  margin: 0 0 4px;
+}
+.panel .sub {
+  font-size: 14.5px;
+  color: var(--muted);
+  margin: 0 0 20px;
+}
+
+/* schematic inside panel */
+.schema {
+  border: 1.5px dashed var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 20px;
+  background: transparent;
+}
+.node {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 12px;
+}
+.node.user { border-style: solid; }
+.node.trigger {
+  color: var(--clay-d);
+  border-color: var(--clay);
+}
+html.dark .node.trigger { color: var(--clay); }
+.node .badge {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-left: auto;
+}
+.flow-arrow {
+  display: flex;
+  justify-content: center;
+  color: var(--muted);
+  margin: 5px 0;
+}
+.flow-arrow svg { width: 16px; height: 16px; }
+
+.loop-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--olive);
+  margin-top: 4px;
+}
+.loop-note svg { width: 15px; height: 15px; }
+
+/* trait list */
+.traits { list-style: none; margin: 0; padding: 0; }
+.traits li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14.5px;
+  color: var(--body);
+  padding: 7px 0;
+  border-top: 1.5px solid var(--line);
+}
+.traits li:first-child { border-top: none; }
+.traits .mark {
+  flex: none;
+  width: 18px; height: 18px;
+  margin-top: 2px;
+}
+.panel.before .mark { color: var(--gray-500); }
+.panel.after  .mark { color: var(--olive); }
+
+/* ---- Mapping ---- */
+.map-list { display: grid; gap: 14px; }
+.map-row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 18px;
+  align-items: center;
+  background: var(--panel);
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  padding: 16px 20px;
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.map-row:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 24px rgba(20,20,19,.10);
+}
+.map-side { display: flex; flex-direction: column; gap: 3px; }
+.map-side .kind {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.map-side .name {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--fg);
+}
+.map-side.to .name { color: var(--clay-d); font-weight: 600; }
+html.dark .map-side.to .name { color: var(--clay); }
+.map-side .desc { font-size: 13px; color: var(--muted); }
+.map-arrow { color: var(--clay); display: flex; align-items: center; }
+.map-arrow svg { width: 26px; height: 26px; }
+
+/* ---- Takeaway ---- */
+.takeaway {
+  margin-top: 60px;
+  border-left: 3px solid var(--clay);
+  background: var(--soft);
+  border-radius: 0 12px 12px 0;
+  padding: 22px 26px;
+}
+.takeaway .label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--clay-d);
+  margin: 0 0 8px;
+}
+html.dark .takeaway .label { color: var(--clay); }
+.takeaway p {
+  font-family: var(--serif);
+  font-size: 20px;
+  line-height: 1.45;
+  color: var(--fg);
+  margin: 0;
+}
+.takeaway strong { color: var(--clay-d); font-weight: 600; }
+html.dark .takeaway strong { color: var(--clay); }
+
+/* ---- Responsive ---- */
+@media (max-width: 780px) {
+  .contrast { grid-template-columns: 1fr; }
+  .arrow-col { flex-direction: row; padding: 4px 0; }
+  .arrow-col svg { transform: rotate(90deg); }
+  .map-row { grid-template-columns: 1fr; gap: 12px; text-align: left; }
+  .map-arrow { transform: rotate(90deg); }
+}
+</style>
+</head>
+<body>
+
+<button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle color theme">
+  <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="4.2"/>
+    <path d="M12 2v2.5M12 19.5V22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M2 12h2.5M19.5 12H22M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/>
+  </svg>
+  <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M20 14.5A8 8 0 1 1 9.5 4a6.2 6.2 0 0 0 10.5 10.5z"/>
+  </svg>
+  <span class="label-light">Light</span>
+  <span class="label-dark">Dark</span>
+</button>
+
+<main class="page">
+
+  <header>
+    <p class="eyebrow">Skills → Extension</p>
+    <h1>The same capabilities, now a tool the model can reach for.</h1>
+    <p class="lede">
+      A <strong>skill</strong> is a capability you invoke as a slash-command — one shot, on your say-so.
+      The <strong>pi extension</strong> takes those same capabilities (<code>html</code>, <code>html-diagram</code>,
+      <code>html-plan</code>) and surfaces them as <strong>tools the model can call itself</strong>,
+      any time, mid-task, as often as the work needs.
+    </p>
+  </header>
+
+  <!-- CONTRAST -->
+  <section class="section" aria-labelledby="contrast-h">
+    <h2 id="contrast-h">Before &amp; after</h2>
+    <p class="section-note">How the capability gets reached</p>
+
+    <div class="contrast">
+
+      <!-- BEFORE -->
+      <article class="panel before">
+        <span class="panel-tag">Before · Skill</span>
+        <h3>User-triggered slash command</h3>
+        <p class="sub">Static capability, invoked explicitly, one-shot.</p>
+
+        <div class="schema" aria-label="Skill invocation flow">
+          <div class="node user">User <span class="badge">initiates</span></div>
+          <div class="flow-arrow" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16M6 14l6 6 6-6"/></svg>
+          </div>
+          <div class="node trigger">/skill:html-diagram <span class="badge">command</span></div>
+          <div class="flow-arrow" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16M6 14l6 6 6-6"/></svg>
+          </div>
+          <div class="node">Runs once → returns <span class="badge">one-shot</span></div>
+        </div>
+
+        <ul class="traits">
+          <li><svg class="mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/></svg><span>Only the <strong>user</strong> can start it.</span></li>
+          <li><svg class="mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/></svg><span>A separate workflow, outside the current task.</span></li>
+          <li><svg class="mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/></svg><span>Runs once per invocation — no mid-task reuse.</span></li>
+        </ul>
+      </article>
+
+      <!-- ARROW -->
+      <div class="arrow-col" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15M13 6l6 6-6 6"/></svg>
+        <span class="arrow-label">surfaced as tools</span>
+      </div>
+
+      <!-- AFTER -->
+      <article class="panel after">
+        <span class="panel-tag">After · pi extension</span>
+        <h3>Model-callable tool</h3>
+        <p class="sub">Same capability, available on demand and repeatable.</p>
+
+        <div class="schema" aria-label="Tool invocation flow">
+          <div class="node user">Model, mid-task <span class="badge">decides</span></div>
+          <div class="flow-arrow" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16M6 14l6 6 6-6"/></svg>
+          </div>
+          <div class="node trigger">tool: html_diagram() <span class="badge">invoke</span></div>
+          <div class="flow-arrow" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16M6 14l6 6 6-6"/></svg>
+          </div>
+          <div class="node">Result folds back into the work</div>
+          <div class="loop-note">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5"/></svg>
+            <span>callable again &amp; composed with other tools</span>
+          </div>
+        </div>
+
+        <ul class="traits">
+          <li><svg class="mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>The <strong>model</strong> invokes it whenever useful.</span></li>
+          <li><svg class="mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>Happens <strong>inside</strong> a task, not as a detour.</span></li>
+          <li><svg class="mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>Repeatable and composable with other steps.</span></li>
+        </ul>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- MAPPING -->
+  <section class="section" aria-labelledby="map-h">
+    <h2 id="map-h">The mapping</h2>
+    <p class="section-note">Each skill → its equivalent on-demand tool</p>
+
+    <div class="map-list">
+
+      <div class="map-row">
+        <div class="map-side from">
+          <span class="kind">Skill</span>
+          <span class="name">/skill:html</span>
+          <span class="desc">Author a standalone HTML artifact</span>
+        </div>
+        <div class="map-arrow" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15M13 6l6 6-6 6"/></svg>
+        </div>
+        <div class="map-side to">
+          <span class="kind">Tool</span>
+          <span class="name">html()</span>
+          <span class="desc">Generate HTML on demand, mid-task</span>
+        </div>
+      </div>
+
+      <div class="map-row">
+        <div class="map-side from">
+          <span class="kind">Skill</span>
+          <span class="name">/skill:html-diagram</span>
+          <span class="desc">Render a spatial diagram</span>
+        </div>
+        <div class="map-arrow" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15M13 6l6 6-6 6"/></svg>
+        </div>
+        <div class="map-side to">
+          <span class="kind">Tool</span>
+          <span class="name">html_diagram()</span>
+          <span class="desc">Draw a diagram whenever it clarifies</span>
+        </div>
+      </div>
+
+      <div class="map-row">
+        <div class="map-side from">
+          <span class="kind">Skill</span>
+          <span class="name">/skill:html-plan</span>
+          <span class="desc">Lay out a structured plan view</span>
+        </div>
+        <div class="map-arrow" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15M13 6l6 6-6 6"/></svg>
+        </div>
+        <div class="map-side to">
+          <span class="kind">Tool</span>
+          <span class="name">html_plan()</span>
+          <span class="desc">Produce a plan artifact as the work evolves</span>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- TAKEAWAY -->
+  <section class="takeaway" aria-labelledby="takeaway-h">
+    <p class="label" id="takeaway-h">Takeaway</p>
+    <p>Same capabilities — but the extension turns a <strong>user-triggered slash command</strong> into a <strong>tool the model can invoke anytime</strong>, mid-task and on repeat.</p>
+  </section>
+
+</main>
+
+<script>
+(function () {
+  var btn = document.getElementById("themeToggle");
+  function sync() {
+    var dark = document.documentElement.classList.contains("dark");
+    btn.setAttribute("aria-pressed", String(dark));
+  }
+  sync();
+  btn.addEventListener("click", function () {
+    var root = document.documentElement;
+    var dark = root.classList.toggle("dark");
+    try { localStorage.setItem("theme", dark ? "dark" : "light"); } catch (e) {}
+    sync();
+  });
+})();
+</script>
+
+</body>
+</html>
