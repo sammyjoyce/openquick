@@ -85,6 +85,11 @@ APP_NODISCARD tui_progress_t *tui_progress_create(const char *title, int max) {
   if (width > max_x - 4) {
     width = max_x - 4;
   }
+  /* Progress overlays are standalone centered windows, not full-screen views.
+   * Clear the underlying canvas so prompts or menu footers from the prior view
+   * cannot remain visible around the progress frame. */
+  clear();
+  refresh();
   tui_window_t *w = tui_create_centered_window(height, width);
   if (!w) {
     return NULL;
@@ -121,6 +126,6 @@ void tui_progress_destroy(tui_progress_t *progress) {
   tui_destroy_window(progress->window);
   free(progress);
 
-  touchwin(stdscr);
+  clear();
   refresh();
 }
