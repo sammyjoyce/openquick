@@ -5349,7 +5349,7 @@ app_error quick_op_serve_install(const quick_install_request_t *request,
   {
     char *const a[] = {(char *)"sudo",         (char *)"install",
                        (char *)"-d",           (char *)"-m",
-                       (char *)"2750",         (char *)"-o",
+                       (char *)"2770",         (char *)"-o",
                        (char *)"quick",        (char *)"-g",
                        (char *)"quick-deploy", (char *)remote_root,
                        NULL};
@@ -5523,15 +5523,25 @@ app_error quick_op_serve_install(const quick_install_request_t *request,
   }
 
   err = quick_install_begin_phase(&ctx, QUICK_INSTALL_PHASE_SERVICE_START,
-                                  "enabling and starting the service");
+                                  "enabling and restarting the service");
   if (err != APP_SUCCESS) {
     goto cleanup;
   }
   {
     char *const enable_unit[] = {(char *)"sudo", (char *)"systemctl",
-                                 (char *)"enable", (char *)"--now",
+                                 (char *)"enable",
                                  (char *)"openquick.service", NULL};
     err = quick_install_ssh_expect(&ctx, enable_unit);
+    if (err != APP_SUCCESS) {
+      out->failure_phase = QUICK_INSTALL_PHASE_SERVICE_START;
+      goto cleanup;
+    }
+  }
+  {
+    char *const restart_unit[] = {(char *)"sudo", (char *)"systemctl",
+                                  (char *)"restart",
+                                  (char *)"openquick.service", NULL};
+    err = quick_install_ssh_expect(&ctx, restart_unit);
     if (err != APP_SUCCESS) {
       out->failure_phase = QUICK_INSTALL_PHASE_SERVICE_START;
       goto cleanup;

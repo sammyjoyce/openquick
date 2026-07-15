@@ -2186,11 +2186,14 @@ static bool check_fake_host_install(install_fake_mode_t mode,
       "    exit 0 ;;\n"
       "  'id -un') printf '%s\\n' deployer; exit 0 ;;\n"
       "  'id -u quick') exit 0 ;;\n"
-      "  'sudo systemctl enable --now openquick.service')\n"
+      "  'sudo systemctl enable openquick.service') exit 0 ;;\n"
+      "  'sudo systemctl restart openquick.service')\n"
       "    if [ \"$QUICK_TEST_INSTALL_MODE\" = service-fail ]; then\n"
       "      printf '%s\\n' 'service start failed' >&2\n"
       "      exit 1\n"
       "    fi\n"
+      "    exit 0 ;;\n"
+      "  'sudo install -d -m 2770 -o quick -g quick-deploy /srv/quick')\n"
       "    exit 0 ;;\n"
       "  'quickd doctor --host --json')\n"
       "    printf '%s\\n' '{\"status\":\"ok\"}'; exit 0 ;;\n"
@@ -2333,8 +2336,15 @@ static bool check_fake_host_install(install_fake_mode_t mode,
        file_contains(script_log, "unit.was-enabled") &&
        file_contains(script_log, "EVENT:backup");
   if (mode == INSTALL_FAKE_SUCCESS) {
-    ok = ok && file_contains(scp_log, expected_scp) && err == APP_SUCCESS &&
-         result.completed && result.doctor_ran &&
+    ok = ok && file_contains(scp_log, expected_scp) &&
+         file_contains(ssh_log,
+                       "sudo install -d -m 2770 -o quick -g quick-deploy "
+                       "/srv/quick") &&
+         file_contains(ssh_log,
+                       "sudo systemctl enable openquick.service") &&
+         file_contains(ssh_log,
+                       "sudo systemctl restart openquick.service") &&
+         err == APP_SUCCESS && result.completed && result.doctor_ran &&
          result.doctor_ok && result.backup_created && result.backup_path &&
          !result.rollback_attempted && !result.partial_cleanup_remains;
   } else if (mode == INSTALL_FAKE_SERVICE_FAILURE) {
