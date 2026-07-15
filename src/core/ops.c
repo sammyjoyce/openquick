@@ -6,6 +6,7 @@
 #include <string.h>
 #include <time.h>
 #ifndef _WIN32
+#include <dirent.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
@@ -2721,6 +2722,60 @@ static bool quick_doctor_identity_looks_like_login_gate(const char *body) {
          strstr(body, "Cloudflare Access") || strstr(body, "Sign in");
 }
 
+static int quick_doctor_connect_timeout_seconds(
+    const quick_doctor_request_t *request) {
+  if (!request || request->connect_timeout_seconds <= 0) {
+    return 10;
+  }
+  return request->connect_timeout_seconds > 120
+             ? 120
+             : request->connect_timeout_seconds;
+}
+
+static app_error quick_doctor_ssh_capture(
+    const quick_doctor_request_t *request, char *const argv[],
+    quick_process_result_t *res) {
+  if (!request || !argv || !argv[0] || !argv[1] || !res) {
+    return APP_ERROR_INVALID_ARG;
+  }
+  *res = (quick_process_result_t){0};
+  if (request->cancel_flag && *request->cancel_flag) {
+    return APP_ERROR_INTERRUPTED;
+  }
+  if (!request->non_interactive) {
+    return quick_process_stream_cancelable(argv, NULL, NULL, NULL, NULL,
+                                           request->cancel_flag, res);
+  }
+
+  size_t argc = 0;
+  while (argv[argc]) {
+    argc++;
+  }
+  char **wrapped = calloc(argc + 7U, sizeof(char *));
+  if (!wrapped) {
+    return APP_ERROR_MEMORY;
+  }
+  char timeout_option[32];
+  snprintf(timeout_option, sizeof(timeout_option), "ConnectTimeout=%d",
+           quick_doctor_connect_timeout_seconds(request));
+  size_t i = 0;
+  wrapped[i++] = argv[0];
+  wrapped[i++] = (char *)"-o";
+  wrapped[i++] = (char *)"BatchMode=yes";
+  wrapped[i++] = (char *)"-o";
+  wrapped[i++] = timeout_option;
+  wrapped[i++] = (char *)"-o";
+  wrapped[i++] = (char *)"ConnectionAttempts=1";
+  for (size_t a = 1; a < argc; a++) {
+    wrapped[i++] = argv[a];
+  }
+  wrapped[i] = NULL;
+  app_error err = quick_process_stream_cancelable(
+      wrapped, NULL, NULL, NULL, NULL, request->cancel_flag, res);
+  free(wrapped);
+  return err;
+}
+
 static app_error quick_doctor_curl_get(const char *url,
                                        quick_process_result_t *res) {
   char *const argv[] = {"curl", "-fsS", "--max-time", "5", (char *)url, NULL};
@@ -3020,9 +3075,29 @@ static bool quick_doctor_try_local_deep(const quick_deploy_plan_t *plan,
 #endif
 }
 
-static app_error quick_doctor_run_deep(quick_doctor_result_t *result,
-                                       const char *curl,
-                                       const quick_deploy_plan_t *plan) {
+static app_error quick_doctor_delete_remote_temp_site(
+    const quick_deploy_plan_t *plan, const quick_doctor_request_t *request,
+    const char *site, bool *deleted_out) {
+  if (!plan || !request || !site || !deleted_out) {
+    return APP_ERROR_INVALID_ARG;
+  }
+  *deleted_out = false;
+  quick_doctor_request_t cleanup_request = *request;
+  cleanup_request.cancel_flag = NULL;
+  char *const delete_argv[] = {
+      "ssh", (char *)plan->ssh, "quickd", "sites", "delete",
+      (char *)site, "--json", NULL};
+  quick_process_result_t del = {0};
+  app_error err =
+      quick_doctor_ssh_capture(&cleanup_request, delete_argv, &del);
+  *deleted_out = err == APP_SUCCESS && del.exit_code == 0;
+  quick_process_result_destroy(&del);
+  return err;
+}
+
+static app_error quick_doctor_run_deep(
+    quick_doctor_result_t *result, const char *curl,
+    const quick_deploy_plan_t *plan, const quick_doctor_request_t *request) {
   char deep_detail[512];
   deep_detail[0] = '\0';
   char local_hex[7];
@@ -3067,7 +3142,7 @@ static app_error quick_doctor_run_deep(quick_doctor_result_t *result,
                                 "deploy", "prepare",         "--site",
                                 site,     "--json",          NULL};
   quick_process_result_t prepare = {0};
-  err = quick_process_capture(prepare_argv, NULL, &prepare);
+  err = quick_doctor_ssh_capture(request, prepare_argv, &prepare);
   char *deploy_id = NULL;
   char *staging = NULL;
   if (err == APP_SUCCESS && prepare.exit_code == 0) {
@@ -3075,6 +3150,16 @@ static app_error quick_doctor_run_deep(quick_doctor_result_t *result,
     staging = quick_ops_json_get_string_field(prepare.out, "staging_path");
   }
   quick_process_result_destroy(&prepare);
+  if (err == APP_ERROR_INTERRUPTED) {
+    snprintf(deep_detail, sizeof(deep_detail), "%s prepare cancelled", site);
+    app_error add_err = quick_doctor_add_check(
+        result, "deep_temp_deploy", "edge/iap", "fail", deep_detail,
+        "Retry the deep check; inspect the host for a partial diagnostic site.");
+    free(deploy_id);
+    free(staging);
+    quick_doctor_cleanup_temp_dir(tmpdir);
+    return add_err == APP_SUCCESS ? APP_ERROR_INTERRUPTED : add_err;
+  }
   if (!deploy_id || !staging) {
     snprintf(deep_detail, sizeof(deep_detail), "%s prepare failed", site);
     app_error add_err = quick_doctor_add_check(
@@ -3092,9 +3177,24 @@ static app_error quick_doctor_run_deep(quick_doctor_result_t *result,
     err = APP_ERROR_MEMORY;
   } else {
     sprintf(dest, "%s:%s/", plan->ssh, staging);
-    char *const rsync_argv[] = {"rsync", "-az", "--delete", source, dest, NULL};
     quick_process_result_t rsync = {0};
-    err = quick_process_capture(rsync_argv, NULL, &rsync);
+    if (!request->non_interactive) {
+      char *const rsync_argv[] = {"rsync", "-az", "--delete", source, dest,
+                                  NULL};
+      err = quick_process_capture(rsync_argv, NULL, &rsync);
+    } else if (request->cancel_flag && *request->cancel_flag) {
+      err = APP_ERROR_INTERRUPTED;
+    } else {
+      char ssh_command[128];
+      snprintf(ssh_command, sizeof(ssh_command),
+               "ssh -o BatchMode=yes -o ConnectTimeout=%d -o "
+               "ConnectionAttempts=1",
+               quick_doctor_connect_timeout_seconds(request));
+      char *const rsync_argv[] = {"rsync", "-az", "--delete", "-e",
+                                  ssh_command, source, dest, NULL};
+      err = quick_process_stream_cancelable(
+          rsync_argv, NULL, NULL, NULL, NULL, request->cancel_flag, &rsync);
+    }
     if (err == APP_SUCCESS && rsync.exit_code != 0) {
       err = APP_ERROR_IO;
     }
@@ -3103,26 +3203,47 @@ static app_error quick_doctor_run_deep(quick_doctor_result_t *result,
   free(source);
   free(dest);
   if (err != APP_SUCCESS) {
-    snprintf(deep_detail, sizeof(deep_detail), "%s transfer failed", site);
+    const bool cancelled = err == APP_ERROR_INTERRUPTED;
+    snprintf(deep_detail, sizeof(deep_detail), "%s transfer %s", site,
+             cancelled ? "cancelled" : "failed");
     app_error add_err = quick_doctor_add_check(
         result, "deep_temp_deploy", "edge/iap", "fail", deep_detail,
-        "Install rsync and verify SSH write access to the staging path.");
+        cancelled
+            ? "Retry the deep check after cancellation is cleared."
+            : "Install rsync and verify SSH write access to the staging path.");
     free(deploy_id);
     free(staging);
     quick_doctor_cleanup_temp_dir(tmpdir);
-    return add_err;
+    if (add_err != APP_SUCCESS) {
+      return add_err;
+    }
+    return cancelled ? APP_ERROR_INTERRUPTED : APP_SUCCESS;
   }
 
   char *const activate_argv[] = {
       "ssh", (char *)plan->ssh, "quickd",  "deploy", "activate", "--site",
       site,  "--deploy-id",     deploy_id, "--json", NULL};
   quick_process_result_t activate = {0};
-  err = quick_process_capture(activate_argv, NULL, &activate);
+  err = quick_doctor_ssh_capture(request, activate_argv, &activate);
   char *url = NULL;
   if (err == APP_SUCCESS && activate.exit_code == 0) {
     url = quick_ops_json_get_string_field(activate.out, "url");
   }
   quick_process_result_destroy(&activate);
+  if (err == APP_ERROR_INTERRUPTED) {
+    bool deleted = false;
+    (void)quick_doctor_delete_remote_temp_site(plan, request, site, &deleted);
+    snprintf(deep_detail, sizeof(deep_detail), "%s activation cancelled%s",
+             site, deleted ? "; cleanup succeeded" : "; cleanup failed");
+    app_error add_err = quick_doctor_add_check(
+        result, "deep_temp_deploy", "edge/iap", "fail", deep_detail,
+        deleted ? "Retry the deep check after cancellation is cleared."
+                : "Inspect and remove the diagnostic site before retrying.");
+    free(deploy_id);
+    free(staging);
+    quick_doctor_cleanup_temp_dir(tmpdir);
+    return add_err == APP_SUCCESS ? APP_ERROR_INTERRUPTED : add_err;
+  }
   if (!url) {
     url = quick_doctor_url_for_site(plan, site);
   }
@@ -3144,28 +3265,30 @@ static app_error quick_doctor_run_deep(quick_doctor_result_t *result,
     ok = public_ok && identity_ok;
   }
 
-  char *const delete_argv[] = {
-      "ssh", (char *)plan->ssh, "quickd", "sites", "delete",
-      site,  "--json",          NULL};
-  quick_process_result_t del = {0};
-  (void)quick_process_capture(delete_argv, NULL, &del);
-  const bool deleted = del.exit_code == 0;
-  quick_process_result_destroy(&del);
+  bool deleted = false;
+  (void)quick_doctor_delete_remote_temp_site(plan, request, site, &deleted);
+  const bool cancelled = request->cancel_flag && *request->cancel_flag;
 
-  snprintf(deep_detail, sizeof(deep_detail), "%s %s%s", site,
+  snprintf(deep_detail, sizeof(deep_detail), "%s %s%s%s", site,
            ok ? "deployed and probed" : "probe failed",
+           cancelled ? "; cancelled" : "",
            deleted ? "" : "; cleanup failed");
-  app_error add_err =
-      quick_doctor_add_check(result, "deep_temp_deploy", "edge/iap",
-                             ok && deleted ? "ok" : "fail", deep_detail,
-                             "Verify prepare/rsync/activate, public URL "
-                             "routing, identity, and `quickd sites delete`.");
+  app_error add_err = quick_doctor_add_check(
+      result, "deep_temp_deploy", "edge/iap",
+      ok && deleted && !cancelled ? "ok" : "fail", deep_detail,
+      cancelled
+          ? "Retry the deep check after cancellation is cleared."
+          : "Verify prepare/rsync/activate, public URL routing, identity, and "
+            "`quickd sites delete`.");
 
   free(url);
   free(deploy_id);
   free(staging);
   quick_doctor_cleanup_temp_dir(tmpdir);
-  return add_err;
+  if (add_err != APP_SUCCESS) {
+    return add_err;
+  }
+  return cancelled ? APP_ERROR_INTERRUPTED : APP_SUCCESS;
 }
 
 app_error quick_op_doctor(const quick_doctor_request_t *request,
@@ -3254,23 +3377,34 @@ app_error quick_op_doctor(const quick_doctor_request_t *request,
       char *const doctor_argv[] = {"ssh",    plan.ssh, "quickd", "doctor",
                                    "--host", "--json", NULL};
       quick_process_result_t res = {0};
-      app_error proc_err = quick_process_capture(doctor_argv, NULL, &res);
+      app_error proc_err = quick_doctor_ssh_capture(request, doctor_argv, &res);
+      const bool doctor_cancelled = proc_err == APP_ERROR_INTERRUPTED;
       err = quick_doctor_add_check(
           out, "quickd_doctor", "remote",
           proc_err == APP_SUCCESS && res.exit_code == 0 ? "ok" : "fail",
-          proc_err == APP_SUCCESS && res.out && res.out[0]
-              ? "quickd doctor responded"
-              : "quickd doctor failed",
-          "Run `quick serve install` or inspect quickd on the host.");
+          doctor_cancelled
+              ? "remote doctor SSH cancelled"
+              : proc_err == APP_SUCCESS && res.out && res.out[0]
+                    ? "quickd doctor responded"
+                    : "quickd doctor failed",
+          doctor_cancelled
+              ? "Retry the remote doctor when cancellation is cleared."
+              : "Run `quick serve install` or inspect quickd on the host.");
       quick_process_result_destroy(&res);
+      if (err == APP_SUCCESS && doctor_cancelled) {
+        err = APP_ERROR_INTERRUPTED;
+      }
       if (err == APP_SUCCESS) {
         char *const stats_argv[] = {"ssh",   plan.ssh, "quickd", "admin",
                                     "stats", "--json", NULL};
         quick_process_result_t stats = {0};
-        proc_err = quick_process_capture(stats_argv, NULL, &stats);
+        proc_err = quick_doctor_ssh_capture(request, stats_argv, &stats);
+        const bool stats_cancelled = proc_err == APP_ERROR_INTERRUPTED;
         char detail[160];
-        if (proc_err == APP_SUCCESS && stats.exit_code == 0 && stats.out &&
-            stats.out[0]) {
+        if (stats_cancelled) {
+          snprintf(detail, sizeof(detail), "remote host stats SSH cancelled");
+        } else if (proc_err == APP_SUCCESS && stats.exit_code == 0 &&
+                   stats.out && stats.out[0]) {
           long sites = quick_ops_json_get_long_field(stats.out, "sites", -1);
           long releases =
               quick_ops_json_get_long_field(stats.out, "releases", -1);
@@ -3282,8 +3416,14 @@ app_error quick_op_doctor(const quick_doctor_request_t *request,
         err = quick_doctor_add_check(
             out, "host_stats", "remote",
             proc_err == APP_SUCCESS && stats.exit_code == 0 ? "ok" : "fail",
-            detail, "Run `quickd admin stats --json` on the host.");
+            detail,
+            stats_cancelled
+                ? "Retry the remote doctor when cancellation is cleared."
+                : "Run `quickd admin stats --json` on the host.");
         quick_process_result_destroy(&stats);
+        if (err == APP_SUCCESS && stats_cancelled) {
+          err = APP_ERROR_INTERRUPTED;
+        }
       }
     } else {
       err = quick_doctor_add_check(
@@ -3299,7 +3439,8 @@ app_error quick_op_doctor(const quick_doctor_request_t *request,
   }
   if (err == APP_SUCCESS && request->deep) {
     err = quick_doctor_run_deep(out, curl,
-                                plan_err == APP_SUCCESS ? &plan : NULL);
+                                plan_err == APP_SUCCESS ? &plan : NULL,
+                                request);
   }
 
   free(rsync);
@@ -3593,6 +3734,8 @@ void quick_serve_dev_command_destroy(quick_serve_dev_command_t *command) {
     return;
   }
   free(command->quickd_path);
+  free(command->site);
+  command->site = NULL;
   if (command->argv) {
     for (size_t i = 0; i < command->argc; i++) {
       free(command->argv[i]);
@@ -3630,7 +3773,10 @@ app_error quick_op_serve_dev_command(const quick_serve_dev_request_t *request,
     return APP_ERROR_NOT_FOUND;
   }
 
-  quick_plan_overrides_t overrides = {.profile = request->profile};
+  quick_plan_overrides_t overrides = {
+      .profile = request->profile,
+      .path = request->dir,
+  };
   quick_deploy_plan_t plan;
   quick_deploy_plan_init(&plan);
   app_error err =
@@ -3646,6 +3792,12 @@ app_error quick_op_serve_dev_command(const quick_serve_dev_request_t *request,
   snprintf(listen, sizeof(listen), "127.0.0.1:%s", port);
   out->quickd_path = quick_ops_strdup(quickd);
   if (!out->quickd_path) {
+    free(quickd);
+    quick_deploy_plan_destroy(&plan);
+    return APP_ERROR_MEMORY;
+  }
+  out->site = quick_ops_strdup(plan.site);
+  if (!out->site && plan.site[0] != '\0') {
     free(quickd);
     quick_deploy_plan_destroy(&plan);
     return APP_ERROR_MEMORY;
@@ -3742,7 +3894,7 @@ app_error quick_op_serve_install_steps(
   quick_serve_install_steps_destroy(out);
   quick_serve_install_steps_init(out);
   static const char *const summaries[] = {
-      "connect over SSH and use sudo, systemd, and scp",
+      "verify local ssh, scp, rsync, and quickd; connect with sudo/systemd",
       "create quick user and quick-deploy group",
       "create /srv/quick-style dirs with documented permissions",
       "copy quickd to /usr/local/bin/quickd",
@@ -3757,4 +3909,1798 @@ app_error quick_op_serve_install_steps(
     }
   }
   return APP_SUCCESS;
+}
+
+/* ============================================================
+ * Onboarding & shared host install (context, local URL, IAP model, install).
+ * ============================================================ */
+
+static app_error quick_install_set_str(char **slot, const char *value) {
+  free(*slot);
+  *slot = NULL;
+  if (!value) {
+    return APP_SUCCESS;
+  }
+  *slot = quick_ops_strdup(value);
+  return *slot ? APP_SUCCESS : APP_ERROR_MEMORY;
+}
+
+static bool quick_dir_has_adoptable_content(const char *dir) {
+#ifndef _WIN32
+  const char *use = (dir && dir[0]) ? dir : ".";
+  char *index = quick_ops_path_join(use, "index.html");
+  bool has_index = index && quick_ops_path_exists(index);
+  free(index);
+  if (has_index) {
+    return true;
+  }
+  DIR *d = opendir(use);
+  if (!d) {
+    return false;
+  }
+  bool found = false;
+  struct dirent *entry = NULL;
+  while ((entry = readdir(d)) != NULL) {
+    if (entry->d_name[0] == '.') {
+      continue;
+    }
+    found = true;
+    break;
+  }
+  closedir(d);
+  return found;
+#else
+  (void)dir;
+  return false;
+#endif
+}
+
+void quick_context_result_init(quick_context_result_t *result) {
+  if (!result) {
+    return;
+  }
+  *result = (quick_context_result_t){0};
+  result->project_state = QUICK_PROJECT_NONE;
+}
+
+void quick_context_result_destroy(quick_context_result_t *result) {
+  if (!result) {
+    return;
+  }
+  free(result->dir);
+  free(result->quick_json_path);
+  free(result->site_name);
+  free(result->project_profile);
+  free(result->default_profile);
+  *result = (quick_context_result_t){0};
+}
+
+const char *quick_project_state_string(quick_project_state_t state) {
+  switch (state) {
+  case QUICK_PROJECT_VALID:
+    return "valid";
+  case QUICK_PROJECT_MALFORMED:
+    return "malformed";
+  case QUICK_PROJECT_ADOPTABLE:
+    return "adoptable";
+  case QUICK_PROJECT_NONE:
+  default:
+    return "none";
+  }
+}
+
+app_error quick_op_classify_context(const quick_context_request_t *request,
+                                    quick_context_result_t *out) {
+  if (!out) {
+    return APP_ERROR_INVALID_ARG;
+  }
+  quick_context_result_destroy(out);
+  quick_context_result_init(out);
+  const char *dir =
+      (request && request->dir && request->dir[0]) ? request->dir : ".";
+  app_error err = quick_install_set_str(&out->dir, dir);
+  char *qjson = NULL;
+  if (err != APP_SUCCESS) {
+    goto cleanup;
+  }
+  qjson = quick_ops_path_join(dir, "quick.json");
+  if (!qjson) {
+    err = APP_ERROR_MEMORY;
+    goto cleanup;
+  }
+  err = quick_install_set_str(&out->quick_json_path, qjson);
+  if (err != APP_SUCCESS) {
+    goto cleanup;
+  }
+  const quick_profile_config_t *profiles = request ? request->profiles : NULL;
+  if (profiles) {
+    out->profile_count = profiles->profile_count;
+    out->has_profiles = profiles->profile_count > 0;
+    out->has_default_profile =
+        profiles->default_profile && profiles->default_profile[0] != '\0';
+    if (out->has_default_profile) {
+      err = quick_install_set_str(&out->default_profile,
+                                  profiles->default_profile);
+      if (err != APP_SUCCESS) {
+        goto cleanup;
+      }
+    }
+  }
+  if (quick_ops_path_exists(qjson)) {
+    quick_site_config_t sc;
+    quick_site_config_init(&sc);
+    app_error e = quick_site_config_load_file(qjson, &sc);
+    if (e == APP_SUCCESS && sc.name && sc.name[0] != '\0') {
+      out->project_state = QUICK_PROJECT_VALID;
+      out->project_valid = true;
+      err = quick_install_set_str(&out->site_name, sc.name);
+      if (err != APP_SUCCESS) {
+        quick_site_config_destroy(&sc);
+        goto cleanup;
+      }
+      if (sc.profile && sc.profile[0] != '\0') {
+        err = quick_install_set_str(&out->project_profile, sc.profile);
+        if (err != APP_SUCCESS) {
+          quick_site_config_destroy(&sc);
+          goto cleanup;
+        }
+        if (profiles && !quick_profile_config_find(profiles, sc.profile)) {
+          out->project_profile_missing = true;
+        }
+      }
+    } else {
+      out->project_state = QUICK_PROJECT_MALFORMED;
+      out->project_malformed = true;
+    }
+    quick_site_config_destroy(&sc);
+  } else if (quick_dir_has_adoptable_content(dir)) {
+    out->project_state = QUICK_PROJECT_ADOPTABLE;
+    out->adoptable_folder = true;
+  } else {
+    out->project_state = QUICK_PROJECT_NONE;
+  }
+  out->show_welcome =
+      !out->has_profiles && !out->project_valid && !out->project_malformed;
+  err = APP_SUCCESS;
+
+cleanup:
+  free(qjson);
+  if (err != APP_SUCCESS) {
+    quick_context_result_destroy(out);
+  }
+  return err;
+}
+
+app_error quick_op_serve_local_url(const char *site, const char *port,
+                                   char **out) {
+  if (!out) {
+    return APP_ERROR_INVALID_ARG;
+  }
+  *out = NULL;
+  const char *p = (port && port[0]) ? port : "9366";
+  char buf[288];
+  if (site && site[0]) {
+    snprintf(buf, sizeof(buf), "http://localhost:%s/~/%s/", p, site);
+  } else {
+    snprintf(buf, sizeof(buf), "http://localhost:%s/", p);
+  }
+  *out = quick_ops_strdup(buf);
+  return *out ? APP_SUCCESS : APP_ERROR_MEMORY;
+}
+
+bool quick_iap_is_tailscale(const char *iap) {
+  return iap && (strcmp(iap, "tailscale") == 0 ||
+                 strcmp(iap, "tailscale-localapi") == 0 ||
+                 strcmp(iap, "tailscale-serve") == 0 ||
+                 strcmp(iap, "tailscale-tsnet") == 0);
+}
+
+bool quick_iap_is_cloudflare(const char *iap) {
+  return iap && (strcmp(iap, "cloudflare") == 0 ||
+                 strcmp(iap, "cloudflare-access") == 0);
+}
+
+bool quick_iap_is_supported(const char *iap) {
+  return quick_iap_is_tailscale(iap) || quick_iap_is_cloudflare(iap) ||
+         (iap && strcmp(iap, "none") == 0);
+}
+
+const char *quick_iap_default_mode(const char *iap) {
+  if (!iap || strcmp(iap, "none") == 0) {
+    return "";
+  }
+  if (quick_iap_is_cloudflare(iap)) {
+    return "access";
+  }
+  if (strcmp(iap, "tailscale-serve") == 0) {
+    return "serve";
+  }
+  if (strcmp(iap, "tailscale-tsnet") == 0) {
+    return "tsnet";
+  }
+  if (quick_iap_is_tailscale(iap)) {
+    return "localapi";
+  }
+  return "";
+}
+
+bool quick_domain_is_loopback(const char *domain) {
+  return domain && (strcmp(domain, "localhost") == 0 ||
+                    strcmp(domain, "127.0.0.1") == 0);
+}
+
+const char *quick_install_phase_label(quick_install_phase_t phase) {
+  switch (phase) {
+  case QUICK_INSTALL_PHASE_LOCAL_PREFLIGHT:
+    return "local preflight";
+  case QUICK_INSTALL_PHASE_SSH_VERIFY:
+    return "ssh verification";
+  case QUICK_INSTALL_PHASE_REMOTE_COMPAT:
+    return "remote compatibility";
+  case QUICK_INSTALL_PHASE_PRIVILEGE_CHECK:
+    return "privilege check";
+  case QUICK_INSTALL_PHASE_BACKUP:
+    return "backup";
+  case QUICK_INSTALL_PHASE_USER_SETUP:
+    return "user and group setup";
+  case QUICK_INSTALL_PHASE_DIRECTORIES:
+    return "directories";
+  case QUICK_INSTALL_PHASE_QUICKD_COPY:
+    return "quickd copy";
+  case QUICK_INSTALL_PHASE_HOST_CONFIG:
+    return "host config";
+  case QUICK_INSTALL_PHASE_SYSTEMD_UNIT:
+    return "systemd unit";
+  case QUICK_INSTALL_PHASE_SERVICE_START:
+    return "service start";
+  case QUICK_INSTALL_PHASE_HOST_DOCTOR:
+    return "host doctor";
+  case QUICK_INSTALL_PHASE_ROLLBACK:
+    return "rollback";
+  case QUICK_INSTALL_PHASE_DONE:
+    return "done";
+  case QUICK_INSTALL_PHASE_NONE:
+  default:
+    return "install";
+  }
+}
+
+void quick_install_result_init(quick_install_result_t *result) {
+  if (!result) {
+    return;
+  }
+  *result = (quick_install_result_t){0};
+}
+
+void quick_install_result_destroy(quick_install_result_t *result) {
+  if (!result) {
+    return;
+  }
+  free(result->failure_message);
+  free(result->remediation);
+  free(result->backup_path);
+  free(result->doctor_detail);
+  free(result->cleanup_detail);
+  *result = (quick_install_result_t){0};
+}
+
+static char *quick_install_json_string(const char *value) {
+  const char *v = value ? value : "";
+  size_t len = 2U;
+  for (const unsigned char *p = (const unsigned char *)v; *p; p++) {
+    len += (*p < 0x20 || *p == '"' || *p == '\\') ? 6U : 1U;
+  }
+  char *out = malloc(len + 1U);
+  if (!out) {
+    return NULL;
+  }
+  char *dst = out;
+  *dst++ = '"';
+  for (const unsigned char *p = (const unsigned char *)v; *p; p++) {
+    if (*p == '"' || *p == '\\') {
+      *dst++ = '\\';
+      *dst++ = (char)*p;
+    } else if (*p < 0x20) {
+      snprintf(dst, 7U, "\\u%04x", *p);
+      dst += 6;
+    } else {
+      *dst++ = (char)*p;
+    }
+  }
+  *dst++ = '"';
+  *dst = '\0';
+  return out;
+}
+
+static char *quick_install_iap_extra_json(const quick_iap_config_t *iap_config) {
+  if (!iap_config || !quick_iap_is_cloudflare(iap_config->type)) {
+    return quick_ops_strdup("");
+  }
+  char *team = quick_install_json_string(iap_config->team_domain);
+  char *audience = quick_install_json_string(iap_config->audience);
+  if (!team || !audience) {
+    free(team);
+    free(audience);
+    return NULL;
+  }
+  const size_t len = strlen(team) + strlen(audience) + 96U;
+  char *out = malloc(len);
+  if (!out) {
+    free(team);
+    free(audience);
+    return NULL;
+  }
+  snprintf(out, len,
+           ",\n"
+           "    \"team_domain\": %s,\n"
+           "    \"audience\": %s",
+           team, audience);
+  free(team);
+  free(audience);
+  return out;
+}
+
+static char *quick_install_host_config_json(const char *remote_root,
+                                            const char *domain,
+                                            const quick_iap_config_t *iap_config) {
+  const char *iap =
+      iap_config && iap_config->type ? iap_config->type : "tailscale";
+  const char *public_domain = domain ? domain : "";
+  const char *mode = iap_config && iap_config->mode && iap_config->mode[0]
+                         ? iap_config->mode
+                         : quick_iap_default_mode(iap);
+  const char *require_identity = strcmp(iap, "none") == 0 ? "false" : "true";
+  const char *allow_anonymous = strcmp(iap, "none") == 0 ? "true" : "false";
+  char *data_dir = quick_ops_path_join(remote_root, "data");
+  if (!data_dir) {
+    return NULL;
+  }
+  char *public_domain_json = quick_install_json_string(public_domain);
+  char *remote_root_json = quick_install_json_string(remote_root);
+  char *data_dir_json = quick_install_json_string(data_dir);
+  char *iap_json = quick_install_json_string(iap);
+  char *mode_json = quick_install_json_string(mode);
+  char *iap_extra = quick_install_iap_extra_json(iap_config);
+  free(data_dir);
+  if (!public_domain_json || !remote_root_json || !data_dir_json || !iap_json ||
+      !mode_json || !iap_extra) {
+    free(public_domain_json);
+    free(remote_root_json);
+    free(data_dir_json);
+    free(iap_json);
+    free(mode_json);
+    free(iap_extra);
+    return NULL;
+  }
+  const size_t len = strlen(remote_root_json) + strlen(data_dir_json) +
+                     strlen(public_domain_json) + strlen(iap_json) +
+                     strlen(mode_json) + strlen(iap_extra) + 2048U;
+  char *json = malloc(len);
+  if (!json) {
+    free(public_domain_json);
+    free(remote_root_json);
+    free(data_dir_json);
+    free(iap_json);
+    free(mode_json);
+    free(iap_extra);
+    return NULL;
+  }
+  snprintf(json, len,
+           "{\n"
+           "  \"$schema\": \"https://openquick.dev/schemas/host.v1.json\",\n"
+           "  \"listen\": \"127.0.0.1:9366\",\n"
+           "  \"public_base_domain\": %s,\n"
+           "  \"remote_root\": %s,\n"
+           "  \"data_dir\": %s,\n"
+           "  \"retained_releases\": 10,\n"
+           "  \"max_upload_bytes\": 104857600,\n"
+           "  \"iap\": {\n"
+           "    \"type\": %s,\n"
+           "    \"mode\": %s,\n"
+           "    \"trusted_proxies\": [\"127.0.0.1/32\"],\n"
+           "    \"source_ip_header\": \"X-Forwarded-For\"%s\n"
+           "  },\n"
+           "  \"deploy\": {\n"
+           "    \"policy\": \"any_ssh_deployer\",\n"
+           "    \"reserved_names\": [\"api\", \"admin\", \"www\", \"_quick\"]\n"
+           "  },\n"
+           "  \"viewer\": {\n"
+           "    \"require_identity\": %s,\n"
+           "    \"allow_anonymous\": %s\n"
+           "  }\n"
+           "}\n",
+           public_domain_json, remote_root_json, data_dir_json, iap_json,
+           mode_json, iap_extra, require_identity, allow_anonymous);
+  free(public_domain_json);
+  free(remote_root_json);
+  free(data_dir_json);
+  free(iap_json);
+  free(mode_json);
+  free(iap_extra);
+  return json;
+}
+
+static char *quick_install_replace_all(const char *input, const char *needle,
+                                       const char *replacement) {
+  if (!input || !needle || !replacement || needle[0] == '\0') {
+    return NULL;
+  }
+  const size_t input_len = strlen(input);
+  const size_t needle_len = strlen(needle);
+  const size_t repl_len = strlen(replacement);
+  size_t count = 0;
+  for (const char *p = strstr(input, needle); p;
+       p = strstr(p + needle_len, needle)) {
+    count++;
+  }
+  size_t out_len =
+      input_len + count * (repl_len > needle_len ? repl_len - needle_len : 0U);
+  if (needle_len > repl_len) {
+    out_len = input_len - count * (needle_len - repl_len);
+  }
+  char *out = malloc(out_len + 1U);
+  if (!out) {
+    return NULL;
+  }
+  char *dst = out;
+  const char *src = input;
+  const char *match = NULL;
+  while ((match = strstr(src, needle)) != NULL) {
+    size_t n = (size_t)(match - src);
+    memcpy(dst, src, n);
+    dst += n;
+    memcpy(dst, replacement, repl_len);
+    dst += repl_len;
+    src = match + needle_len;
+  }
+  strcpy(dst, src);
+  return out;
+}
+
+static app_error quick_install_read_text_file(const char *path, char **out) {
+  if (!out) {
+    return APP_ERROR_INVALID_ARG;
+  }
+  *out = NULL;
+  FILE *f = fopen(path, "rb");
+  if (!f) {
+    return APP_ERROR_NOT_FOUND;
+  }
+  if (fseek(f, 0, SEEK_END) != 0) {
+    fclose(f);
+    return APP_ERROR_IO;
+  }
+  long n = ftell(f);
+  if (n < 0) {
+    fclose(f);
+    return APP_ERROR_IO;
+  }
+  if (fseek(f, 0, SEEK_SET) != 0) {
+    fclose(f);
+    return APP_ERROR_IO;
+  }
+  char *buf = malloc((size_t)n + 1U);
+  if (!buf) {
+    fclose(f);
+    return APP_ERROR_MEMORY;
+  }
+  size_t rd = fread(buf, 1, (size_t)n, f);
+  if (ferror(f)) {
+    free(buf);
+    fclose(f);
+    return APP_ERROR_IO;
+  }
+  fclose(f);
+  buf[rd] = '\0';
+  *out = buf;
+  return APP_SUCCESS;
+}
+
+static app_error quick_install_read_systemd_unit(char **out) {
+  if (!out) {
+    return APP_ERROR_INVALID_ARG;
+  }
+  *out = NULL;
+  const char *override = getenv("QUICK_INSTALL_DIR");
+  if (override && override[0] != '\0') {
+    char *path = quick_ops_path_join(override, "systemd/openquick.service");
+    if (!path) {
+      return APP_ERROR_MEMORY;
+    }
+    app_error err = quick_install_read_text_file(path, out);
+    free(path);
+    if (err == APP_SUCCESS) {
+      return APP_SUCCESS;
+    }
+  }
+  const char *candidates[] = {
+      "install/systemd/openquick.service",
+      "/usr/local/share/openquick/install/systemd/openquick.service",
+  };
+  for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
+    if (quick_install_read_text_file(candidates[i], out) == APP_SUCCESS) {
+      return APP_SUCCESS;
+    }
+  }
+  return APP_ERROR_NOT_FOUND;
+}
+
+static char *quick_install_trimmed_copy(const char *value) {
+  if (!value) {
+    return NULL;
+  }
+  const char *start = value;
+  while (*start == ' ' || *start == '\t' || *start == '\r' || *start == '\n') {
+    start++;
+  }
+  const char *end = start + strlen(start);
+  while (end > start && (end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\r' ||
+                         end[-1] == '\n')) {
+    end--;
+  }
+  size_t len = (size_t)(end - start);
+  char *copy = malloc(len + 1U);
+  if (!copy) {
+    return NULL;
+  }
+  memcpy(copy, start, len);
+  copy[len] = '\0';
+  return copy;
+}
+
+static bool quick_install_remote_user_is_safe(const char *user) {
+  if (!user || user[0] == '\0' || user[0] == '-') {
+    return false;
+  }
+  for (const unsigned char *p = (const unsigned char *)user; *p; p++) {
+    if ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+        (*p >= '0' && *p <= '9') || *p == '_' || *p == '-' || *p == '.') {
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
+static app_error quick_install_profile_set_string(char **slot,
+                                                  const char *value) {
+  free(*slot);
+  *slot = NULL;
+  if (!value || value[0] == '\0') {
+    return APP_SUCCESS;
+  }
+  *slot = quick_ops_strdup(value);
+  return *slot ? APP_SUCCESS : APP_ERROR_MEMORY;
+}
+
+typedef struct {
+  const char *host;
+  bool non_interactive;
+  const volatile sig_atomic_t *cancel_flag;
+  char connect_timeout_opt[32];
+  quick_install_progress_cb cb;
+  void *userdata;
+  quick_install_result_t *result;
+} quick_install_ctx_t;
+
+static int quick_install_clamp_timeout(int seconds) {
+  if (seconds <= 0) {
+    return 10;
+  }
+  return seconds > 120 ? 120 : seconds;
+}
+
+static void quick_install_emit(const quick_install_ctx_t *ctx,
+                               quick_install_phase_t phase, const char *line) {
+  if (ctx && ctx->cb && line) {
+    ctx->cb(phase, QUICK_STREAM_STDOUT, line, ctx->userdata);
+  }
+}
+
+static bool quick_install_check_cancel(quick_install_ctx_t *ctx,
+                                       quick_install_phase_t next_phase) {
+  if (!ctx || !ctx->cancel_flag || !*ctx->cancel_flag) {
+    return false;
+  }
+  ctx->result->cancelled = true;
+  ctx->result->failure_phase = next_phase;
+  char message[160];
+  snprintf(message, sizeof(message), "cancelled before %s",
+           quick_install_phase_label(next_phase));
+  (void)quick_install_set_str(&ctx->result->failure_message, message);
+  return true;
+}
+
+static app_error quick_install_begin_phase(quick_install_ctx_t *ctx,
+                                           quick_install_phase_t phase,
+                                           const char *progress) {
+  if (quick_install_check_cancel(ctx, phase)) {
+    return APP_ERROR_INTERRUPTED;
+  }
+  ctx->result->last_phase = phase;
+  quick_install_emit(ctx, phase, progress);
+  return APP_SUCCESS;
+}
+
+static void quick_install_note_interrupted(quick_install_ctx_t *ctx,
+                                           app_error err) {
+  if (ctx && err == APP_ERROR_INTERRUPTED) {
+    ctx->result->cancelled = true;
+    if (!ctx->result->failure_message) {
+      (void)quick_install_set_str(&ctx->result->failure_message,
+                                  "host installation was cancelled");
+    }
+  }
+}
+
+static app_error quick_install_ssh_capture(quick_install_ctx_t *ctx,
+                                           char *const remote_argv[],
+                                           const char *stdin_text,
+                                           quick_process_result_t *res) {
+  size_t remote_count = 0;
+  while (remote_argv[remote_count]) {
+    remote_count++;
+  }
+  const char *batch_opts[] = {"-o", "BatchMode=yes", "-o",
+                              ctx->connect_timeout_opt, "-o",
+                              "ConnectionAttempts=1"};
+  const char *inter_opts[] = {"-o", ctx->connect_timeout_opt};
+  const char **opts = ctx->non_interactive ? batch_opts : inter_opts;
+  size_t optc = ctx->non_interactive ? 6U : 2U;
+  size_t total = 1U + optc + 1U + remote_count + 1U;
+  char **argv = calloc(total, sizeof(char *));
+  if (!argv) {
+    return APP_ERROR_MEMORY;
+  }
+  size_t i = 0;
+  argv[i++] = (char *)"ssh";
+  for (size_t o = 0; o < optc; o++) {
+    argv[i++] = (char *)opts[o];
+  }
+  argv[i++] = (char *)ctx->host;
+  for (size_t r = 0; r < remote_count; r++) {
+    argv[i++] = remote_argv[r];
+  }
+  argv[i] = NULL;
+  app_error err = quick_process_stream_cancelable(
+      argv, NULL, stdin_text, NULL, NULL, ctx->cancel_flag, res);
+  free(argv);
+  quick_install_note_interrupted(ctx, err);
+  return err;
+}
+
+static app_error quick_install_scp(quick_install_ctx_t *ctx,
+                                   const char *local_path,
+                                   const char *scp_dest) {
+  char *batch_argv[] = {(char *)"scp",
+                        (char *)"-o",
+                        (char *)"BatchMode=yes",
+                        (char *)"-o",
+                        ctx->connect_timeout_opt,
+                        (char *)"-o",
+                        (char *)"ConnectionAttempts=1",
+                        (char *)local_path,
+                        (char *)scp_dest,
+                        NULL};
+  char *interactive_argv[] = {(char *)"scp", (char *)"-o",
+                              ctx->connect_timeout_opt, (char *)local_path,
+                              (char *)scp_dest, NULL};
+  char **argv = ctx->non_interactive ? batch_argv : interactive_argv;
+  quick_process_result_t res = {0};
+  app_error err = quick_process_stream_cancelable(
+      argv, NULL, NULL, NULL, NULL, ctx->cancel_flag, &res);
+  quick_install_note_interrupted(ctx, err);
+  if (err != APP_SUCCESS || res.exit_code != 0) {
+    if (err != APP_ERROR_INTERRUPTED) {
+      (void)quick_install_set_str(&ctx->result->failure_message,
+                                  res.err && res.err[0]
+                                      ? res.err
+                                      : "failed to copy quickd over scp");
+    }
+    quick_process_result_destroy(&res);
+    return err == APP_SUCCESS ? APP_ERROR_IO : err;
+  }
+  quick_process_result_destroy(&res);
+  return APP_SUCCESS;
+}
+
+static app_error quick_install_ssh_expect(quick_install_ctx_t *ctx,
+                                          char *const remote_argv[]) {
+  quick_process_result_t res = {0};
+  app_error err = quick_install_ssh_capture(ctx, remote_argv, NULL, &res);
+  if (err != APP_SUCCESS || res.exit_code != 0) {
+    if (err != APP_ERROR_INTERRUPTED) {
+      (void)quick_install_set_str(&ctx->result->failure_message,
+                                  res.err && res.err[0]
+                                      ? res.err
+                                      : "remote install command failed");
+    }
+    quick_process_result_destroy(&res);
+    return err == APP_SUCCESS ? APP_ERROR_IO : err;
+  }
+  quick_process_result_destroy(&res);
+  return APP_SUCCESS;
+}
+
+static app_error quick_install_ssh_script_expect_args(
+    quick_install_ctx_t *ctx, const char *script, const char *const args[],
+    size_t argc) {
+  if (!script || (argc > 0 && !args)) {
+    return APP_ERROR_INVALID_ARG;
+  }
+  for (size_t i = 0; i < argc; i++) {
+    if (!args[i] || !quick_remote_path_is_safe(args[i])) {
+      (void)quick_install_set_str(&ctx->result->failure_message,
+                                  "remote script argument path is unsafe");
+      return APP_ERROR_VALIDATION;
+    }
+  }
+  char **argv = calloc(argc + 4U, sizeof(char *));
+  if (!argv) {
+    return APP_ERROR_MEMORY;
+  }
+  argv[0] = (char *)"sh";
+  argv[1] = (char *)"-s";
+  argv[2] = (char *)"--";
+  for (size_t i = 0; i < argc; i++) {
+    argv[i + 3U] = (char *)args[i];
+  }
+  quick_process_result_t res = {0};
+  app_error err = quick_install_ssh_capture(ctx, argv, script, &res);
+  free(argv);
+  if (err != APP_SUCCESS || res.exit_code != 0) {
+    if (err != APP_ERROR_INTERRUPTED) {
+      (void)quick_install_set_str(&ctx->result->failure_message,
+                                  res.err && res.err[0]
+                                      ? res.err
+                                      : "remote install command failed");
+    }
+    quick_process_result_destroy(&res);
+    return err == APP_SUCCESS ? APP_ERROR_IO : err;
+  }
+  quick_process_result_destroy(&res);
+  return APP_SUCCESS;
+}
+
+static app_error quick_install_ssh_tee(quick_install_ctx_t *ctx,
+                                       const char *remote_path,
+                                       const char *content) {
+  char *const argv[] = {(char *)"sudo", (char *)"tee", (char *)remote_path,
+                        NULL};
+  quick_process_result_t res = {0};
+  app_error err = quick_install_ssh_capture(ctx, argv, content, &res);
+  if (err != APP_SUCCESS || res.exit_code != 0) {
+    if (err != APP_ERROR_INTERRUPTED) {
+      (void)quick_install_set_str(&ctx->result->failure_message,
+                                  res.err && res.err[0] ? res.err
+                                                        : "remote tee failed");
+    }
+    quick_process_result_destroy(&res);
+    return err == APP_SUCCESS ? APP_ERROR_IO : err;
+  }
+  quick_process_result_destroy(&res);
+  return APP_SUCCESS;
+}
+
+static app_error quick_install_remote_mktemp_dir(quick_install_ctx_t *ctx,
+                                                 char **out) {
+  *out = NULL;
+  char *const argv[] = {(char *)"mktemp", (char *)"-d",
+                        (char *)"/tmp/openquick-install.XXXXXX", NULL};
+  quick_process_result_t res = {0};
+  app_error err = quick_install_ssh_capture(ctx, argv, NULL, &res);
+  if (err != APP_SUCCESS || res.exit_code != 0) {
+    if (err != APP_ERROR_INTERRUPTED) {
+      (void)quick_install_set_str(&ctx->result->failure_message,
+                                  res.err && res.err[0]
+                                      ? res.err
+                                      : "remote mktemp failed");
+    }
+    quick_process_result_destroy(&res);
+    return err == APP_SUCCESS ? APP_ERROR_IO : err;
+  }
+  char *path = quick_install_trimmed_copy(res.out);
+  quick_process_result_destroy(&res);
+  if (!path || path[0] == '\0' || !quick_remote_path_is_safe(path)) {
+    free(path);
+    (void)quick_install_set_str(&ctx->result->failure_message,
+                                "remote mktemp returned an unsafe path");
+    return APP_ERROR_IO;
+  }
+  *out = path;
+  return APP_SUCCESS;
+}
+
+static app_error quick_install_backup(quick_install_ctx_t *ctx,
+                                      const char *backup_dir,
+                                      const char *root_config_path) {
+  static const char script[] =
+      "# openquick backup\n"
+      "set -e\n"
+      "sudo install -d -m 0700 \"$1\"\n"
+      "if sudo test -e /usr/local/bin/quickd; then sudo cp -p "
+      "/usr/local/bin/quickd \"$1/quickd\"; else sudo touch "
+      "\"$1/quickd.absent\"; fi\n"
+      "if sudo test -e /etc/openquick/quickd.json; then sudo cp -p "
+      "/etc/openquick/quickd.json \"$1/quickd.json\"; else sudo touch "
+      "\"$1/quickd.json.absent\"; fi\n"
+      "if sudo test -e \"$2\"; then sudo cp -p \"$2\" "
+      "\"$1/root-quickd.json\"; else sudo touch "
+      "\"$1/root-quickd.json.absent\"; fi\n"
+      "if sudo test -e /etc/systemd/system/openquick.service; then sudo cp -p "
+      "/etc/systemd/system/openquick.service \"$1/openquick.service\"; else "
+      "sudo touch \"$1/openquick.service.absent\"; fi\n"
+      "sudo systemctl is-enabled openquick.service 2>/dev/null | sudo tee "
+      "\"$1/unit.was-enabled\" >/dev/null || true\n"
+      "sudo systemctl is-active openquick.service 2>/dev/null | sudo tee "
+      "\"$1/unit.was-active\" >/dev/null || true\n";
+  const char *args[] = {backup_dir, root_config_path};
+  app_error err = quick_install_ssh_script_expect_args(ctx, script, args, 2U);
+  if (err != APP_SUCCESS) {
+    return err;
+  }
+  ctx->result->backup_created = true;
+  err = quick_install_set_str(&ctx->result->backup_path, backup_dir);
+  if (err != APP_SUCCESS) {
+    return err;
+  }
+  char line[320];
+  snprintf(line, sizeof(line), "backup at %s", backup_dir);
+  quick_install_emit(ctx, QUICK_INSTALL_PHASE_BACKUP, line);
+  return APP_SUCCESS;
+}
+
+static void quick_install_append_rollback_remediation(
+    quick_install_result_t *result, const char *backup_dir) {
+  const char *prefix = result->remediation ? result->remediation : "";
+  const char *separator = prefix[0] ? " " : "";
+  const char *backup = backup_dir ? backup_dir : "the reported backup path";
+  size_t len = strlen(prefix) + strlen(separator) + strlen(backup) + 96U;
+  char *message = malloc(len);
+  if (!message) {
+    return;
+  }
+  snprintf(message, len,
+           "%s%sRollback failed; manually restore the host from backup at %s.",
+           prefix, separator, backup);
+  free(result->remediation);
+  result->remediation = message;
+}
+
+static void quick_install_rollback(quick_install_ctx_t *ctx,
+                                   const char *backup_dir,
+                                   const char *root_config_path,
+                                   const char *remote_root) {
+  static const char script[] =
+      "# openquick rollback\n"
+      "status=0\n"
+      "if sudo test -f \"$1/openquick.service.absent\"; then sudo systemctl "
+      "disable --now openquick.service 2>/dev/null || true; fi\n"
+      "if sudo test -f \"$1/quickd\"; then sudo cp -p \"$1/quickd\" "
+      "/usr/local/bin/quickd || status=1; elif sudo test -f "
+      "\"$1/quickd.absent\"; then sudo rm -f /usr/local/bin/quickd || "
+      "status=1; fi\n"
+      "if sudo test -f \"$1/quickd.json\"; then sudo cp -p "
+      "\"$1/quickd.json\" /etc/openquick/quickd.json || status=1; elif sudo "
+      "test -f \"$1/quickd.json.absent\"; then sudo rm -f "
+      "/etc/openquick/quickd.json || status=1; fi\n"
+      "if sudo test -f \"$1/root-quickd.json\"; then sudo cp -p "
+      "\"$1/root-quickd.json\" \"$2\" || status=1; elif sudo test -f "
+      "\"$1/root-quickd.json.absent\"; then sudo rm -f \"$2\" || "
+      "status=1; fi\n"
+      "if sudo test -f \"$1/openquick.service\"; then sudo cp -p "
+      "\"$1/openquick.service\" /etc/systemd/system/openquick.service || "
+      "status=1; elif sudo test -f \"$1/openquick.service.absent\"; then "
+      "sudo rm -f /etc/systemd/system/openquick.service || status=1; fi\n"
+      "sudo systemctl daemon-reload || status=1\n"
+      "if sudo test -f \"$1/openquick.service\"; then "
+      "enabled=$(sudo cat \"$1/unit.was-enabled\" 2>/dev/null || true); "
+      "if [ \"$enabled\" = enabled ]; then sudo systemctl enable "
+      "openquick.service || true; else sudo systemctl disable "
+      "openquick.service || true; fi; "
+      "active=$(sudo cat \"$1/unit.was-active\" 2>/dev/null || true); "
+      "if [ \"$active\" = active ]; then sudo systemctl restart "
+      "openquick.service || true; else sudo systemctl stop openquick.service "
+      "|| true; fi; fi\n"
+      "exit \"$status\"\n";
+  ctx->result->rollback_attempted = true;
+  ctx->result->last_phase = QUICK_INSTALL_PHASE_ROLLBACK;
+  quick_install_emit(ctx, QUICK_INSTALL_PHASE_ROLLBACK,
+                     "restoring the previous host install");
+
+  quick_install_ctx_t rollback_ctx = *ctx;
+  rollback_ctx.cancel_flag = NULL;
+  char *original_failure = ctx->result->failure_message;
+  ctx->result->failure_message = NULL;
+  const char *args[] = {backup_dir, root_config_path};
+  app_error rollback_err = quick_install_ssh_script_expect_args(
+      &rollback_ctx, script, args, 2U);
+  free(ctx->result->failure_message);
+  ctx->result->failure_message = original_failure;
+  ctx->result->rollback_ok = rollback_err == APP_SUCCESS;
+  ctx->result->partial_cleanup_remains = true;
+
+  const char *root = remote_root ? remote_root : "/srv/quick";
+  const char *backup = backup_dir ? backup_dir : "(unknown backup path)";
+  size_t detail_len = strlen(root) + strlen(backup) + 180U;
+  char *detail = malloc(detail_len);
+  if (detail) {
+    snprintf(detail, detail_len,
+             "quick user, quick-deploy group, remote directory scaffolding "
+             "under %s, and backup at %s may remain after rollback",
+             root, backup);
+    (void)quick_install_set_str(&ctx->result->cleanup_detail, detail);
+    free(detail);
+  }
+  if (!ctx->result->rollback_ok) {
+    quick_install_append_rollback_remediation(ctx->result, backup_dir);
+  }
+}
+
+static void quick_install_cleanup_temp(quick_install_ctx_t *ctx,
+                                       const char *remote_tmp_dir) {
+  if (!ctx || !remote_tmp_dir || !quick_remote_path_is_safe(remote_tmp_dir)) {
+    return;
+  }
+  char *tmp_remote = quick_ops_path_join(remote_tmp_dir, "quickd");
+  char *backup_dir = quick_ops_path_join(remote_tmp_dir, "backup");
+  if (!tmp_remote || !backup_dir) {
+    free(tmp_remote);
+    free(backup_dir);
+    ctx->result->partial_cleanup_remains = true;
+    (void)quick_install_set_str(
+        &ctx->result->cleanup_detail,
+        "temporary install contents may remain because cleanup allocation "
+        "failed");
+    return;
+  }
+  static const char script[] =
+      "# openquick pre-mutation cleanup\n"
+      "status=0\n"
+      "rm -f \"$2\" || status=1\n"
+      "for name in quickd quickd.absent quickd.json quickd.json.absent "
+      "root-quickd.json root-quickd.json.absent openquick.service "
+      "openquick.service.absent unit.was-enabled unit.was-active; do sudo rm "
+      "-f \"$3/$name\" || status=1; done\n"
+      "if sudo test -e \"$3\"; then sudo rmdir \"$3\" || status=1; fi\n"
+      "if test -e \"$1\"; then rmdir \"$1\" || status=1; fi\n"
+      "exit \"$status\"\n";
+  quick_install_ctx_t cleanup_ctx = *ctx;
+  cleanup_ctx.cancel_flag = NULL;
+  char *original_failure = ctx->result->failure_message;
+  ctx->result->failure_message = NULL;
+  const char *args[] = {remote_tmp_dir, tmp_remote, backup_dir};
+  app_error cleanup_err = quick_install_ssh_script_expect_args(
+      &cleanup_ctx, script, args, 3U);
+  free(ctx->result->failure_message);
+  ctx->result->failure_message = original_failure;
+  if (cleanup_err == APP_SUCCESS) {
+    ctx->result->backup_created = false;
+    free(ctx->result->backup_path);
+    ctx->result->backup_path = NULL;
+  } else {
+    ctx->result->partial_cleanup_remains = true;
+    size_t len = strlen(remote_tmp_dir) + 96U;
+    char *detail = malloc(len);
+    if (detail) {
+      snprintf(detail, len,
+               "temporary install contents may remain at %s; remove only the "
+               "reported generated files",
+               remote_tmp_dir);
+      (void)quick_install_set_str(&ctx->result->cleanup_detail, detail);
+      free(detail);
+    }
+  }
+  free(tmp_remote);
+  free(backup_dir);
+}
+
+app_error quick_op_serve_install(const quick_install_request_t *request,
+                                 quick_install_progress_cb cb, void *userdata,
+                                 quick_install_result_t *out) {
+  if (!request || !out) {
+    return APP_ERROR_INVALID_ARG;
+  }
+  quick_install_result_destroy(out);
+  quick_install_result_init(out);
+
+  const char *remote_root = request->remote_root && request->remote_root[0]
+                                ? request->remote_root
+                                : "/srv/quick";
+  const char *iap_type = request->iap && request->iap->type &&
+                                 request->iap->type[0]
+                             ? request->iap->type
+                             : "tailscale";
+  if (!request->host || request->host[0] == '\0') {
+    (void)quick_install_set_str(&out->failure_message,
+                                "host install requires an SSH host");
+    (void)quick_install_set_str(&out->remediation,
+                                "Provide an SSH target such as quick@host.");
+    out->failure_phase = QUICK_INSTALL_PHASE_LOCAL_PREFLIGHT;
+    return APP_ERROR_MISSING_ARG;
+  }
+  if (!quick_ssh_target_is_safe(request->host)) {
+    (void)quick_install_set_str(&out->failure_message,
+                                "SSH host contains unsafe characters");
+    (void)quick_install_set_str(
+        &out->remediation,
+        "Use an SSH target containing only safe host/user characters.");
+    out->failure_phase = QUICK_INSTALL_PHASE_LOCAL_PREFLIGHT;
+    return APP_ERROR_VALIDATION;
+  }
+  if (!quick_remote_path_is_safe(remote_root)) {
+    (void)quick_install_set_str(
+        &out->failure_message,
+        "remote root must be an absolute safe path without shell metacharacters");
+    (void)quick_install_set_str(
+        &out->remediation,
+        "Choose an absolute remote path without '..', spaces, or shell syntax.");
+    out->failure_phase = QUICK_INSTALL_PHASE_LOCAL_PREFLIGHT;
+    return APP_ERROR_VALIDATION;
+  }
+  if (request->domain && request->domain[0] &&
+      !quick_domain_is_safe(request->domain)) {
+    (void)quick_install_set_str(
+        &out->failure_message,
+        "domain must be a DNS name without shell metacharacters");
+    (void)quick_install_set_str(&out->remediation,
+                                "Provide a valid DNS name or omit the domain.");
+    out->failure_phase = QUICK_INSTALL_PHASE_LOCAL_PREFLIGHT;
+    return APP_ERROR_VALIDATION;
+  }
+  if (!quick_iap_is_supported(iap_type)) {
+    (void)quick_install_set_str(&out->failure_message,
+                                "unsupported IAP type for host install");
+    (void)quick_install_set_str(
+        &out->remediation,
+        "Use tailscale, cloudflare, or none with an explicit safety override.");
+    out->failure_phase = QUICK_INSTALL_PHASE_LOCAL_PREFLIGHT;
+    return APP_ERROR_VALIDATION;
+  }
+  if (strcmp(iap_type, "none") == 0 && request->domain &&
+      request->domain[0] && !quick_domain_is_loopback(request->domain) &&
+      !request->allow_public_unsafe) {
+    (void)quick_install_set_str(
+        &out->failure_message,
+        "iap=none is only allowed for loopback unless public unsafe hosting is explicitly allowed");
+    (void)quick_install_set_str(
+        &out->remediation,
+        "Pass --allow-public-unsafe from the CLI or use an explicit TUI override after reviewing the public exposure.");
+    out->failure_phase = QUICK_INSTALL_PHASE_LOCAL_PREFLIGHT;
+    return APP_ERROR_VALIDATION;
+  }
+
+  quick_install_ctx_t ctx = {
+      .host = request->host,
+      .non_interactive = request->non_interactive,
+      .cancel_flag = request->cancel_flag,
+      .cb = cb,
+      .userdata = userdata,
+      .result = out,
+  };
+  snprintf(ctx.connect_timeout_opt, sizeof(ctx.connect_timeout_opt),
+           "ConnectTimeout=%d",
+           quick_install_clamp_timeout(request->connect_timeout_seconds));
+
+  app_error err = APP_SUCCESS;
+  char *quickd = NULL;
+  char *host_json = NULL;
+  char *unit_for_root = NULL;
+  char *remote_tmp_dir = NULL;
+  char *tmp_remote = NULL;
+  char *scp_dest = NULL;
+  char *sites_dir = NULL;
+  char *data_dir = NULL;
+  char *uploads_dir = NULL;
+  char *logs_dir = NULL;
+  char *config_dir = NULL;
+  char *root_config_path = NULL;
+  char *backup_dir = NULL;
+  char *remote_user = NULL;
+
+  err = quick_install_begin_phase(
+      &ctx, QUICK_INSTALL_PHASE_LOCAL_PREFLIGHT,
+      "checking local ssh, scp, rsync, and quickd");
+  if (err != APP_SUCCESS) {
+    goto cleanup;
+  }
+  quickd = quick_serve_find_quickd();
+  if (!quickd) {
+    (void)quick_install_set_str(&out->failure_message,
+                                "quickd not found locally");
+    (void)quick_install_set_str(
+        &out->remediation,
+        "Build quickd or set QUICK_QUICKD to its path, then retry.");
+    out->failure_phase = QUICK_INSTALL_PHASE_LOCAL_PREFLIGHT;
+    err = APP_ERROR_NOT_FOUND;
+    goto cleanup;
+  }
+  {
+    static const struct {
+      const char *name;
+      const char *failure;
+      const char *remediation;
+    } tools[] = {
+        {"ssh", "ssh not found on PATH",
+         "Install the OpenSSH client and ensure it is on PATH."},
+        {"scp", "scp not found on PATH",
+         "Install OpenSSH scp and ensure it is on PATH."},
+        {"rsync", "rsync not found on PATH",
+         "Install rsync and ensure it is on PATH before configuring a host."},
+    };
+    for (size_t i = 0; i < sizeof(tools) / sizeof(tools[0]); i++) {
+      char *tool = quick_ops_find_executable(tools[i].name);
+      if (!tool) {
+        (void)quick_install_set_str(&out->failure_message, tools[i].failure);
+        (void)quick_install_set_str(&out->remediation,
+                                    tools[i].remediation);
+        out->failure_phase = QUICK_INSTALL_PHASE_LOCAL_PREFLIGHT;
+        err = APP_ERROR_NOT_FOUND;
+        goto cleanup;
+      }
+      free(tool);
+    }
+  }
+
+  err = quick_install_begin_phase(&ctx, QUICK_INSTALL_PHASE_SSH_VERIFY,
+                                  "verifying SSH connectivity");
+  if (err != APP_SUCCESS) {
+    goto cleanup;
+  }
+  {
+    char *const verify[] = {(char *)"true", NULL};
+    quick_process_result_t res = {0};
+    app_error e = quick_install_ssh_capture(&ctx, verify, NULL, &res);
+    if (e != APP_SUCCESS || res.exit_code != 0) {
+      out->failure_phase = QUICK_INSTALL_PHASE_SSH_VERIFY;
+      if (e != APP_ERROR_INTERRUPTED) {
+        const char *stderr_text = res.err ? res.err : "";
+        const char *rem = "Verify the SSH target and that the host is reachable.";
+        if (strstr(stderr_text, "Permission denied") ||
+            strstr(stderr_text, "publickey")) {
+          rem = "Add your SSH key to the host or fix the SSH target, then retry.";
+        } else if (strstr(stderr_text, "Host key verification failed") ||
+                   strstr(stderr_text, "authenticity of host") ||
+                   strstr(stderr_text, "REMOTE HOST IDENTIFICATION")) {
+          rem = "Run 'ssh <host>' once to accept the host key, or install from a terminal.";
+        } else if (strstr(stderr_text, "Could not resolve") ||
+                   strstr(stderr_text, "Name or service not known")) {
+          rem = "Check the host name and DNS, then retry.";
+        } else if (strstr(stderr_text, "timed out") ||
+                   strstr(stderr_text, "No route to host") ||
+                   strstr(stderr_text, "Connection refused")) {
+          rem = "Confirm the host is online and reachable, then retry.";
+        }
+        (void)quick_install_set_str(
+            &out->failure_message,
+            stderr_text[0] ? stderr_text : "SSH connection failed");
+        (void)quick_install_set_str(&out->remediation, rem);
+      }
+      err = e == APP_SUCCESS ? APP_ERROR_IO : e;
+      quick_process_result_destroy(&res);
+      goto cleanup;
+    }
+    quick_process_result_destroy(&res);
+  }
+
+  err = quick_install_begin_phase(
+      &ctx, QUICK_INSTALL_PHASE_REMOTE_COMPAT,
+      "checking remote OS and service manager");
+  if (err != APP_SUCCESS) {
+    goto cleanup;
+  }
+  {
+    char *const uname_argv[] = {(char *)"uname", (char *)"-s", NULL};
+    quick_process_result_t res = {0};
+    app_error e = quick_install_ssh_capture(&ctx, uname_argv, NULL, &res);
+    char *os = quick_install_trimmed_copy(res.out);
+    bool is_linux = e == APP_SUCCESS && res.exit_code == 0 && os &&
+                    strcmp(os, "Linux") == 0;
+    quick_process_result_destroy(&res);
+    if (!is_linux) {
+      out->failure_phase = QUICK_INSTALL_PHASE_REMOTE_COMPAT;
+      if (e == APP_ERROR_INTERRUPTED) {
+        free(os);
+        err = e;
+        goto cleanup;
+      }
+      out->unsupported_remote = true;
+      char msg[160];
+      snprintf(msg, sizeof(msg),
+               "remote host is not Linux (uname reported %s)",
+               os && os[0] ? os : "unknown");
+      (void)quick_install_set_str(&out->failure_message, msg);
+      (void)quick_install_set_str(
+          &out->remediation,
+          "The host installer supports Linux hosts running systemd.");
+      free(os);
+      err = APP_ERROR_VALIDATION;
+      goto cleanup;
+    }
+    free(os);
+  }
+  {
+    char *const sysd[] = {(char *)"systemctl", (char *)"--version", NULL};
+    quick_process_result_t res = {0};
+    app_error e = quick_install_ssh_capture(&ctx, sysd, NULL, &res);
+    bool have_systemd = e == APP_SUCCESS && res.exit_code == 0;
+    quick_process_result_destroy(&res);
+    if (!have_systemd) {
+      out->failure_phase = QUICK_INSTALL_PHASE_REMOTE_COMPAT;
+      if (e == APP_ERROR_INTERRUPTED) {
+        err = e;
+        goto cleanup;
+      }
+      out->unsupported_remote = true;
+      (void)quick_install_set_str(
+          &out->failure_message,
+          "systemd (systemctl) was not found on the host");
+      (void)quick_install_set_str(
+          &out->remediation,
+          "The host installer requires a Linux host with systemd.");
+      err = APP_ERROR_VALIDATION;
+      goto cleanup;
+    }
+  }
+
+  err = quick_install_begin_phase(&ctx, QUICK_INSTALL_PHASE_PRIVILEGE_CHECK,
+                                  "checking sudo access");
+  if (err != APP_SUCCESS) {
+    goto cleanup;
+  }
+  {
+    char *const sudo_check[] = {(char *)"sudo", (char *)"-n", (char *)"true",
+                                NULL};
+    quick_process_result_t res = {0};
+    app_error e = quick_install_ssh_capture(&ctx, sudo_check, NULL, &res);
+    bool sudo_ok = e == APP_SUCCESS && res.exit_code == 0;
+    quick_process_result_destroy(&res);
+    if (!sudo_ok) {
+      out->failure_phase = QUICK_INSTALL_PHASE_PRIVILEGE_CHECK;
+      if (e == APP_ERROR_INTERRUPTED) {
+        err = e;
+        goto cleanup;
+      }
+      if (request->non_interactive) {
+        out->sudo_needs_password = true;
+        (void)quick_install_set_str(
+            &out->failure_message,
+            "passwordless sudo is not available on the host");
+        (void)quick_install_set_str(
+            &out->remediation,
+            "Grant NOPASSWD sudo to the deploy user, or run 'quick serve install ... --execute' from a terminal where sudo can prompt.");
+        err = APP_ERROR_PERMISSION;
+        goto cleanup;
+      }
+      quick_install_emit(&ctx, QUICK_INSTALL_PHASE_PRIVILEGE_CHECK,
+                         "sudo will prompt for a password during installation");
+    }
+  }
+
+  host_json =
+      quick_install_host_config_json(remote_root, request->domain, request->iap);
+  char *unit = NULL;
+  err = host_json ? quick_install_read_systemd_unit(&unit) : APP_ERROR_MEMORY;
+  if (err != APP_SUCCESS) {
+    (void)quick_install_set_str(
+        &out->failure_message,
+        host_json ? "failed to read openquick.service install asset"
+                  : "out of memory building host config");
+    (void)quick_install_set_str(
+        &out->remediation,
+        "Ensure install/systemd/openquick.service is available or set QUICK_INSTALL_DIR.");
+    out->failure_phase = QUICK_INSTALL_PHASE_BACKUP;
+    free(unit);
+    goto cleanup;
+  }
+  unit_for_root = strcmp(remote_root, "/srv/quick") == 0
+                      ? quick_ops_strdup(unit)
+                      : quick_install_replace_all(unit, "/srv/quick",
+                                                  remote_root);
+  free(unit);
+  sites_dir = quick_ops_path_join(remote_root, "sites");
+  data_dir = quick_ops_path_join(remote_root, "data");
+  uploads_dir = quick_ops_path_join(remote_root, "uploads");
+  logs_dir = quick_ops_path_join(remote_root, "logs");
+  config_dir = quick_ops_path_join(remote_root, "config");
+  root_config_path =
+      config_dir ? quick_ops_path_join(config_dir, "quickd.json") : NULL;
+  if (!unit_for_root || !sites_dir || !data_dir || !uploads_dir || !logs_dir ||
+      !config_dir || !root_config_path) {
+    (void)quick_install_set_str(&out->failure_message,
+                                "out of memory preparing install assets");
+    out->failure_phase = QUICK_INSTALL_PHASE_BACKUP;
+    err = APP_ERROR_MEMORY;
+    goto cleanup;
+  }
+
+  err = quick_install_begin_phase(
+      &ctx, QUICK_INSTALL_PHASE_BACKUP,
+      "backing up existing files and service state");
+  if (err != APP_SUCCESS) {
+    goto cleanup;
+  }
+  err = quick_install_remote_mktemp_dir(&ctx, &remote_tmp_dir);
+  if (err != APP_SUCCESS) {
+    out->failure_phase = QUICK_INSTALL_PHASE_BACKUP;
+    goto cleanup;
+  }
+  tmp_remote = quick_ops_path_join(remote_tmp_dir, "quickd");
+  backup_dir = quick_ops_path_join(remote_tmp_dir, "backup");
+  if (!tmp_remote || !backup_dir) {
+    (void)quick_install_set_str(&out->failure_message,
+                                "out of memory preparing remote backup paths");
+    out->failure_phase = QUICK_INSTALL_PHASE_BACKUP;
+    err = APP_ERROR_MEMORY;
+    goto cleanup;
+  }
+  scp_dest = malloc(strlen(request->host) + strlen(tmp_remote) + 2U);
+  if (!scp_dest) {
+    out->failure_phase = QUICK_INSTALL_PHASE_BACKUP;
+    err = APP_ERROR_MEMORY;
+    goto cleanup;
+  }
+  sprintf(scp_dest, "%s:%s", request->host, tmp_remote);
+  err = quick_install_backup(&ctx, backup_dir, root_config_path);
+  if (err != APP_SUCCESS) {
+    out->failure_phase = QUICK_INSTALL_PHASE_BACKUP;
+    goto cleanup;
+  }
+
+  err = quick_install_begin_phase(&ctx, QUICK_INSTALL_PHASE_USER_SETUP,
+                                  "creating quick user and quick-deploy group");
+  if (err != APP_SUCCESS) {
+    goto cleanup;
+  }
+  out->mutation_started = true;
+  {
+    char *const groupadd[] = {(char *)"sudo",         (char *)"groupadd",
+                              (char *)"--system",     (char *)"--force",
+                              (char *)"quick-deploy", NULL};
+    err = quick_install_ssh_expect(&ctx, groupadd);
+    if (err != APP_SUCCESS) {
+      out->failure_phase = QUICK_INSTALL_PHASE_USER_SETUP;
+      goto cleanup;
+    }
+  }
+  {
+    char *const id_user[] = {(char *)"id", (char *)"-un", NULL};
+    quick_process_result_t user_res = {0};
+    err = quick_install_ssh_capture(&ctx, id_user, NULL, &user_res);
+    if (err != APP_SUCCESS || user_res.exit_code != 0) {
+      out->failure_phase = QUICK_INSTALL_PHASE_USER_SETUP;
+      if (err != APP_ERROR_INTERRUPTED) {
+        (void)quick_install_set_str(&out->failure_message,
+                                    user_res.err && user_res.err[0]
+                                        ? user_res.err
+                                        : "failed to identify SSH user");
+      }
+      err = err == APP_SUCCESS ? APP_ERROR_IO : err;
+      quick_process_result_destroy(&user_res);
+      goto cleanup;
+    }
+    remote_user = quick_install_trimmed_copy(user_res.out);
+    quick_process_result_destroy(&user_res);
+    if (!quick_install_remote_user_is_safe(remote_user)) {
+      (void)quick_install_set_str(&out->failure_message,
+                                  "remote SSH user contains unsafe characters");
+      out->failure_phase = QUICK_INSTALL_PHASE_USER_SETUP;
+      err = APP_ERROR_VALIDATION;
+      goto cleanup;
+    }
+  }
+  {
+    char *const id_quick[] = {(char *)"id", (char *)"-u", (char *)"quick", NULL};
+    quick_process_result_t id_res = {0};
+    err = quick_install_ssh_capture(&ctx, id_quick, NULL, &id_res);
+    const bool quick_user_exists = err == APP_SUCCESS && id_res.exit_code == 0;
+    quick_process_result_destroy(&id_res);
+    if (err != APP_SUCCESS) {
+      out->failure_phase = QUICK_INSTALL_PHASE_USER_SETUP;
+      goto cleanup;
+    }
+    if (!quick_user_exists) {
+      char *const useradd[] = {(char *)"sudo",
+                               (char *)"useradd",
+                               (char *)"--system",
+                               (char *)"--home-dir",
+                               (char *)remote_root,
+                               (char *)"--create-home",
+                               (char *)"--shell",
+                               (char *)"/usr/sbin/nologin",
+                               (char *)"quick",
+                               NULL};
+      err = quick_install_ssh_expect(&ctx, useradd);
+      if (err != APP_SUCCESS) {
+        out->failure_phase = QUICK_INSTALL_PHASE_USER_SETUP;
+        goto cleanup;
+      }
+    }
+  }
+  {
+    char *const usermod[] = {(char *)"sudo",         (char *)"usermod",
+                             (char *)"-a",           (char *)"-G",
+                             (char *)"quick-deploy", (char *)"quick",
+                             NULL};
+    err = quick_install_ssh_expect(&ctx, usermod);
+    if (err != APP_SUCCESS) {
+      out->failure_phase = QUICK_INSTALL_PHASE_USER_SETUP;
+      goto cleanup;
+    }
+  }
+  if (remote_user && strcmp(remote_user, "root") != 0 &&
+      strcmp(remote_user, "quick") != 0) {
+    char *const deployer_usermod[] = {
+        (char *)"sudo", (char *)"usermod", (char *)"-a", (char *)"-G",
+        (char *)"quick-deploy", remote_user, NULL};
+    err = quick_install_ssh_expect(&ctx, deployer_usermod);
+    if (err != APP_SUCCESS) {
+      out->failure_phase = QUICK_INSTALL_PHASE_USER_SETUP;
+      goto cleanup;
+    }
+  }
+
+  err = quick_install_begin_phase(
+      &ctx, QUICK_INSTALL_PHASE_DIRECTORIES,
+      "creating directories with documented permissions");
+  if (err != APP_SUCCESS) {
+    goto cleanup;
+  }
+  {
+    char *const a[] = {(char *)"sudo",         (char *)"install",
+                       (char *)"-d",           (char *)"-m",
+                       (char *)"2750",         (char *)"-o",
+                       (char *)"quick",        (char *)"-g",
+                       (char *)"quick-deploy", (char *)remote_root,
+                       NULL};
+    err = quick_install_ssh_expect(&ctx, a);
+    if (err != APP_SUCCESS) {
+      out->failure_phase = QUICK_INSTALL_PHASE_DIRECTORIES;
+      goto cleanup;
+    }
+  }
+  {
+    char *const a[] = {(char *)"sudo",  (char *)"install",
+                       (char *)"-d",    (char *)"-m",
+                       (char *)"2770",  (char *)"-o",
+                       (char *)"quick", (char *)"-g",
+                       (char *)"quick-deploy", sites_dir, NULL};
+    err = quick_install_ssh_expect(&ctx, a);
+    if (err != APP_SUCCESS) {
+      out->failure_phase = QUICK_INSTALL_PHASE_DIRECTORIES;
+      goto cleanup;
+    }
+  }
+  {
+    char *const a[] = {(char *)"sudo",  (char *)"install",
+                       (char *)"-d",    (char *)"-m",
+                       (char *)"2770",  (char *)"-o",
+                       (char *)"quick", (char *)"-g",
+                       (char *)"quick-deploy", data_dir, NULL};
+    err = quick_install_ssh_expect(&ctx, a);
+    if (err != APP_SUCCESS) {
+      out->failure_phase = QUICK_INSTALL_PHASE_DIRECTORIES;
+      goto cleanup;
+    }
+  }
+  {
+    char *const a[] = {(char *)"sudo",  (char *)"install",
+                       (char *)"-d",    (char *)"-m",
+                       (char *)"2770",  (char *)"-o",
+                       (char *)"quick", (char *)"-g",
+                       (char *)"quick-deploy", uploads_dir, NULL};
+    err = quick_install_ssh_expect(&ctx, a);
+    if (err != APP_SUCCESS) {
+      out->failure_phase = QUICK_INSTALL_PHASE_DIRECTORIES;
+      goto cleanup;
+    }
+  }
+  {
+    char *const a[] = {(char *)"sudo",  (char *)"install",
+                       (char *)"-d",    (char *)"-m",
+                       (char *)"2750",  (char *)"-o",
+                       (char *)"quick", (char *)"-g",
+                       (char *)"quick-deploy", logs_dir, NULL};
+    err = quick_install_ssh_expect(&ctx, a);
+    if (err != APP_SUCCESS) {
+      out->failure_phase = QUICK_INSTALL_PHASE_DIRECTORIES;
+      goto cleanup;
+    }
+  }
+  {
+    char *const a[] = {(char *)"sudo",  (char *)"install",
+                       (char *)"-d",    (char *)"-m",
+                       (char *)"2750",  (char *)"-o",
+                       (char *)"quick", (char *)"-g",
+                       (char *)"quick-deploy", config_dir, NULL};
+    err = quick_install_ssh_expect(&ctx, a);
+    if (err != APP_SUCCESS) {
+      out->failure_phase = QUICK_INSTALL_PHASE_DIRECTORIES;
+      goto cleanup;
+    }
+  }
+
+  err = quick_install_begin_phase(&ctx, QUICK_INSTALL_PHASE_QUICKD_COPY,
+                                  "copying and installing quickd");
+  if (err != APP_SUCCESS) {
+    goto cleanup;
+  }
+  err = quick_install_scp(&ctx, quickd, scp_dest);
+  if (err != APP_SUCCESS) {
+    out->failure_phase = QUICK_INSTALL_PHASE_QUICKD_COPY;
+    goto cleanup;
+  }
+  {
+    char *const install_quickd[] = {(char *)"sudo",
+                                    (char *)"install",
+                                    (char *)"-m",
+                                    (char *)"0755",
+                                    (char *)"-o",
+                                    (char *)"root",
+                                    (char *)"-g",
+                                    (char *)"root",
+                                    tmp_remote,
+                                    (char *)"/usr/local/bin/quickd",
+                                    NULL};
+    err = quick_install_ssh_expect(&ctx, install_quickd);
+    if (err != APP_SUCCESS) {
+      out->failure_phase = QUICK_INSTALL_PHASE_QUICKD_COPY;
+      goto cleanup;
+    }
+  }
+  {
+    char *const rm_tmp[] = {(char *)"rm", (char *)"-f", tmp_remote, NULL};
+    err = quick_install_ssh_expect(&ctx, rm_tmp);
+    if (err != APP_SUCCESS) {
+      out->failure_phase = QUICK_INSTALL_PHASE_QUICKD_COPY;
+      goto cleanup;
+    }
+  }
+
+  err = quick_install_begin_phase(&ctx, QUICK_INSTALL_PHASE_HOST_CONFIG,
+                                  "writing /etc/openquick/quickd.json");
+  if (err != APP_SUCCESS) {
+    goto cleanup;
+  }
+  {
+    char *const mkdir_etc[] = {(char *)"sudo",
+                               (char *)"install",
+                               (char *)"-d",
+                               (char *)"-m",
+                               (char *)"0755",
+                               (char *)"-o",
+                               (char *)"root",
+                               (char *)"-g",
+                               (char *)"root",
+                               (char *)"/etc/openquick",
+                               NULL};
+    err = quick_install_ssh_expect(&ctx, mkdir_etc);
+    if (err != APP_SUCCESS) {
+      out->failure_phase = QUICK_INSTALL_PHASE_HOST_CONFIG;
+      goto cleanup;
+    }
+  }
+  err = quick_install_ssh_tee(&ctx, "/etc/openquick/quickd.json", host_json);
+  if (err != APP_SUCCESS) {
+    out->failure_phase = QUICK_INSTALL_PHASE_HOST_CONFIG;
+    goto cleanup;
+  }
+  err = quick_install_ssh_tee(&ctx, root_config_path, host_json);
+  if (err == APP_SUCCESS) {
+    char *const perms[] = {(char *)"sudo", (char *)"chown",
+                           (char *)"root:quick-deploy", root_config_path, NULL};
+    err = quick_install_ssh_expect(&ctx, perms);
+  }
+  if (err == APP_SUCCESS) {
+    char *const mode[] = {(char *)"sudo", (char *)"chmod", (char *)"0640",
+                          root_config_path, NULL};
+    err = quick_install_ssh_expect(&ctx, mode);
+  }
+  if (err != APP_SUCCESS) {
+    out->failure_phase = QUICK_INSTALL_PHASE_HOST_CONFIG;
+    goto cleanup;
+  }
+
+  err = quick_install_begin_phase(&ctx, QUICK_INSTALL_PHASE_SYSTEMD_UNIT,
+                                  "installing systemd unit");
+  if (err != APP_SUCCESS) {
+    goto cleanup;
+  }
+  err = quick_install_ssh_tee(&ctx, "/etc/systemd/system/openquick.service",
+                              unit_for_root);
+  if (err != APP_SUCCESS) {
+    out->failure_phase = QUICK_INSTALL_PHASE_SYSTEMD_UNIT;
+    goto cleanup;
+  }
+  {
+    char *const daemon_reload[] = {(char *)"sudo", (char *)"systemctl",
+                                   (char *)"daemon-reload", NULL};
+    err = quick_install_ssh_expect(&ctx, daemon_reload);
+    if (err != APP_SUCCESS) {
+      out->failure_phase = QUICK_INSTALL_PHASE_SYSTEMD_UNIT;
+      goto cleanup;
+    }
+  }
+
+  err = quick_install_begin_phase(&ctx, QUICK_INSTALL_PHASE_SERVICE_START,
+                                  "enabling and starting the service");
+  if (err != APP_SUCCESS) {
+    goto cleanup;
+  }
+  {
+    char *const enable_unit[] = {(char *)"sudo", (char *)"systemctl",
+                                 (char *)"enable", (char *)"--now",
+                                 (char *)"openquick.service", NULL};
+    err = quick_install_ssh_expect(&ctx, enable_unit);
+    if (err != APP_SUCCESS) {
+      out->failure_phase = QUICK_INSTALL_PHASE_SERVICE_START;
+      goto cleanup;
+    }
+  }
+  {
+    char *const group_writable[] = {(char *)"sudo",
+                                    (char *)"chgrp",
+                                    (char *)"-R",
+                                    (char *)"quick-deploy",
+                                    data_dir,
+                                    sites_dir,
+                                    uploads_dir,
+                                    NULL};
+    err = quick_install_ssh_expect(&ctx, group_writable);
+    if (err != APP_SUCCESS) {
+      out->failure_phase = QUICK_INSTALL_PHASE_SERVICE_START;
+      goto cleanup;
+    }
+  }
+  {
+    char *const mode_writable[] = {(char *)"sudo", (char *)"chmod",
+                                   (char *)"-R",   (char *)"g+rwX",
+                                   data_dir,       sites_dir,
+                                   uploads_dir,    NULL};
+    err = quick_install_ssh_expect(&ctx, mode_writable);
+    if (err != APP_SUCCESS) {
+      out->failure_phase = QUICK_INSTALL_PHASE_SERVICE_START;
+      goto cleanup;
+    }
+  }
+
+  err = quick_install_begin_phase(&ctx, QUICK_INSTALL_PHASE_HOST_DOCTOR,
+                                  "running quickd doctor --host");
+  if (err != APP_SUCCESS) {
+    goto cleanup;
+  }
+  {
+    char *const doctor[] = {(char *)"quickd", (char *)"doctor", (char *)"--host",
+                            (char *)"--json", NULL};
+    quick_process_result_t doc_res = {0};
+    app_error doctor_err =
+        quick_install_ssh_capture(&ctx, doctor, NULL, &doc_res);
+    out->doctor_ran = true;
+    bool doctor_failed =
+        doctor_err != APP_SUCCESS || doc_res.exit_code != 0 ||
+        (doc_res.out && strstr(doc_res.out, "\"status\":\"fail\""));
+    if (doctor_failed) {
+      out->doctor_ok = false;
+      const char *detail =
+          doctor_err == APP_ERROR_INTERRUPTED && out->failure_message
+              ? out->failure_message
+              : (doc_res.err && doc_res.err[0]
+                     ? doc_res.err
+                     : (doc_res.out && doc_res.out[0]
+                            ? doc_res.out
+                            : "quickd doctor --host --json failed after install"));
+      (void)quick_install_set_str(&out->doctor_detail, detail);
+      if (doctor_err != APP_ERROR_INTERRUPTED || !out->failure_message) {
+        (void)quick_install_set_str(&out->failure_message, detail);
+      }
+      (void)quick_install_set_str(
+          &out->remediation,
+          "Inspect quickd on the host; a backup of the previous install was kept.");
+      out->failure_phase = QUICK_INSTALL_PHASE_HOST_DOCTOR;
+      err = doctor_err == APP_SUCCESS ? APP_ERROR_IO : doctor_err;
+      quick_process_result_destroy(&doc_res);
+      goto cleanup;
+    }
+    out->doctor_ok = true;
+    quick_process_result_destroy(&doc_res);
+  }
+
+  err = quick_install_begin_phase(&ctx, QUICK_INSTALL_PHASE_DONE,
+                                  "host install completed");
+  if (err != APP_SUCCESS) {
+    goto cleanup;
+  }
+  out->completed = true;
+  {
+    char line[320];
+    snprintf(line, sizeof(line), "installed quickd on %s", request->host);
+    quick_install_emit(&ctx, QUICK_INSTALL_PHASE_DONE, line);
+  }
+
+cleanup:
+  if (err != APP_SUCCESS && out->mutation_started && out->backup_created &&
+      !out->rollback_attempted) {
+    quick_install_rollback(&ctx, backup_dir, root_config_path, remote_root);
+  } else if (err != APP_SUCCESS && !out->mutation_started && remote_tmp_dir) {
+    quick_install_cleanup_temp(&ctx, remote_tmp_dir);
+  }
+  free(sites_dir);
+  free(data_dir);
+  free(uploads_dir);
+  free(logs_dir);
+  free(config_dir);
+  free(root_config_path);
+  free(backup_dir);
+  free(remote_user);
+  free(tmp_remote);
+  free(remote_tmp_dir);
+  free(scp_dest);
+  free(unit_for_root);
+  free(host_json);
+  free(quickd);
+  return err;
+}
+
+app_error quick_op_serve_write_profile(const char *profile_name,
+                                       const char *host, const char *remote_root,
+                                       const char *domain,
+                                       const quick_iap_config_t *iap_config) {
+  quick_profile_config_t profiles;
+  quick_profile_config_init(&profiles);
+  (void)quick_profile_config_load_default(&profiles);
+  quick_profile_t *profile =
+      quick_profile_config_upsert(&profiles, profile_name);
+  if (!profile) {
+    quick_profile_config_destroy(&profiles);
+    return APP_ERROR_MEMORY;
+  }
+  app_error err = APP_SUCCESS;
+  if (host) {
+    err = quick_install_profile_set_string(&profile->ssh, host);
+  }
+  if (err == APP_SUCCESS) {
+    err = quick_install_profile_set_string(&profile->remote_root, remote_root);
+  }
+  if (err == APP_SUCCESS && domain) {
+    err = quick_install_profile_set_string(&profile->base_domain, domain);
+  }
+  const char *iap =
+      iap_config && iap_config->type ? iap_config->type : "tailscale";
+  if (err == APP_SUCCESS) {
+    err = quick_install_profile_set_string(&profile->iap.type, iap);
+  }
+  if (err == APP_SUCCESS) {
+    err = quick_install_profile_set_string(&profile->iap.mode,
+                                           iap_config ? iap_config->mode : NULL);
+  }
+  if (err == APP_SUCCESS) {
+    err = quick_install_profile_set_string(
+        &profile->iap.team_domain,
+        iap_config && quick_iap_is_cloudflare(iap) ? iap_config->team_domain
+                                                   : NULL);
+  }
+  if (err == APP_SUCCESS) {
+    err = quick_install_profile_set_string(
+        &profile->iap.audience,
+        iap_config && quick_iap_is_cloudflare(iap) ? iap_config->audience
+                                                   : NULL);
+  }
+  if (err != APP_SUCCESS) {
+    quick_profile_config_destroy(&profiles);
+    return err;
+  }
+  if (!profiles.default_profile) {
+    profiles.default_profile = quick_ops_strdup(profile_name);
+    if (!profiles.default_profile) {
+      quick_profile_config_destroy(&profiles);
+      return APP_ERROR_MEMORY;
+    }
+  }
+  char *path = quick_profile_config_default_path();
+  if (path) {
+    err = quick_profile_config_write_file(path, &profiles);
+    free(path);
+  }
+  quick_profile_config_destroy(&profiles);
+  return err;
 }

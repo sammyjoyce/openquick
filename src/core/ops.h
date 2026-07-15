@@ -334,6 +334,9 @@ typedef struct {
   const char *site;
   bool remote;
   bool deep;
+  bool non_interactive;
+  int connect_timeout_seconds; /* <=0 uses 10 when non_interactive */
+  const volatile sig_atomic_t *cancel_flag;
 } quick_doctor_request_t;
 
 typedef struct {
@@ -405,12 +408,14 @@ typedef struct {
   const char *port;
   const char *identity;
   const char *remote_api_profile;
+  const char *dir;
 } quick_serve_dev_request_t;
 
 typedef struct {
   char *quickd_path;
   char **argv;
   size_t argc;
+  char *site;
 } quick_serve_dev_command_t;
 
 void quick_serve_dev_command_init(quick_serve_dev_command_t *command);
@@ -440,6 +445,121 @@ void quick_serve_install_steps_destroy(quick_serve_install_steps_t *steps);
 app_error quick_op_serve_install_steps(
     const quick_serve_install_request_t *request,
     quick_serve_install_steps_t *out);
+
+/* ---- Onboarding: startup context classification (local-only, no network) ---- */
+typedef enum {
+  QUICK_PROJECT_NONE = 0,
+  QUICK_PROJECT_VALID,
+  QUICK_PROJECT_MALFORMED,
+  QUICK_PROJECT_ADOPTABLE,
+} quick_project_state_t;
+
+typedef struct {
+  const quick_profile_config_t *profiles; /* required; may be empty */
+  const char *dir;                        /* NULL or "" means "." */
+} quick_context_request_t;
+
+typedef struct {
+  quick_project_state_t project_state;
+  bool project_valid;
+  bool project_malformed;
+  bool adoptable_folder;
+  bool has_profiles;
+  bool has_default_profile;
+  bool project_profile_missing;
+  bool show_welcome;
+  size_t profile_count;
+  char *dir;
+  char *quick_json_path;
+  char *site_name;
+  char *project_profile;
+  char *default_profile;
+} quick_context_result_t;
+
+void quick_context_result_init(quick_context_result_t *result);
+void quick_context_result_destroy(quick_context_result_t *result);
+const char *quick_project_state_string(quick_project_state_t state);
+app_error quick_op_classify_context(const quick_context_request_t *request,
+                                    quick_context_result_t *out);
+
+/* ---- Local dev URL derivation from the quickd routing contract ---- */
+app_error quick_op_serve_local_url(const char *site, const char *port,
+                                   char **out);
+
+/* ---- Shared IAP product model (single source of truth) ---- */
+bool quick_iap_is_tailscale(const char *iap);
+bool quick_iap_is_cloudflare(const char *iap);
+bool quick_iap_is_supported(const char *iap);
+const char *quick_iap_default_mode(const char *iap);
+bool quick_domain_is_loopback(const char *domain);
+
+/* ---- Shared host install operation (used by CLI and TUI) ---- */
+typedef enum {
+  QUICK_INSTALL_PHASE_NONE = 0,
+  QUICK_INSTALL_PHASE_LOCAL_PREFLIGHT,
+  QUICK_INSTALL_PHASE_SSH_VERIFY,
+  QUICK_INSTALL_PHASE_REMOTE_COMPAT,
+  QUICK_INSTALL_PHASE_PRIVILEGE_CHECK,
+  QUICK_INSTALL_PHASE_BACKUP,
+  QUICK_INSTALL_PHASE_USER_SETUP,
+  QUICK_INSTALL_PHASE_DIRECTORIES,
+  QUICK_INSTALL_PHASE_QUICKD_COPY,
+  QUICK_INSTALL_PHASE_HOST_CONFIG,
+  QUICK_INSTALL_PHASE_SYSTEMD_UNIT,
+  QUICK_INSTALL_PHASE_SERVICE_START,
+  QUICK_INSTALL_PHASE_HOST_DOCTOR,
+  QUICK_INSTALL_PHASE_ROLLBACK,
+  QUICK_INSTALL_PHASE_DONE,
+} quick_install_phase_t;
+
+const char *quick_install_phase_label(quick_install_phase_t phase);
+
+typedef struct {
+  const char *host;
+  const char *remote_root;
+  const char *domain;
+  const quick_iap_config_t *iap;
+  bool non_interactive; /* true for TUI: BatchMode ssh + require passwordless sudo */
+  const volatile sig_atomic_t *cancel_flag;
+  bool allow_public_unsafe;
+  int connect_timeout_seconds;
+} quick_install_request_t;
+
+typedef void (*quick_install_progress_cb)(quick_install_phase_t phase,
+                                          quick_stream_kind_t stream,
+                                          const char *line, void *userdata);
+
+typedef struct {
+  quick_install_phase_t failure_phase;
+  quick_install_phase_t last_phase;
+  char *failure_message;
+  char *remediation;
+  bool completed;
+  bool mutation_started;
+  bool cancelled;
+  bool sudo_needs_password;
+  bool unsupported_remote;
+  bool backup_created;
+  char *backup_path;
+  bool rollback_attempted;
+  bool rollback_ok;
+  bool doctor_ran;
+  bool doctor_ok;
+  char *doctor_detail;
+  bool partial_cleanup_remains;
+  char *cleanup_detail;
+} quick_install_result_t;
+
+void quick_install_result_init(quick_install_result_t *result);
+void quick_install_result_destroy(quick_install_result_t *result);
+app_error quick_op_serve_install(const quick_install_request_t *request,
+                                 quick_install_progress_cb cb, void *userdata,
+                                 quick_install_result_t *out);
+app_error quick_op_serve_write_profile(const char *profile_name,
+                                       const char *host,
+                                       const char *remote_root,
+                                       const char *domain,
+                                       const quick_iap_config_t *iap);
 
 #ifdef __cplusplus
 }

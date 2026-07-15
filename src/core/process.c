@@ -130,6 +130,16 @@ static app_error quick_write_fd_all(int fd, const char *text) {
   if (!text) {
     return APP_SUCCESS;
   }
+
+  struct sigaction ignore_action = {0};
+  struct sigaction old_action = {0};
+  ignore_action.sa_handler = SIG_IGN;
+  sigemptyset(&ignore_action.sa_mask);
+  if (sigaction(SIGPIPE, &ignore_action, &old_action) != 0) {
+    return APP_ERROR_IO;
+  }
+
+  app_error err = APP_SUCCESS;
   const char *p = text;
   size_t remaining = strlen(text);
   while (remaining > 0) {
@@ -138,15 +148,24 @@ static app_error quick_write_fd_all(int fd, const char *text) {
       if (errno == EINTR) {
         continue;
       }
-      return APP_ERROR_IO;
+      if (errno == EPIPE) {
+        break;
+      }
+      err = APP_ERROR_IO;
+      break;
     }
     if (n == 0) {
-      return APP_ERROR_IO;
+      err = APP_ERROR_IO;
+      break;
     }
     p += n;
     remaining -= (size_t)n;
   }
-  return APP_SUCCESS;
+
+  if (sigaction(SIGPIPE, &old_action, NULL) != 0 && err == APP_SUCCESS) {
+    err = APP_ERROR_IO;
+  }
+  return err;
 }
 
 static app_error quick_line_buffer_feed(quick_proc_buffer_t *line,

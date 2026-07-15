@@ -13,7 +13,7 @@
 #endif
 #include "commands.h"
 
-app_error app_run_tui(const app_config_t *config) {
+app_error app_run_tui(const app_config_t *config, bool run_onboarding) {
   // Single TUI launch precondition shared by `quick menu` and the bare-TTY
   // launch in main(): the interactive TUI cannot coexist with machine JSON
   // output. Reject it once, identically, on both entry points (this was
@@ -30,7 +30,7 @@ app_error app_run_tui(const app_config_t *config) {
   // / CLICOLOR(_FORCE) / --no-color / --plain behave identically on both
   // surfaces. The TUI otherwise consulted only terminal capability.
   tui_set_color_enabled(app_use_colors(config));
-  const app_error tui_err = tui_run_app();
+  const app_error tui_err = tui_run_app(run_onboarding);
   // Signal-driven exits already use conventional shell statuses. Keep them
   // quiet instead of printing a misleading TUI failure diagnostic.
   if (tui_err == APP_ERROR_INTERRUPTED || tui_err == APP_ERROR_TERMINATED) {
@@ -45,6 +45,7 @@ app_error app_run_tui(const app_config_t *config) {
   }
   return tui_err;
 #else
+  (void)run_onboarding;
   const app_feature_info_t *feature = app_feature_find(APP_FEATURE_TUI);
   if (feature && feature->build_option) {
     app_output_format(
@@ -68,5 +69,5 @@ app_error app_cmd_menu(const app_config_t *config, int argc,
 
   // The --json precondition lives in app_run_tui() now, so `menu` and the
   // bare-TTY launch reject it identically.
-  return app_run_tui(config);
+  return app_run_tui(config, false);
 }

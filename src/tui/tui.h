@@ -104,7 +104,7 @@ void tui_show_message(const char *title, const char *message);
 bool tui_confirm(const char *title, const char *question);
 APP_NODISCARD app_error tui_input_dialog(const char *title, const char *prompt,
                                          char *buffer, size_t size);
-APP_NODISCARD app_error tui_run_app(void);
+APP_NODISCARD app_error tui_run_app(bool run_onboarding);
 
 // Utilities
 void tui_beep(void);
