@@ -629,7 +629,7 @@ jobs:
           path: artifacts
 
       - name: Create Release
-        uses: softprops/action-gh-release@80dccdfcca550bfea3bec6643ce0294b259a33d9 # v2.0.4
+        uses: softprops/action-gh-release@9d7c94cfd0a1f3ed45544c887983e9fa900f0564 # v2.0.4
         with:
           files: artifacts/**/*
           generate_release_notes: true
