@@ -3998,12 +3998,20 @@ app_error quick_op_classify_context(const quick_context_request_t *request,
   quick_context_result_init(out);
   const char *dir =
       (request && request->dir && request->dir[0]) ? request->dir : ".";
-  (void)quick_install_set_str(&out->dir, dir);
-  char *qjson = quick_ops_path_join(dir, "quick.json");
-  if (!qjson) {
-    return APP_ERROR_MEMORY;
+  app_error err = quick_install_set_str(&out->dir, dir);
+  char *qjson = NULL;
+  if (err != APP_SUCCESS) {
+    goto cleanup;
   }
-  (void)quick_install_set_str(&out->quick_json_path, qjson);
+  qjson = quick_ops_path_join(dir, "quick.json");
+  if (!qjson) {
+    err = APP_ERROR_MEMORY;
+    goto cleanup;
+  }
+  err = quick_install_set_str(&out->quick_json_path, qjson);
+  if (err != APP_SUCCESS) {
+    goto cleanup;
+  }
   const quick_profile_config_t *profiles = request ? request->profiles : NULL;
   if (profiles) {
     out->profile_count = profiles->profile_count;
@@ -4011,8 +4019,11 @@ app_error quick_op_classify_context(const quick_context_request_t *request,
     out->has_default_profile =
         profiles->default_profile && profiles->default_profile[0] != '\0';
     if (out->has_default_profile) {
-      (void)quick_install_set_str(&out->default_profile,
+      err = quick_install_set_str(&out->default_profile,
                                   profiles->default_profile);
+      if (err != APP_SUCCESS) {
+        goto cleanup;
+      }
     }
   }
   if (quick_ops_path_exists(qjson)) {
@@ -4022,9 +4033,17 @@ app_error quick_op_classify_context(const quick_context_request_t *request,
     if (e == APP_SUCCESS && sc.name && sc.name[0] != '\0') {
       out->project_state = QUICK_PROJECT_VALID;
       out->project_valid = true;
-      (void)quick_install_set_str(&out->site_name, sc.name);
+      err = quick_install_set_str(&out->site_name, sc.name);
+      if (err != APP_SUCCESS) {
+        quick_site_config_destroy(&sc);
+        goto cleanup;
+      }
       if (sc.profile && sc.profile[0] != '\0') {
-        (void)quick_install_set_str(&out->project_profile, sc.profile);
+        err = quick_install_set_str(&out->project_profile, sc.profile);
+        if (err != APP_SUCCESS) {
+          quick_site_config_destroy(&sc);
+          goto cleanup;
+        }
         if (profiles && !quick_profile_config_find(profiles, sc.profile)) {
           out->project_profile_missing = true;
         }
@@ -4042,8 +4061,14 @@ app_error quick_op_classify_context(const quick_context_request_t *request,
   }
   out->show_welcome =
       !out->has_profiles && !out->project_valid && !out->project_malformed;
+  err = APP_SUCCESS;
+
+cleanup:
   free(qjson);
-  return APP_SUCCESS;
+  if (err != APP_SUCCESS) {
+    quick_context_result_destroy(out);
+  }
+  return err;
 }
 
 app_error quick_op_serve_local_url(const char *site, const char *port,
@@ -4360,6 +4385,11 @@ static app_error quick_install_read_text_file(const char *path, char **out) {
     return APP_ERROR_MEMORY;
   }
   size_t rd = fread(buf, 1, (size_t)n, f);
+  if (ferror(f)) {
+    free(buf);
+    fclose(f);
+    return APP_ERROR_IO;
+  }
   fclose(f);
   buf[rd] = '\0';
   *out = buf;
@@ -5582,7 +5612,7 @@ app_error quick_op_serve_install(const quick_install_request_t *request,
   }
   out->completed = true;
   {
-    char line[160];
+    char line[320];
     snprintf(line, sizeof(line), "installed quickd on %s", request->host);
     quick_install_emit(&ctx, QUICK_INSTALL_PHASE_DONE, line);
   }

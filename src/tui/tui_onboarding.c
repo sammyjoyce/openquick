@@ -103,7 +103,7 @@ static void quick_ob_done_redraw(tui_window_t *window, void *userdata) {
 
   int y = 4;
   if (result && result->path) {
-    char line[300];
+    char line[600];
     snprintf(line, sizeof(line), "folder   %s", result->path);
     mvwaddnstr(window->win, y++, 3, line, window->width - 6);
   }

@@ -7,6 +7,7 @@
 #include <string.h>
 #ifndef _WIN32
 #include <signal.h>
+#include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #endif

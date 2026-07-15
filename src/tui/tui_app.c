@@ -148,7 +148,8 @@ typedef struct {
   const tui_menu_item_t *items;
   int item_count;
   int default_index;
-  tui_menu_item_t valid_items[12];
+  tui_menu_item_t
+      valid_items[sizeof(valid_project_menu) / sizeof(valid_project_menu[0])];
   char preview_description[256];
 } app_dashboard_menu_t;
 

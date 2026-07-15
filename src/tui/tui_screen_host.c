@@ -97,9 +97,9 @@ static void host_seed_form(quick_tui_app_state_t *state,
 /* Prompt seeded with the current value; blank keeps current. */
 static bool host_prompt(const char *title, const char *label, char *buf,
                         size_t size) {
-  char prompt[320];
+  char prompt[700];
   snprintf(prompt, sizeof(prompt), "%s [%s]:", label, buf[0] ? buf : "none");
-  char input[320] = {0};
+  char input[QUICK_ONBOARDING_PATH_MAX] = {0};
   if (tui_input_dialog(title, prompt, input, sizeof(input)) != APP_SUCCESS) {
     return false;
   }
@@ -424,7 +424,7 @@ static void host_review_redraw(tui_window_t *window, void *userdata) {
   tui_print_centered(window->win, 1, st->title);
   tui_unset_color(window->win, TUI_COLOR_TITLE);
   int y = 3;
-  char line[320];
+  char line[1024];
   const struct {
     const char *k;
     const char *v;
