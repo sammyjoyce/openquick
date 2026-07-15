@@ -532,7 +532,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Validate renovate.json
-        uses: suzuki-shunsuke/github-action-renovate-config-validator@6f6712f9a086abef927fae44e052ca09bbe4a258 # v1.0.0
+        uses: suzuki-shunsuke/github-action-renovate-config-validator@7657f9865bd2d5fba0cc0fc12cb692e42fbde1e2 # v1.0.0
 
   markdown-lint:
     name: Markdown Lint
