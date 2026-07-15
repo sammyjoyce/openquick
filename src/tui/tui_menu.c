@@ -614,6 +614,12 @@ tui_menu_result_t tui_show_menu(tui_window_t *window,
   L.desired_w = config->frame_width > 0 ? config->frame_width
                                         : (window ? window->width : 72);
   if (L.owns_frame) {
+    /* Standalone menus are often chained at different sizes (for example
+     * Settings -> Profiles -> field picker). Clear stdscr before creating the
+     * next owned frame so rows outside the new frame cannot retain footers or
+     * prompts from the previous view. */
+    clear();
+    wnoutrefresh(stdscr);
     L.frame = tui_create_centered_window(L.desired_h, L.desired_w);
     if (!L.frame) {
       tui_menu_state_destroy(state);
@@ -710,7 +716,7 @@ tui_menu_result_t tui_show_menu(tui_window_t *window,
         break;
       }
       clear();
-      refresh();
+      wnoutrefresh(stdscr);
       needs_render = true;
       continue;
     }
@@ -769,6 +775,11 @@ tui_menu_result_t tui_show_menu(tui_window_t *window,
   if (L.owns_frame) {
     if (L.frame)
       tui_destroy_window(L.frame);
+    /* Leave a staged clean canvas for the next view. Do not repaint the
+     * registered background here: it may still have pre-resize geometry, and
+     * the owning loop will redraw it with the current dimensions. */
+    clear();
+    wnoutrefresh(stdscr);
   }
   tui_menu_state_destroy(state);
   return result;
