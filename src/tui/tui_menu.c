@@ -619,7 +619,7 @@ tui_menu_result_t tui_show_menu(tui_window_t *window,
      * next owned frame so rows outside the new frame cannot retain footers or
      * prompts from the previous view. */
     clear();
-    refresh();
+    wnoutrefresh(stdscr);
     L.frame = tui_create_centered_window(L.desired_h, L.desired_w);
     if (!L.frame) {
       tui_menu_state_destroy(state);
@@ -699,10 +699,6 @@ tui_menu_result_t tui_show_menu(tui_window_t *window,
     if (ch == KEY_RESIZE) {
       if (L.owns_frame) {
         tui_window_t *old_frame = L.frame;
-        /* The resized owned frame may move or shrink; blank the old footprint
-         * first so stale rows do not survive around the replacement frame. */
-        clear();
-        refresh();
         tui_window_t *new_frame =
             tui_create_centered_window(L.desired_h, L.desired_w);
         if (!new_frame) {
@@ -720,7 +716,7 @@ tui_menu_result_t tui_show_menu(tui_window_t *window,
         break;
       }
       clear();
-      refresh();
+      wnoutrefresh(stdscr);
       needs_render = true;
       continue;
     }
@@ -779,16 +775,11 @@ tui_menu_result_t tui_show_menu(tui_window_t *window,
   if (L.owns_frame) {
     if (L.frame)
       tui_destroy_window(L.frame);
-    /* Leave a clean canvas for the next view and repaint the logical
-     * background if one is registered. The owning app loop will redraw any
-     * dynamic menu contents on its next iteration. */
+    /* Leave a staged clean canvas for the next view. Do not repaint the
+     * registered background here: it may still have pre-resize geometry, and
+     * the owning loop will redraw it with the current dimensions. */
     clear();
-    refresh();
-    tui_window_t *bg = tui_get_background_window();
-    if (bg && bg->win) {
-      touchwin(bg->win);
-      tui_refresh_window(bg);
-    }
+    wnoutrefresh(stdscr);
   }
   tui_menu_state_destroy(state);
   return result;

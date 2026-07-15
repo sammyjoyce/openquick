@@ -286,7 +286,7 @@ void quick_tui_screen_sites(quick_tui_app_state_t *state) {
      * previous dashboard/settings view can remain visible outside the Sites
      * frame. */
     clear();
-    refresh();
+    wnoutrefresh(stdscr);
     tui_window_t *frame = tui_create_centered_window(20, 78);
     if (!frame) {
       quick_tui_free_site_menu(items, labels, result.count);
@@ -311,7 +311,7 @@ void quick_tui_screen_sites(quick_tui_app_state_t *state) {
     tui_pop_background();
     tui_destroy_window(frame);
     clear();
-    refresh();
+    wnoutrefresh(stdscr);
 
     if (selection.status != TUI_MENU_OK ||
         selection.selected_id == QUICK_TUI_SITE_BACK_ID) {

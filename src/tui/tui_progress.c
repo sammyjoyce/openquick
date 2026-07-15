@@ -89,7 +89,7 @@ APP_NODISCARD tui_progress_t *tui_progress_create(const char *title, int max) {
    * Clear the underlying canvas so prompts or menu footers from the prior view
    * cannot remain visible around the progress frame. */
   clear();
-  refresh();
+  wnoutrefresh(stdscr);
   tui_window_t *w = tui_create_centered_window(height, width);
   if (!w) {
     return NULL;
@@ -127,5 +127,5 @@ void tui_progress_destroy(tui_progress_t *progress) {
   free(progress);
 
   clear();
-  refresh();
+  wnoutrefresh(stdscr);
 }
