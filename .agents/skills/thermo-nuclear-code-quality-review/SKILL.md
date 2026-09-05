@@ -51,12 +51,15 @@ You only assess. Do not push commits, edit files, or open fix PRs.
 
 ## How to work
 
-1. If `prWorktree` is provided in the skill arguments or `PR_WORKTREE` is set, use that directory as the PR checkout for full-file reads and `git diff origin/master...HEAD -- <path>` commands. Do not inspect the trusted workflow checkout as PR source code.
-2. Read the PR diff with `gh pr diff {prNumber}` and list changed files with `gh pr view {prNumber} --json files`.
-3. For each changed file, read the full file for surrounding context from the PR worktree when one is provided and the diff alone is not enough to be confident.
-4. Run `git diff origin/master...HEAD -- <path>` from the PR worktree when you need a more focused diff.
-5. Avoid broad recursive workspace searches (`grep -r`, `grep -rn`, or equivalent) during CI reviews; if a search is necessary, constrain it to the changed files or a small explicit path list so the review harness does not terminate on the large monorepo.
-6. Assess each change against the categories above, then choose the verdict.
+1. If `prWorktree` is provided in the skill arguments or `PR_WORKTREE` is set, use that directory as the PR checkout for full-file reads and focused `git diff` commands. Do not inspect the trusted workflow checkout as PR source code.
+2. Resolve the PR base once: `BASE=$(gh pr view {prNumber} --json baseRefName --jq .baseRefName)`.
+   Only if that fails, fall back to the remote default branch from the PR worktree, normalized to a bare name:
+   `BASE=$(git symbolic-ref --short refs/remotes/origin/HEAD | sed 's#^origin/##')`. Do not hardcode `main` or `master`; PRs may target other branches.
+3. Read the PR diff with `gh pr diff {prNumber}` and list changed files with `gh pr view {prNumber} --json files`.
+4. For each changed file, read the full file for surrounding context from the PR worktree when one is provided and the diff alone is not enough to be confident.
+5. Run `git diff "origin/$BASE"...HEAD -- <path>` from the PR worktree when you need a more focused diff.
+6. Avoid broad recursive workspace searches (`grep -r`, `grep -rn`, or equivalent) during CI reviews; if a search is necessary, constrain it to the changed files or a small explicit path list so the review harness does not time out.
+7. Assess each change against the categories above, then choose the verdict.
 
 ## Suggested changes
 
