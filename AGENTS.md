@@ -7,7 +7,8 @@ OpenQuick is a C23/Zig `quick` CLI + TUI, a Go `quickd` host daemon, and a Bun-b
 - `src/`: C23 `quick` CLI, shared ops layer, optional TUI, Zig build integration.
 - `server/`: Go `quickd` for static routing, deploy activation, identity, and `/_quick/*` APIs.
 - `sdk/js/`: dependency-free SDK built by Bun and embedded into `quickd`.
-- `skills/`: agent skill source and `.skill` packaging.
+- `skills/openquick-deploy/`: end-user agent skill source. `skills/openquick-deploy.skill` is generated from it by `sh skills/build.sh`; never hand-edit the archive.
+- `.agents/skills/`: repo-local reference skills. `.claude/skills/*` are symlinks into it; edit the `.agents/skills/` source.
 - `docs/`: user docs and design records.
 - `test/`: unit tests, CLI contract subprocess tests, and PTY/ghostty-vt terminal scenarios.
 - `install/`: systemd, Caddy, Cloudflare, and Tailscale install assets.
@@ -15,7 +16,9 @@ OpenQuick is a C23/Zig `quick` CLI + TUI, a Go `quickd` host daemon, and a Bun-b
 
 ## Build and test
 
-Run focused checks while iterating. Run `just test-all` before committing.
+Run the checks for the component you changed while iterating. Run `just test-all` before committing.
+
+CLI/TUI (`src/`, `test/`):
 
 ```bash
 zig build
@@ -24,13 +27,19 @@ zig build terminal-test
 zig build -Denable-tui=false
 ```
 
+Daemon (`server/`):
+
 ```bash
 cd server && go build ./... && go vet ./... && go test -count=1 ./...
 ```
 
+SDK (`sdk/js/`):
+
 ```bash
 cd sdk/js && bun run build && bun test
 ```
+
+Everything:
 
 ```bash
 just build-all
@@ -52,6 +61,21 @@ just build-sdk
 ```
 
 `just build-sdk` runs `bun run build` and copies `sdk/js/dist/quick.js` to `server/internal/api/sdk/quick.js`.
+
+After editing `skills/openquick-deploy/`, rebuild the archive so it matches the source:
+
+```bash
+sh skills/build.sh
+```
+
+`skills/build.sh` requires `zip` and fails if the SKILL.md deploy safety checklist drops its dry-run or targeted doctor steps.
+
+## Host and deploy authority
+
+Routine build, unit, and local verification uses local paths: `quick serve --dev`, `quick deploy --dry-run`, and the test suites.
+Real-host integration work is separate and needs an explicitly authorized target.
+Do not run host-mutating commands (`quick deploy`, `quick serve install --execute`, `quick delete`, `quick restore`, `quick rollback`, `quick public SITE on`, `quick domain add|remove`)
+against a real profile, or change `install/` targets on a live host, unless the user explicitly asks for that target in the current task.
 
 ## Architecture rules
 
